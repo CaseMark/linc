@@ -688,10 +688,7 @@ export async function main(args: string[]) {
 		const { execSync } = await import("child_process");
 		execSync("which casedev", { stdio: "ignore" });
 	} catch {
-		console.error(chalk.yellow(`\n  casedev CLI not found. Install it for legal AI workflows:\n`));
-		console.error(chalk.dim(`    brew tap CaseMark/casedev`));
-		console.error(chalk.dim(`    brew install casedev\n`));
-		console.error(chalk.dim(`    https://docs.case.dev/cli\n`));
+		console.error(chalk.dim(`  Tip: install the casedev CLI for legal workflows — https://docs.case.dev/cli\n`));
 	}
 
 	const modelRegistry = new ModelRegistry(authStorage, getModelsPath());
