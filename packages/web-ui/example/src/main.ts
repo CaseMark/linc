@@ -1,31 +1,29 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
 import { Agent, type AgentMessage } from "@casemark/linc-agent-core";
-import { getModel } from "@casemark/linc-ai";
+import { type Model, type Api } from "@casemark/linc-ai";
 import {
 	type AgentState,
-	ApiKeyPromptDialog,
 	AppStorage,
 	ChatPanel,
 	CustomProvidersStore,
 	createJavaScriptReplTool,
 	IndexedDBStorageBackend,
-	// PersistentStorageDialog, // TODO: Fix - currently broken
 	ProviderKeysStore,
-	ProvidersModelsTab,
-	ProxyTab,
 	SessionListDialog,
 	SessionsStore,
-	SettingsDialog,
 	SettingsStore,
 	setAppStorage,
 } from "@casemark/linc-web-ui";
 import { html, render } from "lit";
-import { Bell, History, Plus, Settings } from "lucide";
+import { History, Plus, Settings } from "lucide";
 import "./app.css";
 import { icon } from "@mariozechner/mini-lit";
 import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { Input } from "@mariozechner/mini-lit/dist/Input.js";
-import { createSystemNotification, customConvertToLlm, registerCustomMessageRenderers } from "./custom-messages.js";
+import { customConvertToLlm, registerCustomMessageRenderers } from "./custom-messages.js";
+
+const CASEDEV_API_BASE = "https://api.case.dev/llm/v1";
+const CASEDEV_CONSOLE_URL = "https://console.case.dev";
 
 // Register custom message renderers
 registerCustomMessageRenderers();
@@ -36,7 +34,6 @@ const providerKeys = new ProviderKeysStore();
 const sessions = new SessionsStore();
 const customProviders = new CustomProvidersStore();
 
-// Gather configs
 const configs = [
 	settings.getConfig(),
 	SessionsStore.getMetadataConfig(),
@@ -45,22 +42,284 @@ const configs = [
 	sessions.getConfig(),
 ];
 
-// Create backend
 const backend = new IndexedDBStorageBackend({
-	dbName: "pi-web-ui-example",
-	version: 2, // Incremented for custom-providers store
+	dbName: "linc-web-ui",
+	version: 2,
 	stores: configs,
 });
 
-// Wire backend to stores
 settings.setBackend(backend);
 providerKeys.setBackend(backend);
 customProviders.setBackend(backend);
 sessions.setBackend(backend);
 
-// Create and set app storage
 const storage = new AppStorage(settings, providerKeys, sessions, customProviders, backend);
 setAppStorage(storage);
+
+// ============================================================================
+// CASE.DEV MODEL FETCHING
+// ============================================================================
+
+let casedevModels: Model<Api>[] = [];
+
+async function fetchModels(apiKey: string): Promise<Model<Api>[]> {
+	try {
+		const res = await fetch(`${CASEDEV_API_BASE}/models`, {
+			headers: { Authorization: `Bearer ${apiKey}` },
+		});
+		if (!res.ok) return [];
+		const body = await res.json();
+		const data: any[] = Array.isArray(body) ? body : (body.data || []);
+
+		return data.map((m: any) => ({
+			id: m.id,
+			name: m.name || m.id,
+			api: "openai-completions" as const,
+			provider: "casedev",
+			baseUrl: CASEDEV_API_BASE,
+			reasoning: m.reasoning ?? (m.id.includes("o1") || m.id.includes("o3") || m.id.includes("o4") || m.id.includes("opus")),
+			input: m.input ?? ["text"] as ("text" | "image")[],
+			cost: m.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: m.context_window ?? m.contextWindow ?? 128000,
+			maxTokens: m.max_tokens ?? m.maxTokens ?? 16384,
+		}));
+	} catch {
+		return [];
+	}
+}
+
+function getDefaultModel(): Model<"openai-completions"> {
+	const found = casedevModels.find((m) => m.id === "anthropic/claude-sonnet-4-5-20250514");
+	if (found) return found as Model<"openai-completions">;
+
+	if (casedevModels.length > 0) return casedevModels[0] as Model<"openai-completions">;
+
+	return {
+		id: "anthropic/claude-sonnet-4-5-20250514",
+		name: "Claude Sonnet 4.5",
+		api: "openai-completions",
+		provider: "casedev",
+		baseUrl: CASEDEV_API_BASE,
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 16384,
+	};
+}
+
+// ============================================================================
+// DEVICE FLOW AUTH
+// ============================================================================
+
+interface DeviceFlowStart {
+	deviceCode: string;
+	userCode: string;
+	verificationUri: string;
+	verificationUriComplete: string;
+	interval: number;
+	expiresIn: number;
+	expiresAt: string;
+}
+
+async function startDeviceFlow(): Promise<DeviceFlowStart | null> {
+	try {
+		const res = await fetch(`https://api.case.dev/auth/cli/start`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				scopes: { services: [{ service: "all", scopes: ["read", "write"] }] },
+			}),
+		});
+		if (!res.ok) return null;
+		return await res.json();
+	} catch {
+		return null;
+	}
+}
+
+async function pollDeviceFlow(deviceCode: string, interval: number, expiresAt: string): Promise<string | null> {
+	const expiry = new Date(expiresAt).getTime();
+	const pollMs = interval * 1000;
+
+	while (Date.now() < expiry) {
+		await new Promise((r) => setTimeout(r, pollMs));
+		try {
+			const res = await fetch(`https://api.case.dev/auth/cli/poll`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ deviceCode }),
+			});
+			if (res.status === 200) {
+				const data = await res.json();
+				if (data.apiKey) return data.apiKey;
+			}
+			if (res.status === 429) {
+				await new Promise((r) => setTimeout(r, pollMs));
+				continue;
+			}
+			if (res.status === 403 || res.status === 410) return null;
+		} catch {
+			continue;
+		}
+	}
+	return null;
+}
+
+// ============================================================================
+// AUTH SCREEN
+// ============================================================================
+
+function renderAuthScreen(app: HTMLElement) {
+	let mode: "choice" | "device" | "apikey" | "device-waiting" = "choice";
+	let deviceFlowData: DeviceFlowStart | null = null;
+	let error = "";
+
+	const doRender = () => {
+		const authHtml = html`
+			<div class="w-full h-screen flex items-center justify-center bg-background text-foreground">
+				<div class="max-w-md w-full p-8">
+					<h1 class="text-2xl font-bold mb-2">Linc</h1>
+					<p class="text-muted-foreground mb-8">Legal AI powered by case.dev</p>
+
+					${mode === "choice" ? html`
+						<div class="space-y-3">
+							${Button({
+								variant: "default",
+								className: "w-full justify-center",
+								children: html`Sign in with case.dev`,
+								onClick: async () => {
+									mode = "device-waiting";
+									error = "";
+									doRender();
+									deviceFlowData = await startDeviceFlow();
+									if (!deviceFlowData) {
+										error = "Failed to start authentication. Check your connection.";
+										mode = "choice";
+										doRender();
+										return;
+									}
+									mode = "device";
+									doRender();
+									// Open browser
+									window.open(deviceFlowData.verificationUriComplete, "_blank");
+									// Start polling
+									const apiKey = await pollDeviceFlow(
+										deviceFlowData.deviceCode,
+										deviceFlowData.interval || 3,
+										deviceFlowData.expiresAt,
+									);
+									if (apiKey) {
+										await providerKeys.set("casedev", apiKey);
+										await initApp();
+									} else {
+										error = "Authentication timed out or was denied.";
+										mode = "choice";
+										doRender();
+									}
+								},
+							})}
+							${Button({
+								variant: "outline",
+								className: "w-full justify-center",
+								children: html`Paste API key`,
+								onClick: () => { mode = "apikey"; doRender(); },
+							})}
+						</div>
+						${error ? html`<p class="text-destructive text-sm mt-4">${error}</p>` : ""}
+					` : ""}
+
+					${mode === "device-waiting" ? html`
+						<div class="text-center">
+							<div class="text-muted-foreground">Starting authentication...</div>
+						</div>
+					` : ""}
+
+					${mode === "device" && deviceFlowData ? html`
+						<div class="space-y-4">
+							<p class="text-sm text-muted-foreground">A browser window has opened. Approve the request to continue.</p>
+							<div class="bg-secondary p-4 rounded-lg text-center">
+								<div class="text-xs text-muted-foreground mb-1">Your code</div>
+								<div class="text-2xl font-mono font-bold tracking-widest">${deviceFlowData.userCode}</div>
+							</div>
+							<p class="text-xs text-muted-foreground">
+								Or visit: <a href="${deviceFlowData.verificationUriComplete}" target="_blank" class="text-primary underline">${deviceFlowData.verificationUriComplete}</a>
+							</p>
+							<div class="flex items-center gap-2 text-muted-foreground text-sm">
+								<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+								</svg>
+								Waiting for approval...
+							</div>
+						</div>
+					` : ""}
+
+					${mode === "apikey" ? html`
+						<div class="space-y-4">
+							<p class="text-sm text-muted-foreground">
+								Enter your case.dev API key. Get one at
+								<a href="${CASEDEV_CONSOLE_URL}" target="_blank" class="text-primary underline">console.case.dev</a>
+							</p>
+							<input
+								id="api-key-input"
+								type="password"
+								placeholder="sk_case_..."
+								class="w-full px-3 py-2 bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+							/>
+							${error ? html`<p class="text-destructive text-sm">${error}</p>` : ""}
+							<div class="flex gap-2">
+								${Button({
+									variant: "default",
+									children: html`Verify & Save`,
+									onClick: async () => {
+										const input = document.getElementById("api-key-input") as HTMLInputElement;
+										const key = input?.value?.trim();
+										if (!key) { error = "Please enter an API key."; doRender(); return; }
+										if (!key.startsWith("sk_case_")) { error = "Invalid key. case.dev keys start with sk_case_"; doRender(); return; }
+
+										error = "";
+										doRender();
+
+										try {
+											const res = await fetch(`${CASEDEV_API_BASE}/models`, {
+												headers: { Authorization: `Bearer ${key}` },
+											});
+											if (!res.ok) {
+												error = `Key verification failed (${res.status})`;
+												doRender();
+												return;
+											}
+										} catch {
+											error = "Failed to reach case.dev.";
+											doRender();
+											return;
+										}
+
+										await providerKeys.set("casedev", key);
+										await initApp();
+									},
+								})}
+								${Button({
+									variant: "ghost",
+									children: html`Back`,
+									onClick: () => { mode = "choice"; error = ""; doRender(); },
+								})}
+							</div>
+						</div>
+					` : ""}
+				</div>
+			</div>
+		`;
+		render(authHtml, app);
+	};
+
+	doRender();
+}
+
+// ============================================================================
+// SESSION / AGENT MANAGEMENT
+// ============================================================================
 
 let currentSessionId: string | undefined;
 let currentTitle = "";
@@ -72,81 +331,34 @@ let agentUnsubscribe: (() => void) | undefined;
 const generateTitle = (messages: AgentMessage[]): string => {
 	const firstUserMsg = messages.find((m) => m.role === "user" || m.role === "user-with-attachments");
 	if (!firstUserMsg || (firstUserMsg.role !== "user" && firstUserMsg.role !== "user-with-attachments")) return "";
-
 	let text = "";
 	const content = firstUserMsg.content;
-
-	if (typeof content === "string") {
-		text = content;
-	} else {
-		const textBlocks = content.filter((c: any) => c.type === "text");
-		text = textBlocks.map((c: any) => c.text || "").join(" ");
+	if (typeof content === "string") { text = content; } else {
+		text = content.filter((c: any) => c.type === "text").map((c: any) => c.text || "").join(" ");
 	}
-
 	text = text.trim();
 	if (!text) return "";
-
 	const sentenceEnd = text.search(/[.!?]/);
-	if (sentenceEnd > 0 && sentenceEnd <= 50) {
-		return text.substring(0, sentenceEnd + 1);
-	}
+	if (sentenceEnd > 0 && sentenceEnd <= 50) return text.substring(0, sentenceEnd + 1);
 	return text.length <= 50 ? text : `${text.substring(0, 47)}...`;
 };
 
 const shouldSaveSession = (messages: AgentMessage[]): boolean => {
-	const hasUserMsg = messages.some((m: any) => m.role === "user" || m.role === "user-with-attachments");
-	const hasAssistantMsg = messages.some((m: any) => m.role === "assistant");
-	return hasUserMsg && hasAssistantMsg;
+	return messages.some((m: any) => m.role === "user" || m.role === "user-with-attachments")
+		&& messages.some((m: any) => m.role === "assistant");
 };
 
 const saveSession = async () => {
 	if (!storage.sessions || !currentSessionId || !agent || !currentTitle) return;
-
 	const state = agent.state;
 	if (!shouldSaveSession(state.messages)) return;
-
 	try {
-		// Create session data
-		const sessionData = {
-			id: currentSessionId,
-			title: currentTitle,
-			model: state.model!,
-			thinkingLevel: state.thinkingLevel,
-			messages: state.messages,
-			createdAt: new Date().toISOString(),
-			lastModified: new Date().toISOString(),
-		};
-
-		// Create session metadata
-		const metadata = {
-			id: currentSessionId,
-			title: currentTitle,
-			createdAt: sessionData.createdAt,
-			lastModified: sessionData.lastModified,
-			messageCount: state.messages.length,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					total: 0,
-				},
-			},
-			modelId: state.model?.id || null,
-			thinkingLevel: state.thinkingLevel,
-			preview: generateTitle(state.messages),
-		};
-
-		await storage.sessions.save(sessionData, metadata);
-	} catch (err) {
-		console.error("Failed to save session:", err);
-	}
+		const now = new Date().toISOString();
+		await storage.sessions.save(
+			{ id: currentSessionId, title: currentTitle, model: state.model!, thinkingLevel: state.thinkingLevel, messages: state.messages, createdAt: now, lastModified: now },
+			{ id: currentSessionId, title: currentTitle, createdAt: now, lastModified: now, messageCount: state.messages.length, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, modelId: state.model?.id || null, thinkingLevel: state.thinkingLevel, preview: generateTitle(state.messages) },
+		);
+	} catch (err) { console.error("Failed to save session:", err); }
 };
 
 const updateUrl = (sessionId: string) => {
@@ -156,58 +368,36 @@ const updateUrl = (sessionId: string) => {
 };
 
 const createAgent = async (initialState?: Partial<AgentState>) => {
-	if (agentUnsubscribe) {
-		agentUnsubscribe();
-	}
+	if (agentUnsubscribe) agentUnsubscribe();
 
 	agent = new Agent({
 		initialState: initialState || {
-			systemPrompt: `You are a helpful AI assistant with access to various tools.
-
-Available tools:
-- JavaScript REPL: Execute JavaScript code in a sandboxed browser environment (can do calculations, get time, process data, create visualizations, etc.)
-- Artifacts: Create interactive HTML, SVG, Markdown, and text artifacts
-
-Feel free to use these tools when needed to provide accurate and helpful responses.`,
-			model: getModel("anthropic", "claude-sonnet-4-5-20250929"),
+			systemPrompt: `You are a helpful legal AI assistant powered by case.dev. You have access to tools including a JavaScript REPL and artifacts.`,
+			model: getDefaultModel(),
 			thinkingLevel: "off",
 			messages: [],
 			tools: [],
 		},
-		// Custom transformer: convert custom messages to LLM-compatible format
 		convertToLlm: customConvertToLlm,
 	});
 
 	agentUnsubscribe = agent.subscribe((event: any) => {
 		if (event.type === "state-update") {
 			const messages = event.state.messages;
-
-			// Generate title after first successful response
-			if (!currentTitle && shouldSaveSession(messages)) {
-				currentTitle = generateTitle(messages);
-			}
-
-			// Create session ID on first successful save
-			if (!currentSessionId && shouldSaveSession(messages)) {
-				currentSessionId = crypto.randomUUID();
-				updateUrl(currentSessionId);
-			}
-
-			// Auto-save
-			if (currentSessionId) {
-				saveSession();
-			}
-
+			if (!currentTitle && shouldSaveSession(messages)) currentTitle = generateTitle(messages);
+			if (!currentSessionId && shouldSaveSession(messages)) { currentSessionId = crypto.randomUUID(); updateUrl(currentSessionId); }
+			if (currentSessionId) saveSession();
 			renderApp();
 		}
 	});
 
 	await chatPanel.setAgent(agent, {
-		onApiKeyRequired: async (provider: string) => {
-			return await ApiKeyPromptDialog.prompt(provider);
+		onApiKeyRequired: async (_provider: string) => {
+			// Key should already be set — but just in case, check storage
+			const key = await providerKeys.get("casedev");
+			return !!key;
 		},
 		toolsFactory: (_agent, _agentInterface, _artifactsPanel, runtimeProvidersFactory) => {
-			// Create javascript_repl tool with access to attachments + artifacts
 			const replTool = createJavaScriptReplTool();
 			replTool.runtimeProvidersFactory = runtimeProvidersFactory;
 			return [replTool];
@@ -217,24 +407,12 @@ Feel free to use these tools when needed to provide accurate and helpful respons
 
 const loadSession = async (sessionId: string): Promise<boolean> => {
 	if (!storage.sessions) return false;
-
 	const sessionData = await storage.sessions.get(sessionId);
-	if (!sessionData) {
-		console.error("Session not found:", sessionId);
-		return false;
-	}
-
+	if (!sessionData) return false;
 	currentSessionId = sessionId;
 	const metadata = await storage.sessions.getMetadata(sessionId);
 	currentTitle = metadata?.title || "";
-
-	await createAgent({
-		model: sessionData.model,
-		thinkingLevel: sessionData.thinkingLevel,
-		messages: sessionData.messages,
-		tools: [],
-	});
-
+	await createAgent({ model: sessionData.model, thinkingLevel: sessionData.thinkingLevel, messages: sessionData.messages, tools: [] });
 	updateUrl(sessionId);
 	renderApp();
 	return true;
@@ -247,155 +425,95 @@ const newSession = () => {
 };
 
 // ============================================================================
+// MODEL SELECTOR (simplified — dropdown instead of full dialog)
+// ============================================================================
+
+function renderModelSelector() {
+	if (casedevModels.length === 0) return html``;
+	const currentModelId = agent?.state?.model?.id || "";
+	return html`
+		<select
+			class="bg-secondary border border-border rounded px-2 py-1 text-xs text-foreground"
+			@change=${(e: Event) => {
+				const id = (e.target as HTMLSelectElement).value;
+				const model = casedevModels.find((m) => m.id === id);
+				if (model && agent) agent.model = model;
+			}}
+		>
+			${casedevModels.map((m) => html`
+				<option value=${m.id} ?selected=${m.id === currentModelId}>${m.id}</option>
+			`)}
+		</select>
+	`;
+}
+
+// ============================================================================
 // RENDER
 // ============================================================================
+
 const renderApp = () => {
 	const app = document.getElementById("app");
 	if (!app) return;
 
 	const appHtml = html`
 		<div class="w-full h-screen flex flex-col bg-background text-foreground overflow-hidden">
-			<!-- Header -->
 			<div class="flex items-center justify-between border-b border-border shrink-0">
-				<div class="flex items-center gap-2 px-4 py-">
-					${Button({
-						variant: "ghost",
-						size: "sm",
-						children: icon(History, "sm"),
-						onClick: () => {
-							SessionListDialog.open(
-								async (sessionId) => {
-									await loadSession(sessionId);
-								},
-								(deletedSessionId) => {
-									// Only reload if the current session was deleted
-									if (deletedSessionId === currentSessionId) {
-										newSession();
-									}
-								},
-							);
-						},
-						title: "Sessions",
-					})}
-					${Button({
-						variant: "ghost",
-						size: "sm",
-						children: icon(Plus, "sm"),
-						onClick: newSession,
-						title: "New Session",
-					})}
-
-					${
-						currentTitle
-							? isEditingTitle
-								? html`<div class="flex items-center gap-2">
-									${Input({
-										type: "text",
-										value: currentTitle,
-										className: "text-sm w-64",
-										onChange: async (e: Event) => {
-											const newTitle = (e.target as HTMLInputElement).value.trim();
-											if (newTitle && newTitle !== currentTitle && storage.sessions && currentSessionId) {
-												await storage.sessions.updateTitle(currentSessionId, newTitle);
-												currentTitle = newTitle;
-											}
-											isEditingTitle = false;
-											renderApp();
-										},
-										onKeyDown: async (e: KeyboardEvent) => {
-											if (e.key === "Enter") {
-												const newTitle = (e.target as HTMLInputElement).value.trim();
-												if (newTitle && newTitle !== currentTitle && storage.sessions && currentSessionId) {
-													await storage.sessions.updateTitle(currentSessionId, newTitle);
-													currentTitle = newTitle;
-												}
-												isEditingTitle = false;
-												renderApp();
-											} else if (e.key === "Escape") {
-												isEditingTitle = false;
-												renderApp();
-											}
-										},
-									})}
-								</div>`
-								: html`<button
-									class="px-2 py-1 text-sm text-foreground hover:bg-secondary rounded transition-colors"
-									@click=${() => {
-										isEditingTitle = true;
-										renderApp();
-										requestAnimationFrame(() => {
-											const input = app?.querySelector('input[type="text"]') as HTMLInputElement;
-											if (input) {
-												input.focus();
-												input.select();
-											}
-										});
-									}}
-									title="Click to edit title"
-								>
-									${currentTitle}
-								</button>`
-							: html`<span class="text-base font-semibold text-foreground">Pi Web UI Example</span>`
+				<div class="flex items-center gap-2 px-4 py-1">
+					${Button({ variant: "ghost", size: "sm", children: icon(History, "sm"), onClick: () => {
+						SessionListDialog.open(async (sid) => { await loadSession(sid); }, (did) => { if (did === currentSessionId) newSession(); });
+					}, title: "Sessions" })}
+					${Button({ variant: "ghost", size: "sm", children: icon(Plus, "sm"), onClick: newSession, title: "New Session" })}
+					${currentTitle
+						? isEditingTitle
+							? html`<div class="flex items-center gap-2">${Input({
+								type: "text", value: currentTitle, className: "text-sm w-64",
+								onChange: async (e: Event) => { const t = (e.target as HTMLInputElement).value.trim(); if (t && t !== currentTitle && storage.sessions && currentSessionId) { await storage.sessions.updateTitle(currentSessionId, t); currentTitle = t; } isEditingTitle = false; renderApp(); },
+								onKeyDown: async (e: KeyboardEvent) => { if (e.key === "Enter") { const t = (e.target as HTMLInputElement).value.trim(); if (t && t !== currentTitle && storage.sessions && currentSessionId) { await storage.sessions.updateTitle(currentSessionId, t); currentTitle = t; } isEditingTitle = false; renderApp(); } else if (e.key === "Escape") { isEditingTitle = false; renderApp(); } },
+							})}</div>`
+							: html`<button class="px-2 py-1 text-sm text-foreground hover:bg-secondary rounded transition-colors" @click=${() => { isEditingTitle = true; renderApp(); requestAnimationFrame(() => { const i = app?.querySelector('input[type="text"]') as HTMLInputElement; if (i) { i.focus(); i.select(); } }); }} title="Click to edit title">${currentTitle}</button>`
+						: html`<span class="text-base font-semibold text-foreground">Linc</span>`
 					}
 				</div>
-				<div class="flex items-center gap-1 px-2">
-					${Button({
-						variant: "ghost",
-						size: "sm",
-						children: icon(Bell, "sm"),
-						onClick: () => {
-							// Demo: Inject custom message (will appear on next agent run)
-							if (agent) {
-								agent.steer(
-									createSystemNotification(
-										"This is a custom message! It appears in the UI but is never sent to the LLM.",
-									),
-								);
-							}
-						},
-						title: "Demo: Add Custom Notification",
-					})}
+				<div class="flex items-center gap-2 px-4">
+					${renderModelSelector()}
 					<theme-toggle></theme-toggle>
-					${Button({
-						variant: "ghost",
-						size: "sm",
-						children: icon(Settings, "sm"),
-						onClick: () => SettingsDialog.open([new ProvidersModelsTab(), new ProxyTab()]),
-						title: "Settings",
-					})}
+					${Button({ variant: "ghost", size: "sm", children: html`<span class="text-xs">Logout</span>`, onClick: async () => {
+						await providerKeys.delete("casedev");
+						window.location.reload();
+					}, title: "Logout" })}
 				</div>
 			</div>
-
-			<!-- Chat Panel -->
 			${chatPanel}
 		</div>
 	`;
-
 	render(appHtml, app);
 };
 
 // ============================================================================
 // INIT
 // ============================================================================
+
 async function initApp() {
 	const app = document.getElementById("app");
 	if (!app) throw new Error("App container not found");
 
-	// Show loading
-	render(
-		html`
-			<div class="w-full h-screen flex items-center justify-center bg-background text-foreground">
-				<div class="text-muted-foreground">Loading...</div>
-			</div>
-		`,
-		app,
-	);
+	// Check for stored API key
+	const apiKey = await providerKeys.get("casedev");
+	if (!apiKey) {
+		renderAuthScreen(app);
+		return;
+	}
 
-	// TODO: Fix PersistentStorageDialog - currently broken
-	// Request persistent storage
-	// if (storage.sessions) {
-	// 	await PersistentStorageDialog.request();
-	// }
+	// Show loading
+	render(html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground"><div class="text-muted-foreground">Loading models...</div></div>`, app);
+
+	// Fetch models
+	casedevModels = await fetchModels(apiKey);
+	if (casedevModels.length === 0) {
+		// Key might be invalid
+		renderAuthScreen(app);
+		return;
+	}
 
 	// Create ChatPanel
 	chatPanel = new ChatPanel();
@@ -406,11 +524,7 @@ async function initApp() {
 
 	if (sessionIdFromUrl) {
 		const loaded = await loadSession(sessionIdFromUrl);
-		if (!loaded) {
-			// Session doesn't exist, redirect to new session
-			newSession();
-			return;
-		}
+		if (!loaded) { newSession(); return; }
 	} else {
 		await createAgent();
 	}
