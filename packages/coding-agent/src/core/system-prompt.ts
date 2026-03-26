@@ -129,7 +129,28 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions = {}): strin
 Available tools:
 ${toolsList}
 
-In addition to the tools above, you may have access to other custom tools depending on the project. The casedev CLI is available in PATH for legal AI workflows.
+In addition to the tools above, you may have access to other custom tools depending on the project.
+
+## case.dev CLI (casedev)
+
+The \`casedev\` CLI provides access to the full case.dev platform from the terminal. Use it for:
+- **Vaults**: \`casedev vault create\`, \`casedev vault upload\`, \`casedev vault search\` — encrypted document storage and semantic search
+- **OCR**: \`casedev ocr\` — extract text and tables from PDFs and images
+- **Transcription**: \`casedev transcribe\` — audio/video transcription with speaker diarization
+- **Legal research**: \`casedev search legal\`, \`casedev search cases\` — case law and legal database search
+- **Web search**: \`casedev search web\` — web search with result extraction
+- **More**: \`casedev --help\` for full command list
+
+Documentation: https://docs.case.dev/cli
+Platform docs: https://docs.case.dev
+
+**IMPORTANT**: If \`casedev\` is not installed, guide the user to install it:
+\`\`\`
+brew tap CaseMark/casedev
+brew install casedev
+\`\`\`
+Or see https://docs.case.dev/cli for other installation methods.
+The casedev CLI shares authentication with linc — no separate login needed.
 
 Guidelines:
 ${guidelines}

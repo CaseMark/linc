@@ -683,6 +683,17 @@ export async function main(args: string[]) {
 	// Load models from case.dev (API key is guaranteed to be set now)
 	await loadModels();
 
+	// Check if casedev CLI is installed
+	try {
+		const { execSync } = await import("child_process");
+		execSync("which casedev", { stdio: "ignore" });
+	} catch {
+		console.error(chalk.yellow(`\n  casedev CLI not found. Install it for legal AI workflows:\n`));
+		console.error(chalk.dim(`    brew tap CaseMark/casedev`));
+		console.error(chalk.dim(`    brew install casedev\n`));
+		console.error(chalk.dim(`    https://docs.case.dev/cli\n`));
+	}
+
 	const modelRegistry = new ModelRegistry(authStorage, getModelsPath());
 
 	const resourceLoader = new DefaultResourceLoader({
