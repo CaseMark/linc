@@ -171,7 +171,9 @@ async function pollDeviceFlow(deviceCode: string, interval: number, expiresAt: s
 // ============================================================================
 
 function renderAuthScreen(app: HTMLElement) {
-	let mode: "choice" | "device" | "apikey" | "device-waiting" = "choice";
+	// Device flow disabled in browser until CORS is added to /auth/cli/* (CD-754)
+	// Skip straight to API key input
+	let mode: "choice" | "device" | "apikey" | "device-waiting" = "apikey";
 	let deviceFlowData: DeviceFlowStart | null = null;
 	let error = "";
 
