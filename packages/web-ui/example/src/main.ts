@@ -1,6 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
 import { Agent, type AgentMessage } from "@casemark/linc-agent-core";
-import { type Model, type Api } from "@casemark/linc-ai";
+import { type Model, type Api, registerModels } from "@casemark/linc-ai";
 import {
 	type AgentState,
 	AppStorage,
@@ -514,6 +514,8 @@ async function initApp() {
 
 	// Fetch models
 	casedevModels = await fetchModels(apiKey);
+	// Register into linc-ai registry so built-in ModelSelector can find them
+	registerModels(casedevModels);
 	if (casedevModels.length === 0) {
 		// Key might be invalid
 		renderAuthScreen(app);

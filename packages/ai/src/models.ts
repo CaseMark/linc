@@ -96,6 +96,22 @@ export function getAllModels(): Model<Api>[] {
 	return getModels();
 }
 
+/**
+ * Register models directly into the registry.
+ * Useful in browser contexts where loadModels() can't access process.env.
+ */
+export function registerModels(models: Model<Api>[]): void {
+	for (const model of models) {
+		const slashIndex = model.id.indexOf("/");
+		const providerKey = slashIndex >= 0 ? model.id.slice(0, slashIndex) : (model.provider || "casedev");
+		if (!modelRegistry.has(providerKey)) {
+			modelRegistry.set(providerKey, new Map());
+		}
+		modelRegistry.get(providerKey)!.set(model.id, model);
+	}
+	modelsLoaded = true;
+}
+
 export function isModelsLoaded(): boolean {
 	return modelsLoaded;
 }
