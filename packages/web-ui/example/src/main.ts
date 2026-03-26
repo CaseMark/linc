@@ -24,7 +24,8 @@ import { customConvertToLlm, registerCustomMessageRenderers } from "./custom-mes
 
 // In dev, Vite proxies /api/casedev → https://api.case.dev to avoid CORS.
 // In production, set VITE_CASEDEV_API_BASE to the real URL (or use a backend proxy).
-const CASEDEV_API_BASE = import.meta.env.VITE_CASEDEV_API_BASE || "/api/casedev/llm/v1";
+const CASEDEV_API_PATH = import.meta.env.VITE_CASEDEV_API_BASE || "/api/casedev/llm/v1";
+const CASEDEV_API_BASE = CASEDEV_API_PATH.startsWith("http") ? CASEDEV_API_PATH : `${window.location.origin}${CASEDEV_API_PATH}`;
 const CASEDEV_CONSOLE_URL = "https://console.case.dev";
 
 // Register custom message renderers
