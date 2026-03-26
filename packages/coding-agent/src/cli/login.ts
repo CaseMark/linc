@@ -6,6 +6,7 @@
  * 2. API key paste: user pastes an existing sk_case_* key
  */
 
+import { execSync } from "child_process";
 import chalk from "chalk";
 import { createInterface } from "readline";
 import { getAgentDir } from "../config.js";
@@ -44,7 +45,6 @@ function ask(prompt: string): Promise<string> {
 }
 
 function openUrl(url: string): void {
-	const { execSync } = require("child_process");
 	try {
 		if (process.platform === "darwin") {
 			execSync(`open "${url}"`, { stdio: "ignore" });
