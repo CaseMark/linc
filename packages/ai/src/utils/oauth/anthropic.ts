@@ -24,8 +24,8 @@ type NodeApis = {
 let nodeApis: NodeApis | null = null;
 let nodeApisPromise: Promise<NodeApis> | null = null;
 
-const decode = (s: string) => atob(s);
-const CLIENT_ID = decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl");
+// OAuth credentials removed — linc routes all LLM calls through case.dev
+const CLIENT_ID = "";
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const CALLBACK_HOST = "127.0.0.1";

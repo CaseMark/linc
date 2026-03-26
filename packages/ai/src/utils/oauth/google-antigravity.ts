@@ -23,12 +23,9 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
 	});
 }
 
-// Antigravity OAuth credentials (different from Gemini CLI)
-const decode = (s: string) => atob(s);
-const CLIENT_ID = decode(
-	"MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
-);
-const CLIENT_SECRET = decode("R09DU1BYLUs1OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY=");
+// OAuth credentials removed — linc routes all LLM calls through case.dev
+const CLIENT_ID = "";
+const CLIENT_SECRET = "";
 const REDIRECT_URI = "http://localhost:51121/oauth-callback";
 
 // Antigravity requires additional scopes
@@ -43,8 +40,8 @@ const SCOPES = [
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-// Fallback project ID when discovery fails
-const DEFAULT_PROJECT_ID = "rising-fact-p41fc";
+// Fallback project ID removed — not used in linc
+const DEFAULT_PROJECT_ID = "";
 
 type CallbackServerInfo = {
 	server: Server;

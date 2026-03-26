@@ -21,7 +21,8 @@ import { oauthErrorHtml, oauthSuccessHtml } from "./oauth-page.js";
 import { generatePKCE } from "./pkce.js";
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthPrompt, OAuthProviderInterface } from "./types.js";
 
-const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+// OAuth credentials removed — linc routes all LLM calls through case.dev
+const CLIENT_ID = "";
 const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const REDIRECT_URI = "http://localhost:1455/auth/callback";

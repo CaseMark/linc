@@ -10,8 +10,8 @@ type CopilotCredentials = OAuthCredentials & {
 	enterpriseUrl?: string;
 };
 
-const decode = (s: string) => atob(s);
-const CLIENT_ID = decode("SXYxLmI1MDdhMDhjODdlY2ZlOTg=");
+// OAuth credentials removed — linc routes all LLM calls through case.dev
+const CLIENT_ID = "";
 
 const COPILOT_HEADERS = {
 	"User-Agent": "GitHubCopilotChat/0.35.0",

@@ -23,11 +23,9 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
 	});
 }
 
-const decode = (s: string) => atob(s);
-const CLIENT_ID = decode(
-	"NjgxMjU1ODA5Mzk1LW9vOGZ0Mm9wcmRybnA5ZTNhcWY2YXYzaG1kaWIxMzVqLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t",
-);
-const CLIENT_SECRET = decode("R09DU1BYLTR1SGdNUG0tMW83U2stZ2VWNkN1NWNsWEZzeGw=");
+// OAuth credentials removed — linc routes all LLM calls through case.dev
+const CLIENT_ID = "";
+const CLIENT_SECRET = "";
 const REDIRECT_URI = "http://localhost:8085/oauth2callback";
 const SCOPES = [
 	"https://www.googleapis.com/auth/cloud-platform",
