@@ -387,13 +387,27 @@ const createAgent = async (initialState?: Partial<AgentState>) => {
 	});
 
 	agentUnsubscribe = agent.subscribe((event: any) => {
-		if (event.type === "state-update") {
-			const messages = event.state.messages;
-			if (!currentTitle && shouldSaveSession(messages)) currentTitle = generateTitle(messages);
-			if (!currentSessionId && shouldSaveSession(messages)) { currentSessionId = crypto.randomUUID(); updateUrl(currentSessionId); }
-			if (currentSessionId) saveSession();
-			renderApp();
+		const messages = agent.state.messages;
+
+		if (event.type === "message_end" || event.type === "turn_end" || event.type === "agent_end") {
+			// Generate title after first successful exchange
+			if (!currentTitle && shouldSaveSession(messages)) {
+				currentTitle = generateTitle(messages);
+			}
+
+			// Create session ID on first successful exchange
+			if (!currentSessionId && shouldSaveSession(messages)) {
+				currentSessionId = crypto.randomUUID();
+				updateUrl(currentSessionId);
+			}
+
+			// Auto-save
+			if (currentSessionId) {
+				saveSession();
+			}
 		}
+
+		renderApp();
 	});
 
 	await chatPanel.setAgent(agent, {
