@@ -19,9 +19,9 @@ import {
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type SimpleStreamOptions,
-	streamSimpleAnthropic,
-	streamSimpleOpenAIResponses,
 } from "@casemark/linc-ai";
+import { streamSimpleAnthropic } from "@casemark/linc-ai/anthropic";
+import { streamSimpleOpenAIResponses } from "@casemark/linc-ai/openai-responses";
 
 // =============================================================================
 // Constants

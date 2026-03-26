@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { streamOpenAIResponses } from "../src/providers/openai-responses.js";
 
 describe("openai-responses github-copilot defaults", () => {
@@ -8,7 +8,7 @@ describe("openai-responses github-copilot defaults", () => {
 	});
 
 	it("omits reasoning when no reasoning is requested", async () => {
-		const model = getModel("github-copilot", "gpt-5-mini");
+		const model = getModel<"openai-responses">("github-copilot", "gpt-5-mini");
 		let capturedPayload: unknown;
 
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(

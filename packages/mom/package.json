@@ -1,6 +1,7 @@
 {
 	"name": "@casemark/linc-mom",
 	"version": "0.1.0",
+	"private": true,
 	"description": "Slack bot that delegates messages to the linc coding agent",
 	"type": "module",
 	"bin": {

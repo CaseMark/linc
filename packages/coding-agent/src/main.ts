@@ -6,7 +6,6 @@
  */
 
 import { type ImageContent, loadModels, modelsAreEqual, supportsXhigh } from "@casemark/linc-ai";
-import { ensureAuthenticated, runLogin } from "./cli/login.js";
 import chalk from "chalk";
 import { createInterface } from "readline";
 import { type Args, parseArgs, printHelp } from "./cli/args.js";
@@ -14,6 +13,7 @@ import { selectConfig } from "./cli/config-selector.js";
 import { processFileArguments } from "./cli/file-processor.js";
 import { buildInitialMessage } from "./cli/initial-message.js";
 import { listModels } from "./cli/list-models.js";
+import { ensureAuthenticated, runLogin } from "./cli/login.js";
 import { selectSession } from "./cli/session-picker.js";
 import { APP_NAME, getAgentDir, getModelsPath, VERSION } from "./config.js";
 import { AuthStorage } from "./core/auth-storage.js";

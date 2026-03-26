@@ -6,17 +6,15 @@
  * 2. API key paste: user pastes an existing sk_case_* key
  */
 
-import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
-import { dirname, join } from "path";
-import { homedir } from "os";
 import chalk from "chalk";
+import { execSync } from "child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 import { createInterface } from "readline";
-import { getAgentDir } from "../config.js";
 import { AuthStorage } from "../core/auth-storage.js";
 
 const CASEDEV_API_BASE = "https://api.case.dev";
-const CASEDEV_CONSOLE_URL = "https://console.case.dev";
 
 interface DeviceFlowStartResponse {
 	deviceCode: string;
@@ -79,7 +77,7 @@ async function deviceFlowLogin(): Promise<string | null> {
 				scopes: { services: [{ service: "all", scopes: ["read", "write"] }] },
 			}),
 		});
-	} catch (error) {
+	} catch {
 		console.error(chalk.red("  Failed to reach case.dev. Check your internet connection."));
 		return null;
 	}
@@ -134,10 +132,7 @@ async function deviceFlowLogin(): Promise<string | null> {
 				console.error(chalk.red("\n  Authorization denied or expired."));
 				return null;
 			}
-		} catch {
-			// Network error, retry
-			continue;
-		}
+		} catch {}
 	}
 
 	console.error(chalk.red("\n  Authorization timed out."));
@@ -220,7 +215,9 @@ export async function runLogin(): Promise<boolean> {
 	console.error(chalk.bold("  linc login"));
 	console.error("");
 
-	const choice = await ask(`  ${chalk.bold("1)")} Browser login (opens case.dev)\n  ${chalk.bold("2)")} Paste API key\n\n  Choice [1]: `);
+	const choice = await ask(
+		`  ${chalk.bold("1)")} Browser login (opens case.dev)\n  ${chalk.bold("2)")} Paste API key\n\n  Choice [1]: `,
+	);
 
 	const useDeviceFlow = choice !== "2";
 

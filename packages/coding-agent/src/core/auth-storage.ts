@@ -423,7 +423,7 @@ export class AuthStorage {
 		}
 
 		// Check auth.json for stored key
-		const cred = this.data["casedev"];
+		const cred = this.data.casedev;
 		if (cred?.type === "api_key") {
 			return resolveConfigValue(cred.key);
 		}

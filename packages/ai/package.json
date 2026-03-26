@@ -56,7 +56,7 @@
 		}
 	},
 	"bin": {
-		"linc-ai": "./dist/cli.js"
+		"linc-ai": "dist/cli.js"
 	},
 	"files": [
 		"dist",

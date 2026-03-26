@@ -7,6 +7,14 @@ import { calculateTool } from "./utils/calculate.js";
 
 delete process.env.ANTHROPIC_OAUTH_TOKEN;
 
+function requireModel(provider: string, modelId: string) {
+	const model = getModel(provider, modelId);
+	if (!model) {
+		throw new Error(`Model not found: ${provider}/${modelId}`);
+	}
+	return model;
+}
+
 async function basicPrompt(model: Model<any>) {
 	const agent = new Agent({
 		initialState: {
@@ -161,7 +169,7 @@ async function multiTurnConversation(model: Model<any>) {
 
 describe("Agent E2E Tests", () => {
 	describe.skipIf(!process.env.GEMINI_API_KEY)("Google Provider (gemini-2.5-flash)", () => {
-		const model = getModel("google", "gemini-2.5-flash");
+		const model = requireModel("google", "gemini-2.5-flash");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -185,7 +193,7 @@ describe("Agent E2E Tests", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("OpenAI Provider (gpt-4o-mini)", () => {
-		const model = getModel("openai", "gpt-4o-mini");
+		const model = requireModel("openai", "gpt-4o-mini");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -209,7 +217,7 @@ describe("Agent E2E Tests", () => {
 	});
 
 	describe.skipIf(!process.env.ANTHROPIC_API_KEY)("Anthropic Provider (claude-haiku-4-5)", () => {
-		const model = getModel("anthropic", "claude-haiku-4-5");
+		const model = requireModel("anthropic", "claude-haiku-4-5");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -233,7 +241,7 @@ describe("Agent E2E Tests", () => {
 	});
 
 	describe.skipIf(!process.env.XAI_API_KEY)("xAI Provider (grok-3)", () => {
-		const model = getModel("xai", "grok-3");
+		const model = requireModel("xai", "grok-3");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -257,7 +265,7 @@ describe("Agent E2E Tests", () => {
 	});
 
 	describe.skipIf(!process.env.GROQ_API_KEY)("Groq Provider (openai/gpt-oss-20b)", () => {
-		const model = getModel("groq", "openai/gpt-oss-20b");
+		const model = requireModel("groq", "openai/gpt-oss-20b");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -305,7 +313,7 @@ describe("Agent E2E Tests", () => {
 	});*/
 
 	describe.skipIf(!process.env.ZAI_API_KEY)("zAI Provider (glm-4.5-air)", () => {
-		const model = getModel("zai", "glm-4.5-air");
+		const model = requireModel("zai", "glm-4.5-air");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -329,7 +337,7 @@ describe("Agent E2E Tests", () => {
 	});
 
 	describe.skipIf(!hasBedrockCredentials())("Amazon Bedrock Provider (claude-sonnet-4-5)", () => {
-		const model = getModel("amazon-bedrock", "global.anthropic.claude-sonnet-4-5-20250929-v1:0");
+		const model = requireModel("amazon-bedrock", "global.anthropic.claude-sonnet-4-5-20250929-v1:0");
 
 		it("should handle basic text prompt", async () => {
 			await basicPrompt(model);
@@ -359,7 +367,7 @@ describe("Agent.continue()", () => {
 			const agent = new Agent({
 				initialState: {
 					systemPrompt: "Test",
-					model: getModel("openai", "gpt-5.4"),
+					model: requireModel("openai", "gpt-5.4"),
 				},
 			});
 
@@ -370,7 +378,7 @@ describe("Agent.continue()", () => {
 			const agent = new Agent({
 				initialState: {
 					systemPrompt: "Test",
-					model: getModel("openai", "gpt-5.4"),
+					model: requireModel("openai", "gpt-5.4"),
 				},
 			});
 
@@ -398,7 +406,7 @@ describe("Agent.continue()", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("continue from user message", () => {
-		const model = getModel("openai", "gpt-5.4");
+		const model = requireModel("openai", "gpt-5.4");
 
 		it("should continue and get response when last message is user", async () => {
 			const agent = new Agent({
@@ -436,7 +444,7 @@ describe("Agent.continue()", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("continue from tool result", () => {
-		const model = getModel("openai", "gpt-5.4");
+		const model = requireModel("openai", "gpt-5.4");
 
 		it("should continue and process tool results", async () => {
 			const agent = new Agent({

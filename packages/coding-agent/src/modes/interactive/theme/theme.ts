@@ -626,7 +626,7 @@ export function getThemeByName(name: string): Theme | undefined {
 	}
 }
 
-function detectTerminalBackground(): "dark" | "light" {
+function _detectTerminalBackground(): "dark" | "light" {
 	const colorfgbg = process.env.COLORFGBG || "";
 	if (colorfgbg) {
 		const parts = colorfgbg.split(";");

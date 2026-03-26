@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { convertMessages } from "../src/providers/openai-completions.js";
 import type {
 	AssistantMessage,

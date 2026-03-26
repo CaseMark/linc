@@ -29,7 +29,6 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -326,7 +325,7 @@ export const streamSimpleOpenAICompletions: StreamFunction<"openai-completions",
 
 function createClient(
 	model: Model<"openai-completions">,
-	context: Context,
+	_context: Context,
 	apiKey?: string,
 	optionsHeaders?: Record<string, string>,
 ) {

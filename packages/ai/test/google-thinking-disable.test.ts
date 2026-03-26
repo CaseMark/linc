@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { streamSimple } from "../src/stream.js";
 import type { Api, Context, Model, SimpleStreamOptions } from "../src/types.js";
 import { resolveApiKey } from "./oauth.js";

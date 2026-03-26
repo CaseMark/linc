@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { complete } from "../src/stream.js";
 import type { Api, Context, Model, StreamOptions } from "../src/types.js";
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.js";

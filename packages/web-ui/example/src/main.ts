@@ -1,6 +1,6 @@
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
 import { Agent, type AgentMessage } from "@casemark/linc-agent-core";
-import { type Model, type Api, registerModels } from "@casemark/linc-ai";
+import { type Api, type Model, registerModels } from "@casemark/linc-ai";
 import {
 	type AgentState,
 	AppStorage,
@@ -15,7 +15,7 @@ import {
 	setAppStorage,
 } from "@casemark/linc-web-ui";
 import { html, render } from "lit";
-import { History, Plus, Settings } from "lucide";
+import { History, Plus } from "lucide";
 import "./app.css";
 import { icon } from "@mariozechner/mini-lit";
 import { Button } from "@mariozechner/mini-lit/dist/Button.js";
@@ -25,7 +25,9 @@ import { customConvertToLlm, registerCustomMessageRenderers } from "./custom-mes
 // In dev, Vite proxies /api/casedev → https://api.case.dev to avoid CORS.
 // In production, set VITE_CASEDEV_API_BASE to the real URL (or use a backend proxy).
 const CASEDEV_API_PATH = import.meta.env.VITE_CASEDEV_API_BASE || "/api/casedev/llm/v1";
-const CASEDEV_API_BASE = CASEDEV_API_PATH.startsWith("http") ? CASEDEV_API_PATH : `${window.location.origin}${CASEDEV_API_PATH}`;
+const CASEDEV_API_BASE = CASEDEV_API_PATH.startsWith("http")
+	? CASEDEV_API_PATH
+	: `${window.location.origin}${CASEDEV_API_PATH}`;
 const CASEDEV_CONSOLE_URL = "https://console.case.dev";
 
 // Register custom message renderers
@@ -72,7 +74,7 @@ async function fetchModels(apiKey: string): Promise<Model<Api>[]> {
 		});
 		if (!res.ok) return [];
 		const body = await res.json();
-		const data: any[] = Array.isArray(body) ? body : (body.data || []);
+		const data: any[] = Array.isArray(body) ? body : body.data || [];
 
 		return data.map((m: any) => ({
 			id: m.id,
@@ -80,8 +82,9 @@ async function fetchModels(apiKey: string): Promise<Model<Api>[]> {
 			api: "openai-completions" as const,
 			provider: "casedev",
 			baseUrl: CASEDEV_API_BASE,
-			reasoning: m.reasoning ?? (m.id.includes("o1") || m.id.includes("o3") || m.id.includes("o4") || m.id.includes("opus")),
-			input: m.input ?? ["text"] as ("text" | "image")[],
+			reasoning:
+				m.reasoning ?? (m.id.includes("o1") || m.id.includes("o3") || m.id.includes("o4") || m.id.includes("opus")),
+			input: m.input ?? (["text"] as ("text" | "image")[]),
 			cost: m.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: m.context_window ?? m.contextWindow ?? 128000,
 			maxTokens: m.max_tokens ?? m.maxTokens ?? 16384,
@@ -162,9 +165,7 @@ async function pollDeviceFlow(deviceCode: string, interval: number, expiresAt: s
 				continue;
 			}
 			if (res.status === 403 || res.status === 410) return null;
-		} catch {
-			continue;
-		}
+		} catch {}
 	}
 	return null;
 }
@@ -187,7 +188,9 @@ function renderAuthScreen(app: HTMLElement) {
 					<h1 class="text-2xl font-bold mb-2">Linc</h1>
 					<p class="text-muted-foreground mb-8">Legal AI powered by case.dev</p>
 
-					${mode === "choice" ? html`
+					${
+						mode === "choice"
+							? html`
 						<div class="space-y-3">
 							${Button({
 								variant: "default",
@@ -228,19 +231,30 @@ function renderAuthScreen(app: HTMLElement) {
 								variant: "outline",
 								className: "w-full justify-center",
 								children: html`Paste API key`,
-								onClick: () => { mode = "apikey"; doRender(); },
+								onClick: () => {
+									mode = "apikey";
+									doRender();
+								},
 							})}
 						</div>
 						${error ? html`<p class="text-destructive text-sm mt-4">${error}</p>` : ""}
-					` : ""}
+					`
+							: ""
+					}
 
-					${mode === "device-waiting" ? html`
+					${
+						mode === "device-waiting"
+							? html`
 						<div class="text-center">
 							<div class="text-muted-foreground">Starting authentication...</div>
 						</div>
-					` : ""}
+					`
+							: ""
+					}
 
-					${mode === "device" && deviceFlowData ? html`
+					${
+						mode === "device" && deviceFlowData
+							? html`
 						<div class="space-y-4">
 							<p class="text-sm text-muted-foreground">A browser window has opened. Approve the request to continue.</p>
 							<div class="bg-secondary p-4 rounded-lg text-center">
@@ -258,9 +272,13 @@ function renderAuthScreen(app: HTMLElement) {
 								Waiting for approval...
 							</div>
 						</div>
-					` : ""}
+					`
+							: ""
+					}
 
-					${mode === "apikey" ? html`
+					${
+						mode === "apikey"
+							? html`
 						<div class="space-y-4">
 							<p class="text-sm text-muted-foreground">
 								Enter your case.dev API key. Get one at
@@ -280,8 +298,16 @@ function renderAuthScreen(app: HTMLElement) {
 									onClick: async () => {
 										const input = document.getElementById("api-key-input") as HTMLInputElement;
 										const key = input?.value?.trim();
-										if (!key) { error = "Please enter an API key."; doRender(); return; }
-										if (!key.startsWith("sk_case_")) { error = "Invalid key. case.dev keys start with sk_case_"; doRender(); return; }
+										if (!key) {
+											error = "Please enter an API key.";
+											doRender();
+											return;
+										}
+										if (!key.startsWith("sk_case_")) {
+											error = "Invalid key. case.dev keys start with sk_case_";
+											doRender();
+											return;
+										}
 
 										error = "";
 										doRender();
@@ -308,11 +334,17 @@ function renderAuthScreen(app: HTMLElement) {
 								${Button({
 									variant: "ghost",
 									children: html`Back`,
-									onClick: () => { mode = "choice"; error = ""; doRender(); },
+									onClick: () => {
+										mode = "choice";
+										error = "";
+										doRender();
+									},
 								})}
 							</div>
 						</div>
-					` : ""}
+					`
+							: ""
+					}
 				</div>
 			</div>
 		`;
@@ -338,8 +370,13 @@ const generateTitle = (messages: AgentMessage[]): string => {
 	if (!firstUserMsg || (firstUserMsg.role !== "user" && firstUserMsg.role !== "user-with-attachments")) return "";
 	let text = "";
 	const content = firstUserMsg.content;
-	if (typeof content === "string") { text = content; } else {
-		text = content.filter((c: any) => c.type === "text").map((c: any) => c.text || "").join(" ");
+	if (typeof content === "string") {
+		text = content;
+	} else {
+		text = content
+			.filter((c: any) => c.type === "text")
+			.map((c: any) => c.text || "")
+			.join(" ");
 	}
 	text = text.trim();
 	if (!text) return "";
@@ -349,8 +386,10 @@ const generateTitle = (messages: AgentMessage[]): string => {
 };
 
 const shouldSaveSession = (messages: AgentMessage[]): boolean => {
-	return messages.some((m: any) => m.role === "user" || m.role === "user-with-attachments")
-		&& messages.some((m: any) => m.role === "assistant");
+	return (
+		messages.some((m: any) => m.role === "user" || m.role === "user-with-attachments") &&
+		messages.some((m: any) => m.role === "assistant")
+	);
 };
 
 const saveSession = async () => {
@@ -360,10 +399,36 @@ const saveSession = async () => {
 	try {
 		const now = new Date().toISOString();
 		await storage.sessions.save(
-			{ id: currentSessionId, title: currentTitle, model: state.model!, thinkingLevel: state.thinkingLevel, messages: state.messages, createdAt: now, lastModified: now },
-			{ id: currentSessionId, title: currentTitle, createdAt: now, lastModified: now, messageCount: state.messages.length, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, modelId: state.model?.id || null, thinkingLevel: state.thinkingLevel, preview: generateTitle(state.messages) },
+			{
+				id: currentSessionId,
+				title: currentTitle,
+				model: state.model!,
+				thinkingLevel: state.thinkingLevel,
+				messages: state.messages,
+				createdAt: now,
+				lastModified: now,
+			},
+			{
+				id: currentSessionId,
+				title: currentTitle,
+				createdAt: now,
+				lastModified: now,
+				messageCount: state.messages.length,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				thinkingLevel: state.thinkingLevel,
+				preview: generateTitle(state.messages),
+			},
 		);
-	} catch (err) { console.error("Failed to save session:", err); }
+	} catch (err) {
+		console.error("Failed to save session:", err);
+	}
 };
 
 const updateUrl = (sessionId: string) => {
@@ -431,7 +496,12 @@ const loadSession = async (sessionId: string): Promise<boolean> => {
 	currentSessionId = sessionId;
 	const metadata = await storage.sessions.getMetadata(sessionId);
 	currentTitle = metadata?.title || "";
-	await createAgent({ model: sessionData.model, thinkingLevel: sessionData.thinkingLevel, messages: sessionData.messages, tools: [] });
+	await createAgent({
+		model: sessionData.model,
+		thinkingLevel: sessionData.thinkingLevel,
+		messages: sessionData.messages,
+		tools: [],
+	});
 	updateUrl(sessionId);
 	renderApp();
 	return true;
@@ -452,16 +522,18 @@ function renderModelSelector() {
 	const currentModelId = agent?.state?.model?.id || "";
 	return html`
 		<select
-			class="bg-secondary border border-border rounded px-2 py-1 text-xs text-foreground"
-			@change=${(e: Event) => {
-				const id = (e.target as HTMLSelectElement).value;
-				const model = casedevModels.find((m) => m.id === id);
-				if (model && agent) agent.model = model;
-			}}
-		>
-			${casedevModels.map((m) => html`
+				class="bg-secondary border border-border rounded px-2 py-1 text-xs text-foreground"
+				@change=${(e: Event) => {
+					const id = (e.target as HTMLSelectElement).value;
+					const model = casedevModels.find((m) => m.id === id);
+					if (model && agent) agent.setModel(model);
+				}}
+			>
+			${casedevModels.map(
+				(m) => html`
 				<option value=${m.id} ?selected=${m.id === currentModelId}>${m.id}</option>
-			`)}
+			`,
+			)}
 		</select>
 	`;
 }
@@ -478,28 +550,81 @@ const renderApp = () => {
 		<div class="w-full h-screen flex flex-col bg-background text-foreground overflow-hidden">
 			<div class="flex items-center justify-between border-b border-border shrink-0">
 				<div class="flex items-center gap-2 px-4 py-1">
-					${Button({ variant: "ghost", size: "sm", children: icon(History, "sm"), onClick: () => {
-						SessionListDialog.open(async (sid) => { await loadSession(sid); }, (did) => { if (did === currentSessionId) newSession(); });
-					}, title: "Sessions" })}
+					${Button({
+						variant: "ghost",
+						size: "sm",
+						children: icon(History, "sm"),
+						onClick: () => {
+							SessionListDialog.open(
+								async (sid) => {
+									await loadSession(sid);
+								},
+								(did) => {
+									if (did === currentSessionId) newSession();
+								},
+							);
+						},
+						title: "Sessions",
+					})}
 					${Button({ variant: "ghost", size: "sm", children: icon(Plus, "sm"), onClick: newSession, title: "New Session" })}
-					${currentTitle
-						? isEditingTitle
-							? html`<div class="flex items-center gap-2">${Input({
-								type: "text", value: currentTitle, className: "text-sm w-64",
-								onChange: async (e: Event) => { const t = (e.target as HTMLInputElement).value.trim(); if (t && t !== currentTitle && storage.sessions && currentSessionId) { await storage.sessions.updateTitle(currentSessionId, t); currentTitle = t; } isEditingTitle = false; renderApp(); },
-								onKeyDown: async (e: KeyboardEvent) => { if (e.key === "Enter") { const t = (e.target as HTMLInputElement).value.trim(); if (t && t !== currentTitle && storage.sessions && currentSessionId) { await storage.sessions.updateTitle(currentSessionId, t); currentTitle = t; } isEditingTitle = false; renderApp(); } else if (e.key === "Escape") { isEditingTitle = false; renderApp(); } },
-							})}</div>`
-							: html`<button class="px-2 py-1 text-sm text-foreground hover:bg-secondary rounded transition-colors" @click=${() => { isEditingTitle = true; renderApp(); requestAnimationFrame(() => { const i = app?.querySelector('input[type="text"]') as HTMLInputElement; if (i) { i.focus(); i.select(); } }); }} title="Click to edit title">${currentTitle}</button>`
-						: html`<span class="text-base font-semibold text-foreground">Linc</span>`
+					${
+						currentTitle
+							? isEditingTitle
+								? html`<div class="flex items-center gap-2">${Input({
+										type: "text",
+										value: currentTitle,
+										className: "text-sm w-64",
+										onChange: async (e: Event) => {
+											const t = (e.target as HTMLInputElement).value.trim();
+											if (t && t !== currentTitle && storage.sessions && currentSessionId) {
+												await storage.sessions.updateTitle(currentSessionId, t);
+												currentTitle = t;
+											}
+											isEditingTitle = false;
+											renderApp();
+										},
+										onKeyDown: async (e: KeyboardEvent) => {
+											if (e.key === "Enter") {
+												const t = (e.target as HTMLInputElement).value.trim();
+												if (t && t !== currentTitle && storage.sessions && currentSessionId) {
+													await storage.sessions.updateTitle(currentSessionId, t);
+													currentTitle = t;
+												}
+												isEditingTitle = false;
+												renderApp();
+											} else if (e.key === "Escape") {
+												isEditingTitle = false;
+												renderApp();
+											}
+										},
+									})}</div>`
+								: html`<button class="px-2 py-1 text-sm text-foreground hover:bg-secondary rounded transition-colors" @click=${() => {
+										isEditingTitle = true;
+										renderApp();
+										requestAnimationFrame(() => {
+											const i = app?.querySelector('input[type="text"]') as HTMLInputElement;
+											if (i) {
+												i.focus();
+												i.select();
+											}
+										});
+									}} title="Click to edit title">${currentTitle}</button>`
+							: html`<span class="text-base font-semibold text-foreground">Linc</span>`
 					}
 				</div>
 				<div class="flex items-center gap-2 px-4">
 					${renderModelSelector()}
 					<theme-toggle></theme-toggle>
-					${Button({ variant: "ghost", size: "sm", children: html`<span class="text-xs">Logout</span>`, onClick: async () => {
-						await providerKeys.delete("casedev");
-						window.location.reload();
-					}, title: "Logout" })}
+					${Button({
+						variant: "ghost",
+						size: "sm",
+						children: html`<span class="text-xs">Logout</span>`,
+						onClick: async () => {
+							await providerKeys.delete("casedev");
+							window.location.reload();
+						},
+						title: "Logout",
+					})}
 				</div>
 			</div>
 			${chatPanel}
@@ -524,7 +649,10 @@ async function initApp() {
 	}
 
 	// Show loading
-	render(html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground"><div class="text-muted-foreground">Loading models...</div></div>`, app);
+	render(
+		html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground"><div class="text-muted-foreground">Loading models...</div></div>`,
+		app,
+	);
 
 	// Fetch models
 	casedevModels = await fetchModels(apiKey);
@@ -545,7 +673,10 @@ async function initApp() {
 
 	if (sessionIdFromUrl) {
 		const loaded = await loadSession(sessionIdFromUrl);
-		if (!loaded) { newSession(); return; }
+		if (!loaded) {
+			newSession();
+			return;
+		}
 	} else {
 		await createAgent();
 	}

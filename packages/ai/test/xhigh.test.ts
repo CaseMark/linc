@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { stream } from "../src/stream.js";
 import type { Context, Model } from "../src/types.js";
 

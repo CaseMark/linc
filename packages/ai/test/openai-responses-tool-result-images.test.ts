@@ -5,7 +5,7 @@ import { Type } from "@sinclair/typebox";
 import type { ResponseFunctionCallOutputItemList } from "openai/resources/responses/responses.js";
 import { describe, expect, it } from "vitest";
 import type { Api, Context, Model, StreamOptions, Tool, ToolResultMessage } from "../src/index.js";
-import { complete, getModel } from "../src/index.js";
+import { complete, getModelOrThrow as getModel } from "../src/index.js";
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.js";
 import { resolveApiKey } from "./oauth.js";
 

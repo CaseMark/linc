@@ -36,6 +36,14 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
+function requireModel(provider: string, modelId: string) {
+	const model = getModel(provider, modelId);
+	if (!model) {
+		throw new Error(`Model not found: ${provider}/${modelId}`);
+	}
+	return model;
+}
+
 describe("Agent", () => {
 	it("should create an agent instance with default state", () => {
 		const agent = new Agent();
@@ -53,7 +61,7 @@ describe("Agent", () => {
 	});
 
 	it("should create an agent instance with custom initial state", () => {
-		const customModel = getModel("openai", "gpt-4o-mini");
+		const customModel = requireModel("openai", "gpt-4o-mini");
 		const agent = new Agent({
 			initialState: {
 				systemPrompt: "You are a helpful assistant.",
@@ -97,7 +105,7 @@ describe("Agent", () => {
 		expect(agent.state.systemPrompt).toBe("Custom prompt");
 
 		// Test setModel
-		const newModel = getModel("google", "gemini-2.5-flash");
+		const newModel = requireModel("google", "gemini-2.5-flash");
 		agent.setModel(newModel);
 		expect(agent.state.model).toBe(newModel);
 

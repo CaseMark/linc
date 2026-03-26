@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 import { getEnvApiKey } from "../src/env-api-keys.js";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { completeSimple } from "../src/stream.js";
 import type { Api, Context, Model, StopReason, Tool, ToolCall, ToolResultMessage } from "../src/types.js";
 import { StringEnum } from "../src/utils/typebox-helpers.js";

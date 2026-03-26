@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
-import { getModel } from "../src/models.js";
+import { getModelOrThrow as getModel } from "../src/models.js";
 import { complete, getEnvApiKey } from "../src/stream.js";
 import type { AssistantMessage, Context, Message, Tool, ToolCall } from "../src/types.js";
 

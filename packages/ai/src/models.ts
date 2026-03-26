@@ -75,6 +75,14 @@ export function getModel(provider: string, modelId: string): Model<Api> | undefi
 	return undefined;
 }
 
+export function getModelOrThrow<TApi extends Api = Api>(provider: string, modelId: string): Model<TApi> {
+	const model = getModel(provider, modelId);
+	if (!model) {
+		throw new Error(`Model not found: ${provider}/${modelId}`);
+	}
+	return model as Model<TApi>;
+}
+
 export function getProviders(): string[] {
 	return Array.from(modelRegistry.keys());
 }
@@ -103,7 +111,7 @@ export function getAllModels(): Model<Api>[] {
 export function registerModels(models: Model<Api>[]): void {
 	for (const model of models) {
 		const slashIndex = model.id.indexOf("/");
-		const providerKey = slashIndex >= 0 ? model.id.slice(0, slashIndex) : (model.provider || "casedev");
+		const providerKey = slashIndex >= 0 ? model.id.slice(0, slashIndex) : model.provider || "casedev";
 		if (!modelRegistry.has(providerKey)) {
 			modelRegistry.set(providerKey, new Map());
 		}

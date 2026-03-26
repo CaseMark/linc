@@ -1,6 +1,5 @@
 import { clearApiProviders, registerApiProvider } from "../api-registry.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
-import type { OpenAICompletionsOptions } from "./openai-completions.js";
 
 let openAICompletionsProviderModulePromise:
 	| Promise<{
@@ -17,6 +16,7 @@ function loadOpenAICompletionsProviderModule() {
 	return openAICompletionsProviderModulePromise;
 }
 
+// biome-ignore lint/complexity/noBannedTypes: The lazy loader preserves the provider module's existing untyped runtime boundary.
 function createLazyStream(loadModule: () => Promise<{ stream: Function }>) {
 	return (model: any, context: any, options?: any) => {
 		const outer = new AssistantMessageEventStream();
@@ -59,6 +59,7 @@ function createLazyStream(loadModule: () => Promise<{ stream: Function }>) {
 	};
 }
 
+// biome-ignore lint/complexity/noBannedTypes: The lazy loader preserves the provider module's existing untyped runtime boundary.
 function createLazySimpleStream(loadModule: () => Promise<{ streamSimple: Function }>) {
 	return (model: any, context: any, options?: any) => {
 		const outer = new AssistantMessageEventStream();
