@@ -6,6 +6,7 @@
  */
 
 import { type ImageContent, loadModels, modelsAreEqual, supportsXhigh } from "@casemark/linc-ai";
+import { ensureAuthenticated, runLogin } from "./cli/login.js";
 import chalk from "chalk";
 import { createInterface } from "readline";
 import { type Args, parseArgs, printHelp } from "./cli/args.js";
@@ -628,6 +629,21 @@ export async function main(args: string[]) {
 		process.env.LINC_SKIP_VERSION_CHECK = "1";
 	}
 
+	// Handle `linc login` subcommand
+	if (args[0] === "login") {
+		const success = await runLogin();
+		process.exit(success ? 0 : 1);
+	}
+
+	// Handle `linc logout` subcommand
+	if (args[0] === "logout") {
+		const authStorage = AuthStorage.create();
+		authStorage.remove("casedev");
+		delete process.env.CASEDEV_API_KEY;
+		console.log("Logged out. API key removed from ~/.linc/agent/auth.json");
+		process.exit(0);
+	}
+
 	if (await handlePackageCommand(args)) {
 		return;
 	}
@@ -644,6 +660,15 @@ export async function main(args: string[]) {
 		takeOverStdout();
 	}
 
+	// Skip auth check for help/version
+	if (!offlineMode && !firstPass.help && !firstPass.version) {
+		const authed = await ensureAuthenticated();
+		if (!authed) {
+			console.error("Authentication required. Run `linc login` to authenticate.");
+			process.exit(1);
+		}
+	}
+
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(process.cwd());
 	time("runMigrations");
@@ -655,7 +680,7 @@ export async function main(args: string[]) {
 	reportSettingsErrors(settingsManager, "startup");
 	const authStorage = AuthStorage.create();
 
-	// Load models from case.dev
+	// Load models from case.dev (API key is guaranteed to be set now)
 	await loadModels();
 
 	const modelRegistry = new ModelRegistry(authStorage, getModelsPath());
