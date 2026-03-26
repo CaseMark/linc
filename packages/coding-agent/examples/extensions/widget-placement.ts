@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@casemark/linc";
 
 const applyWidgets = (ctx: ExtensionContext) => {
 	if (!ctx.hasUI) return;

@@ -1,39 +1,122 @@
-import { MODELS } from "./models.generated.js";
-import type { Api, KnownProvider, Model, Usage } from "./types.js";
+import type { Api, Model, Usage } from "./types.js";
+
+const CASEDEV_BASE_URL = "https://api.case.dev/llm/v1";
 
 const modelRegistry: Map<string, Map<string, Model<Api>>> = new Map();
+let modelsLoaded = false;
 
-// Initialize registry from MODELS on module load
-for (const [provider, models] of Object.entries(MODELS)) {
-	const providerModels = new Map<string, Model<Api>>();
-	for (const [id, model] of Object.entries(models)) {
-		providerModels.set(id, model as Model<Api>);
+/**
+ * Fetch available models from case.dev /llm/v1/models and populate the registry.
+ * Must be called once at startup (requires CASEDEV_API_KEY to be set).
+ */
+export async function loadModels(apiKey?: string): Promise<void> {
+	const key = apiKey || process.env.CASEDEV_API_KEY;
+	if (!key) {
+		return;
 	}
-	modelRegistry.set(provider, providerModels);
+
+	try {
+		const res = await fetch(`${CASEDEV_BASE_URL}/models`, {
+			headers: { Authorization: `Bearer ${key}` },
+		});
+		if (!res.ok) {
+			console.error(`Failed to fetch models from case.dev: ${res.status} ${res.statusText}`);
+			return;
+		}
+		const body = (await res.json()) as { data?: any[] } | any[];
+		const models: any[] = Array.isArray(body) ? body : body.data || [];
+
+		modelRegistry.clear();
+
+		for (const m of models) {
+			// case.dev model IDs are like "anthropic/claude-sonnet-4.5"
+			const id = m.id;
+			const slashIndex = id.indexOf("/");
+			const provider = slashIndex >= 0 ? id.slice(0, slashIndex) : "casedev";
+
+			const model: Model<"openai-completions"> = {
+				id,
+				name: m.name || id,
+				api: "openai-completions",
+				provider: "casedev",
+				baseUrl: CASEDEV_BASE_URL,
+				reasoning:
+					m.reasoning ?? (id.includes("o1") || id.includes("o3") || id.includes("o4") || id.includes("opus")),
+				input: m.input ?? ["text"],
+				cost: m.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: m.context_window ?? m.contextWindow ?? 128000,
+				maxTokens: m.max_tokens ?? m.maxTokens ?? 16384,
+			};
+
+			if (!modelRegistry.has(provider)) {
+				modelRegistry.set(provider, new Map());
+			}
+			modelRegistry.get(provider)!.set(id, model);
+		}
+
+		modelsLoaded = true;
+	} catch (error) {
+		console.error("Failed to load models from case.dev:", error);
+	}
 }
 
-type ModelApi<
-	TProvider extends KnownProvider,
-	TModelId extends keyof (typeof MODELS)[TProvider],
-> = (typeof MODELS)[TProvider][TModelId] extends { api: infer TApi } ? (TApi extends Api ? TApi : never) : never;
-
-export function getModel<TProvider extends KnownProvider, TModelId extends keyof (typeof MODELS)[TProvider]>(
-	provider: TProvider,
-	modelId: TModelId,
-): Model<ModelApi<TProvider, TModelId>> {
+export function getModel(provider: string, modelId: string): Model<Api> | undefined {
+	// Try exact match first
 	const providerModels = modelRegistry.get(provider);
-	return providerModels?.get(modelId as string) as Model<ModelApi<TProvider, TModelId>>;
+	if (providerModels?.has(modelId)) {
+		return providerModels.get(modelId);
+	}
+	// Try searching all providers for the model ID
+	for (const models of modelRegistry.values()) {
+		if (models.has(modelId)) {
+			return models.get(modelId);
+		}
+	}
+	return undefined;
 }
 
-export function getProviders(): KnownProvider[] {
-	return Array.from(modelRegistry.keys()) as KnownProvider[];
+export function getProviders(): string[] {
+	return Array.from(modelRegistry.keys());
 }
 
-export function getModels<TProvider extends KnownProvider>(
-	provider: TProvider,
-): Model<ModelApi<TProvider, keyof (typeof MODELS)[TProvider]>>[] {
-	const models = modelRegistry.get(provider);
-	return models ? (Array.from(models.values()) as Model<ModelApi<TProvider, keyof (typeof MODELS)[TProvider]>>[]) : [];
+export function getModels(provider?: string): Model<Api>[] {
+	if (provider) {
+		const models = modelRegistry.get(provider);
+		return models ? Array.from(models.values()) : [];
+	}
+	// Return all models across all providers
+	const all: Model<Api>[] = [];
+	for (const models of modelRegistry.values()) {
+		all.push(...models.values());
+	}
+	return all;
+}
+
+export function getAllModels(): Model<Api>[] {
+	return getModels();
+}
+
+export function isModelsLoaded(): boolean {
+	return modelsLoaded;
+}
+
+/**
+ * Create a Model object for a case.dev model by ID.
+ * Useful when you know the model ID but haven't fetched the registry yet.
+ */
+export function createCasedevModel(modelId: string): Model<"openai-completions"> {
+	return {
+		id: modelId,
+		name: modelId,
+		api: "openai-completions",
+		provider: "casedev",
+		baseUrl: CASEDEV_BASE_URL,
+		reasoning: modelId.includes("o1") || modelId.includes("o3") || modelId.includes("o4") || modelId.includes("opus"),
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16384,
+	};
 }
 
 export function calculateCost<TApi extends Api>(model: Model<TApi>, usage: Usage): Usage["cost"] {
@@ -47,26 +130,19 @@ export function calculateCost<TApi extends Api>(model: Model<TApi>, usage: Usage
 
 /**
  * Check if a model supports xhigh thinking level.
- *
- * Supported today:
- * - GPT-5.2 / GPT-5.3 / GPT-5.4 model families
- * - Opus 4.6 models (xhigh maps to adaptive effort "max" on Anthropic-compatible providers)
  */
 export function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean {
 	if (model.id.includes("gpt-5.2") || model.id.includes("gpt-5.3") || model.id.includes("gpt-5.4")) {
 		return true;
 	}
-
 	if (model.id.includes("opus-4-6") || model.id.includes("opus-4.6")) {
 		return true;
 	}
-
 	return false;
 }
 
 /**
  * Check if two models are equal by comparing both their id and provider.
- * Returns false if either model is null or undefined.
  */
 export function modelsAreEqual<TApi extends Api>(
 	a: Model<TApi> | null | undefined,

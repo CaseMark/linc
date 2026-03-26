@@ -2,8 +2,8 @@
  * Hello Tool - Minimal custom tool example
  */
 
-import { Type } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@casemark/linc";
+import { Type } from "@casemark/linc-ai";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({

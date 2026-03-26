@@ -331,23 +331,13 @@ function createClient(
 	optionsHeaders?: Record<string, string>,
 ) {
 	if (!apiKey) {
-		if (!process.env.OPENAI_API_KEY) {
-			throw new Error(
-				"OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it as an argument.",
-			);
+		apiKey = process.env.CASEDEV_API_KEY;
+		if (!apiKey) {
+			throw new Error("case.dev API key is required. Set CASEDEV_API_KEY environment variable or run `linc login`.");
 		}
-		apiKey = process.env.OPENAI_API_KEY;
 	}
 
 	const headers = { ...model.headers };
-	if (model.provider === "github-copilot") {
-		const hasImages = hasCopilotVisionInput(context.messages);
-		const copilotHeaders = buildCopilotDynamicHeaders({
-			messages: context.messages,
-			hasImages,
-		});
-		Object.assign(headers, copilotHeaders);
-	}
 
 	// Merge options headers last so they can override defaults
 	if (optionsHeaders) {
@@ -356,7 +346,7 @@ function createClient(
 
 	return new OpenAI({
 		apiKey,
-		baseURL: model.baseUrl,
+		baseURL: model.baseUrl || "https://api.case.dev/llm/v1",
 		dangerouslyAllowBrowser: true,
 		defaultHeaders: headers,
 	});

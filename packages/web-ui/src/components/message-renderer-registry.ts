@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@casemark/linc-agent-core";
 import type { TemplateResult } from "lit";
 
 // Extract role type from AppMessage union

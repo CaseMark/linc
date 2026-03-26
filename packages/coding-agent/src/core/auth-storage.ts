@@ -6,13 +6,8 @@
  * try to refresh tokens simultaneously.
  */
 
-import {
-	getEnvApiKey,
-	type OAuthCredentials,
-	type OAuthLoginCallbacks,
-	type OAuthProviderId,
-} from "@mariozechner/pi-ai";
-import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@mariozechner/pi-ai/oauth";
+import { getEnvApiKey, type OAuthCredentials, type OAuthLoginCallbacks, type OAuthProviderId } from "@casemark/linc-ai";
+import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@casemark/linc-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
@@ -413,71 +408,24 @@ export class AuthStorage {
 	}
 
 	/**
-	 * Get API key for a provider.
-	 * Priority:
-	 * 1. Runtime override (CLI --api-key)
-	 * 2. API key from auth.json
-	 * 3. OAuth token from auth.json (auto-refreshed with locking)
-	 * 4. Environment variable
-	 * 5. Fallback resolver (models.json custom providers)
+	 * Get API key for case.dev.
+	 * All providers route through case.dev, so we always return CASEDEV_API_KEY.
 	 */
-	async getApiKey(providerId: string): Promise<string | undefined> {
+	async getApiKey(_providerId?: string): Promise<string | undefined> {
 		// Runtime override takes highest priority
-		const runtimeKey = this.runtimeOverrides.get(providerId);
+		const runtimeKey = this.runtimeOverrides.get("casedev");
 		if (runtimeKey) {
 			return runtimeKey;
 		}
 
-		const cred = this.data[providerId];
-
+		// Check auth.json for stored key
+		const cred = this.data["casedev"];
 		if (cred?.type === "api_key") {
 			return resolveConfigValue(cred.key);
 		}
 
-		if (cred?.type === "oauth") {
-			const provider = getOAuthProvider(providerId);
-			if (!provider) {
-				// Unknown OAuth provider, can't get API key
-				return undefined;
-			}
-
-			// Check if token needs refresh
-			const needsRefresh = Date.now() >= cred.expires;
-
-			if (needsRefresh) {
-				// Use locked refresh to prevent race conditions
-				try {
-					const result = await this.refreshOAuthTokenWithLock(providerId);
-					if (result) {
-						return result.apiKey;
-					}
-				} catch (error) {
-					this.recordError(error);
-					// Refresh failed - re-read file to check if another instance succeeded
-					this.reload();
-					const updatedCred = this.data[providerId];
-
-					if (updatedCred?.type === "oauth" && Date.now() < updatedCred.expires) {
-						// Another instance refreshed successfully, use those credentials
-						return provider.getApiKey(updatedCred);
-					}
-
-					// Refresh truly failed - return undefined so model discovery skips this provider
-					// User can /login to re-authenticate (credentials preserved for retry)
-					return undefined;
-				}
-			} else {
-				// Token not expired, use current access token
-				return provider.getApiKey(cred);
-			}
-		}
-
 		// Fall back to environment variable
-		const envKey = getEnvApiKey(providerId);
-		if (envKey) return envKey;
-
-		// Fall back to custom resolver (e.g., models.json custom providers)
-		return this.fallbackResolver?.(providerId) ?? undefined;
+		return process.env.CASEDEV_API_KEY;
 	}
 
 	/**

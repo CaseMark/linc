@@ -2,8 +2,8 @@
  * List available models with optional fuzzy search
  */
 
-import type { Api, Model } from "@mariozechner/pi-ai";
-import { fuzzyFilter } from "@mariozechner/pi-tui";
+import type { Api, Model } from "@casemark/linc-ai";
+import { fuzzyFilter } from "@casemark/linc-tui";
 import type { ModelRegistry } from "../core/model-registry.js";
 
 /**

@@ -2,11 +2,11 @@
  * Print mode (single-shot): Send prompts, output result, exit.
  *
  * Used for:
- * - `pi -p "prompt"` - text output
- * - `pi --mode json "prompt"` - JSON event stream
+ * - `linc -p "prompt"` - text output
+ * - `linc --mode json "prompt"` - JSON event stream
  */
 
-import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
+import type { AssistantMessage, ImageContent } from "@casemark/linc-ai";
 import type { AgentSession } from "../core/agent-session.js";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.js";
 

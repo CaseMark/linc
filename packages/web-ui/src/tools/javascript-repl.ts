@@ -1,6 +1,6 @@
+import type { AgentTool } from "@casemark/linc-agent-core";
+import type { ToolResultMessage } from "@casemark/linc-ai";
 import { i18n } from "@mariozechner/mini-lit";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { ToolResultMessage } from "@mariozechner/pi-ai";
 import { type Static, Type } from "@sinclair/typebox";
 import { html } from "lit";
 import { createRef, ref } from "lit/directives/ref.js";

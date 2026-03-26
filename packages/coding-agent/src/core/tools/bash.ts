@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { Container, Text, truncateToWidth } from "@mariozechner/pi-tui";
+import type { AgentTool } from "@casemark/linc-agent-core";
+import { Container, Text, truncateToWidth } from "@casemark/linc-tui";
 import { type Static, Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
@@ -21,7 +21,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult
  */
 function getTempFilePath(): string {
 	const id = randomBytes(8).toString("hex");
-	return join(tmpdir(), `pi-bash-${id}.log`);
+	return join(tmpdir(), `linc-bash-${id}.log`);
 }
 
 const bashSchema = Type.Object({

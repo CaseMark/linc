@@ -4,6 +4,7 @@
  */
 
 import {
+	createCasedevModel,
 	getModel,
 	type ImageContent,
 	type Message,
@@ -13,7 +14,7 @@ import {
 	type TextContent,
 	type ThinkingBudgets,
 	type Transport,
-} from "@mariozechner/pi-ai";
+} from "@casemark/linc-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.js";
 import type {
 	AfterToolCallContext,
@@ -116,7 +117,9 @@ export interface AgentOptions {
 export class Agent {
 	private _state: AgentState = {
 		systemPrompt: "",
-		model: getModel("google", "gemini-2.5-flash-lite-preview-06-17"),
+		model:
+			getModel("casedev", "anthropic/claude-sonnet-4-5-20250514") ??
+			createCasedevModel("anthropic/claude-sonnet-4-5-20250514"),
 		thinkingLevel: "off",
 		tools: [],
 		messages: [],
