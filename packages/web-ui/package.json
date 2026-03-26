@@ -1,7 +1,7 @@
 {
 	"name": "@casemark/linc-web-ui",
 	"version": "0.1.0",
-	"description": "Reusable web UI components for AI chat interfaces powered by @mariozechner/pi-ai",
+	"description": "Reusable web UI components for AI chat interfaces powered by @casemark/linc-ai",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
