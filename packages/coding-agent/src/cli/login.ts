@@ -7,6 +7,9 @@
  */
 
 import { execSync } from "child_process";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { dirname, join } from "path";
+import { homedir } from "os";
 import chalk from "chalk";
 import { createInterface } from "readline";
 import { getAgentDir } from "../config.js";
@@ -172,9 +175,44 @@ async function apiKeyLogin(): Promise<string | null> {
 	return key;
 }
 
+/** Path to casedev CLI config */
+const CASEDEV_CONFIG_PATH = join(homedir(), ".config", "case", "config.json");
+
 function saveKey(apiKey: string): void {
+	// Save to linc auth storage (~/.linc/agent/auth.json)
 	const authStorage = AuthStorage.create();
 	authStorage.set("casedev", { type: "api_key", key: apiKey });
+
+	// Also save to casedev CLI config (~/.config/case/config.json) so both CLIs share the key
+	try {
+		const dir = dirname(CASEDEV_CONFIG_PATH);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true, mode: 0o700 });
+		}
+		let config: Record<string, any> = {};
+		if (existsSync(CASEDEV_CONFIG_PATH)) {
+			config = JSON.parse(readFileSync(CASEDEV_CONFIG_PATH, "utf-8"));
+		}
+		config.apiKey = apiKey;
+		writeFileSync(CASEDEV_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+		chmodSync(CASEDEV_CONFIG_PATH, 0o600);
+	} catch {
+		// Non-fatal — linc auth.json is the primary store
+	}
+}
+
+function readCasedevCliKey(): string | undefined {
+	try {
+		if (existsSync(CASEDEV_CONFIG_PATH)) {
+			const config = JSON.parse(readFileSync(CASEDEV_CONFIG_PATH, "utf-8"));
+			if (config.apiKey && typeof config.apiKey === "string") {
+				return config.apiKey;
+			}
+		}
+	} catch {
+		// ignore
+	}
+	return undefined;
 }
 
 export async function runLogin(): Promise<boolean> {
@@ -213,22 +251,34 @@ export async function runLogin(): Promise<boolean> {
  * Check if the user is authenticated. Returns true if a valid API key is available.
  */
 export function isAuthenticated(): boolean {
-	// Check env var first
+	// 1. Check CASEDEV_API_KEY env var (linc convention)
 	if (process.env.CASEDEV_API_KEY) {
 		return true;
 	}
 
-	// Check auth.json
+	// 2. Check CASE_API_KEY env var (casedev CLI convention)
+	if (process.env.CASE_API_KEY) {
+		process.env.CASEDEV_API_KEY = process.env.CASE_API_KEY;
+		return true;
+	}
+
+	// 3. Check linc auth.json (~/.linc/agent/auth.json)
 	try {
 		const authStorage = AuthStorage.create();
 		const cred = authStorage.get("casedev");
 		if (cred?.type === "api_key" && cred.key) {
-			// Load it into the environment so everything else picks it up
 			process.env.CASEDEV_API_KEY = cred.key;
 			return true;
 		}
 	} catch {
 		// auth.json doesn't exist or is corrupt
+	}
+
+	// 4. Check casedev CLI config (~/.config/case/config.json)
+	const casedevKey = readCasedevCliKey();
+	if (casedevKey) {
+		process.env.CASEDEV_API_KEY = casedevKey;
+		return true;
 	}
 
 	return false;
