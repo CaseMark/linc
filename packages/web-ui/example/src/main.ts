@@ -22,7 +22,9 @@ import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { Input } from "@mariozechner/mini-lit/dist/Input.js";
 import { customConvertToLlm, registerCustomMessageRenderers } from "./custom-messages.js";
 
-const CASEDEV_API_BASE = "https://api.case.dev/llm/v1";
+// In dev, Vite proxies /api/casedev → https://api.case.dev to avoid CORS.
+// In production, set VITE_CASEDEV_API_BASE to the real URL (or use a backend proxy).
+const CASEDEV_API_BASE = import.meta.env.VITE_CASEDEV_API_BASE || "/api/casedev/llm/v1";
 const CASEDEV_CONSOLE_URL = "https://console.case.dev";
 
 // Register custom message renderers
@@ -124,7 +126,7 @@ interface DeviceFlowStart {
 
 async function startDeviceFlow(): Promise<DeviceFlowStart | null> {
 	try {
-		const res = await fetch(`https://api.case.dev/auth/cli/start`, {
+		const res = await fetch(`/api/casedev/auth/cli/start`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -145,7 +147,7 @@ async function pollDeviceFlow(deviceCode: string, interval: number, expiresAt: s
 	while (Date.now() < expiry) {
 		await new Promise((r) => setTimeout(r, pollMs));
 		try {
-			const res = await fetch(`https://api.case.dev/auth/cli/poll`, {
+			const res = await fetch(`/api/casedev/auth/cli/poll`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ deviceCode }),
