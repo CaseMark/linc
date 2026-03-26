@@ -360,7 +360,11 @@ export class AuthStorage {
 	/**
 	 * Refresh OAuth token with backend locking to prevent race conditions.
 	 * Multiple pi instances may try to refresh simultaneously when tokens expire.
+	 *
+	 * Retained for upstream parity. The case.dev fork resolves a single case.dev
+	 * API key in getApiKey(), so this path is currently not invoked.
 	 */
+	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: Retained intentionally for upstream parity while auth remains case.dev-only.
 	private async refreshOAuthTokenWithLock(
 		providerId: OAuthProviderId,
 	): Promise<{ apiKey: string; newCredentials: OAuthCredentials } | null> {
