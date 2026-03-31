@@ -640,7 +640,8 @@ export async function main(args: string[]) {
 		const authStorage = AuthStorage.create();
 		authStorage.remove("casedev");
 		delete process.env.CASEDEV_API_KEY;
-		console.log("Logged out. API key removed from ~/.linc/agent/auth.json");
+		delete process.env.CORE_ACCESS_TOKEN;
+		console.log("Logged out. Auth token removed from ~/.linc/agent/auth.json");
 		process.exit(0);
 	}
 
@@ -680,7 +681,7 @@ export async function main(args: string[]) {
 	reportSettingsErrors(settingsManager, "startup");
 	const authStorage = AuthStorage.create();
 
-	// Load models from case.dev (API key is guaranteed to be set now)
+	// Load models from configured OpenAI-compatible backend (auth token is guaranteed to be set now)
 	await loadModels();
 
 	// Check if casedev CLI is installed

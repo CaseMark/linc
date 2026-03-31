@@ -8,7 +8,7 @@ import type {
 	ChatCompletionMessageParam,
 	ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions.js";
-import { getEnvApiKey } from "../env-api-keys.js";
+import { getEnvApiKey, getEnvLlmBaseUrl } from "../env-api-keys.js";
 import { calculateCost, supportsXhigh } from "../models.js";
 import type {
 	AssistantMessage,
@@ -330,9 +330,9 @@ function createClient(
 	optionsHeaders?: Record<string, string>,
 ) {
 	if (!apiKey) {
-		apiKey = process.env.CASEDEV_API_KEY;
+		apiKey = getEnvApiKey(model.provider);
 		if (!apiKey) {
-			throw new Error("case.dev API key is required. Set CASEDEV_API_KEY environment variable or run `linc login`.");
+			throw new Error("No API key found. Set CORE_ACCESS_TOKEN or CASEDEV_API_KEY, or run `linc login`.");
 		}
 	}
 
@@ -345,7 +345,7 @@ function createClient(
 
 	return new OpenAI({
 		apiKey,
-		baseURL: model.baseUrl || "https://api.case.dev/llm/v1",
+		baseURL: model.baseUrl || getEnvLlmBaseUrl(apiKey),
 		dangerouslyAllowBrowser: true,
 		defaultHeaders: headers,
 	});

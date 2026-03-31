@@ -186,8 +186,8 @@ ${chalk.bold("Usage:")}
   ${APP_NAME} [options] [@files...] [messages...]
 
 ${chalk.bold("Commands:")}
-  ${APP_NAME} login                     Authenticate with case.dev
-  ${APP_NAME} logout                    Remove saved API key
+  ${APP_NAME} login                     Authenticate with Core OAuth or case.dev
+  ${APP_NAME} logout                    Remove saved auth token
   ${APP_NAME} install <source> [-l]     Install extension source and add to settings
   ${APP_NAME} remove <source> [-l]      Remove extension source from settings
   ${APP_NAME} uninstall <source> [-l]   Alias for remove
@@ -199,7 +199,7 @@ ${chalk.bold("Commands:")}
 ${chalk.bold("Options:")}
   --provider <name>              Provider name (default: casedev)
   --model <pattern>              Model pattern or ID (supports "provider/id" and optional ":<thinking>")
-  --api-key <key>                API key (defaults to env vars)
+  --api-key <key>                API key or bearer token (defaults to env vars)
   --system-prompt <text>         System prompt (default: coding assistant prompt)
   --append-system-prompt <text>  Append text or file contents to the system prompt
   --mode <mode>                  Output mode: text (default), json, or rpc
@@ -309,7 +309,13 @@ ${chalk.bold("Environment Variables:")}
   LINC_PACKAGE_DIR                 - Override package directory (for Nix/Guix store paths)
   LINC_OFFLINE                     - Disable startup network operations when set to 1/true/yes
   LINC_SHARE_VIEWER_URL            - Base URL for /share command (default: https://case.dev/session/)
-  CASEDEV_API_KEY                  - API key for case.dev LLM endpoint
+  CORE_ACCESS_TOKEN                - Core OAuth bearer token
+  CORE_API_BASE_URL                - Override Core LLM base URL (default: https://core.case.dev/v1)
+  LINC_CORE_OAUTH_CLIENT_ID        - OAuth client_id for Core device flow (default: linc)
+  LINC_CORE_OAUTH_SCOPE            - OAuth scope for Core device flow (default: core:chat)
+  CASEDEV_API_KEY                  - case.dev API key
+  CASEDEV_API_BASE_URL             - Override case.dev LLM base URL (default: https://api.case.dev/llm/v1)
+  LINC_LLM_BASE_URL                - Force LLM base URL for all tokens
 
 ${chalk.bold("Available Tools (default: read, bash, edit, write):")}
   read   - Read file contents

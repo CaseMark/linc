@@ -1,26 +1,26 @@
+import { getEnvApiKey, getEnvLlmBaseUrl } from "./env-api-keys.js";
 import type { Api, Model, Usage } from "./types.js";
-
-const CASEDEV_BASE_URL = "https://api.case.dev/llm/v1";
 
 const modelRegistry: Map<string, Map<string, Model<Api>>> = new Map();
 let modelsLoaded = false;
 
 /**
- * Fetch available models from case.dev /llm/v1/models and populate the registry.
- * Must be called once at startup (requires CASEDEV_API_KEY to be set).
+ * Fetch available models from the configured OpenAI-compatible endpoint and populate the registry.
+ * Must be called once at startup with either CORE_ACCESS_TOKEN or CASEDEV_API_KEY.
  */
-export async function loadModels(apiKey?: string): Promise<void> {
-	const key = apiKey || process.env.CASEDEV_API_KEY;
+export async function loadModels(apiKey?: string, baseUrl?: string): Promise<void> {
+	const key = apiKey || getEnvApiKey();
 	if (!key) {
 		return;
 	}
+	const llmBaseUrl = (baseUrl || getEnvLlmBaseUrl(key)).replace(/\/+$/, "");
 
 	try {
-		const res = await fetch(`${CASEDEV_BASE_URL}/models`, {
+		const res = await fetch(`${llmBaseUrl}/models`, {
 			headers: { Authorization: `Bearer ${key}` },
 		});
 		if (!res.ok) {
-			console.error(`Failed to fetch models from case.dev: ${res.status} ${res.statusText}`);
+			console.error(`Failed to fetch models: ${res.status} ${res.statusText}`);
 			return;
 		}
 		const body = (await res.json()) as { data?: any[] } | any[];
@@ -39,7 +39,7 @@ export async function loadModels(apiKey?: string): Promise<void> {
 				name: m.name || id,
 				api: "openai-completions",
 				provider: "casedev",
-				baseUrl: CASEDEV_BASE_URL,
+				baseUrl: llmBaseUrl,
 				reasoning:
 					m.reasoning ?? (id.includes("o1") || id.includes("o3") || id.includes("o4") || id.includes("opus")),
 				input: m.input ?? ["text"],
@@ -56,7 +56,7 @@ export async function loadModels(apiKey?: string): Promise<void> {
 
 		modelsLoaded = true;
 	} catch (error) {
-		console.error("Failed to load models from case.dev:", error);
+		console.error("Failed to load models:", error);
 	}
 }
 
@@ -125,16 +125,17 @@ export function isModelsLoaded(): boolean {
 }
 
 /**
- * Create a Model object for a case.dev model by ID.
+ * Create a Model object for a configured model endpoint by ID.
  * Useful when you know the model ID but haven't fetched the registry yet.
  */
 export function createCasedevModel(modelId: string): Model<"openai-completions"> {
+	const llmBaseUrl = getEnvLlmBaseUrl();
 	return {
 		id: modelId,
 		name: modelId,
 		api: "openai-completions",
 		provider: "casedev",
-		baseUrl: CASEDEV_BASE_URL,
+		baseUrl: llmBaseUrl,
 		reasoning: modelId.includes("o1") || modelId.includes("o3") || modelId.includes("o4") || modelId.includes("opus"),
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
