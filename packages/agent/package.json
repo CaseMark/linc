@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc-agent-core",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -17,7 +17,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@casemark/linc-ai": "^0.1.0"
+		"@casemark/linc-ai": "^0.1.1"
 	},
 	"keywords": [
 		"ai",

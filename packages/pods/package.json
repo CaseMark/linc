@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc-pods",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "CLI tool for managing vLLM deployments on GPU pods",
 	"type": "module",
@@ -34,7 +34,7 @@
 		"node": ">=20.0.0"
 	},
 	"dependencies": {
-		"@casemark/linc-agent-core": "^0.1.0",
+		"@casemark/linc-agent-core": "^0.1.1",
 		"chalk": "^5.5.0"
 	},
 	"devDependencies": {}
