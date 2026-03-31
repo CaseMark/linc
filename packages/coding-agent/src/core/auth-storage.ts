@@ -412,8 +412,8 @@ export class AuthStorage {
 	}
 
 	/**
-	 * Get API key for case.dev.
-	 * All providers route through case.dev, so we always return CASEDEV_API_KEY.
+	 * Get API key / bearer token for the configured LLM backend.
+	 * All providers route through a single OpenAI-compatible endpoint.
 	 */
 	async getApiKey(_providerId?: string): Promise<string | undefined> {
 		// Runtime override takes highest priority
@@ -429,7 +429,7 @@ export class AuthStorage {
 		}
 
 		// Fall back to environment variable
-		return process.env.CASEDEV_API_KEY;
+		return getEnvApiKey();
 	}
 
 	/**
