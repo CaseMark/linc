@@ -7,6 +7,7 @@
 
 import { execSync, spawn } from "node:child_process";
 import { type ImageContent, loadModels, modelsAreEqual, supportsXhigh } from "@casemark/linc-ai";
+import { registerOAuthProvider } from "@casemark/linc-ai/oauth";
 import chalk from "chalk";
 import { createInterface } from "readline";
 import { type Args, parseArgs, printHelp } from "./cli/args.js";
@@ -18,6 +19,7 @@ import { ensureAuthenticated, runLogin } from "./cli/login.js";
 import { selectSession } from "./cli/session-picker.js";
 import { APP_NAME, getAgentDir, getModelsPath, getWebUiExampleDir, VERSION } from "./config.js";
 import { AuthStorage } from "./core/auth-storage.js";
+import { casedevOAuthProvider, coreOAuthProvider } from "./core/casedev-oauth.js";
 import { exportFromFile } from "./core/export-html/index.js";
 import type { LoadExtensionsResult } from "./core/extensions/index.js";
 import { migrateKeybindingsConfigFile } from "./core/keybindings.js";
@@ -814,6 +816,10 @@ export async function main(args: string[]) {
 	}
 
 	const modelRegistry = new ModelRegistry(authStorage, getModelsPath());
+
+	// Register case.dev and Core as auth providers for /login
+	registerOAuthProvider(casedevOAuthProvider);
+	registerOAuthProvider(coreOAuthProvider);
 
 	const resourceLoader = new DefaultResourceLoader({
 		cwd,

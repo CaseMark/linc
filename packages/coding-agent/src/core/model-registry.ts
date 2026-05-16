@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getAgentDir } from "../config.js";
 import type { AuthStorage } from "./auth-storage.js";
+import { casedevOAuthProvider, coreOAuthProvider } from "./casedev-oauth.js";
 import { clearConfigValueCache, resolveConfigValue, resolveHeaders } from "./resolve-config-value.js";
 
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -295,6 +296,8 @@ export class ModelRegistry {
 		// Ensure dynamic API/OAuth registrations are rebuilt from current provider state.
 		resetApiProviders();
 		resetOAuthProviders();
+		registerOAuthProvider(casedevOAuthProvider);
+		registerOAuthProvider(coreOAuthProvider);
 
 		this.loadModels();
 
