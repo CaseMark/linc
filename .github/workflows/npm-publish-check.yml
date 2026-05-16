@@ -43,5 +43,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check published version
+        id: published
+        run: |
+          LOCAL_VERSION="$(node -p "require('./packages/coding-agent/package.json').version")"
+          PUBLISHED_VERSION="$(npm view @casemark/linc version 2>/dev/null || true)"
+          echo "local=${LOCAL_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "published=${PUBLISHED_VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Publish dry run
+        if: steps.published.outputs.local != steps.published.outputs.published
         run: npm run publish:dry
+
+      - name: Skip published version
+        if: steps.published.outputs.local == steps.published.outputs.published
+        run: echo "Version ${{ steps.published.outputs.local }} is already published; skipping npm publish dry run."
