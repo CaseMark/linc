@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Legal AI terminal agent powered by case.dev",
 	"type": "module",
 	"lincConfig": {
@@ -40,9 +40,9 @@
 	},
 	"dependencies": {
 		"@mariozechner/jiti": "^2.6.2",
-		"@casemark/linc-agent-core": "^0.1.0",
-		"@casemark/linc-ai": "^0.1.0",
-		"@casemark/linc-tui": "^0.1.0",
+		"@casemark/linc-agent-core": "^0.2.0",
+		"@casemark/linc-ai": "^0.2.0",
+		"@casemark/linc-tui": "^0.2.0",
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"ajv": "^8.17.1",
 		"chalk": "^5.5.0",

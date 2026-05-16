@@ -285,11 +285,15 @@ export {
 export { main } from "./main.js";
 // Run modes for programmatic SDK usage
 export {
+	type GatewayHandle,
+	type GatewayOptions,
 	InteractiveMode,
 	type InteractiveModeOptions,
 	type PrintModeOptions,
+	runGatewayMode,
 	runPrintMode,
 	runRpcMode,
+	startGateway,
 } from "./modes/index.js";
 // UI components for extensions
 export {

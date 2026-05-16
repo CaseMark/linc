@@ -449,12 +449,15 @@ let BUILTIN_THEMES: Record<string, ThemeJson> | undefined;
 function getBuiltinThemes(): Record<string, ThemeJson> {
 	if (!BUILTIN_THEMES) {
 		const themesDir = getThemesDir();
-		const darkPath = path.join(themesDir, "dark.json");
-		const lightPath = path.join(themesDir, "light.json");
-		BUILTIN_THEMES = {
-			dark: JSON.parse(fs.readFileSync(darkPath, "utf-8")) as ThemeJson,
-			light: JSON.parse(fs.readFileSync(lightPath, "utf-8")) as ThemeJson,
-		};
+		BUILTIN_THEMES = {};
+		for (const file of fs.readdirSync(themesDir).sort()) {
+			if (!file.endsWith(".json") || file === "theme-schema.json") {
+				continue;
+			}
+			const themePath = path.join(themesDir, file);
+			const themeJson = parseThemeJsonContent(themePath, fs.readFileSync(themePath, "utf-8"));
+			BUILTIN_THEMES[path.basename(file, ".json")] = themeJson;
+		}
 	}
 	return BUILTIN_THEMES;
 }
@@ -642,7 +645,7 @@ function _detectTerminalBackground(): "dark" | "light" {
 }
 
 function getDefaultTheme(): string {
-	return "linc-dark";
+	return "linc-mono";
 }
 
 // ============================================================================
@@ -690,9 +693,9 @@ export function initTheme(themeName?: string, enableWatcher: boolean = false): v
 			startThemeWatcher();
 		}
 	} catch (_error) {
-		// Theme is invalid - fall back to dark theme silently
-		currentThemeName = "dark";
-		setGlobalTheme(loadTheme("dark"));
+		// Theme is invalid - fall back to the bundled default silently.
+		currentThemeName = getDefaultTheme();
+		setGlobalTheme(loadTheme(getDefaultTheme()));
 		// Don't start watcher for fallback theme
 	}
 }
@@ -709,9 +712,9 @@ export function setTheme(name: string, enableWatcher: boolean = false): { succes
 		}
 		return { success: true };
 	} catch (error) {
-		// Theme is invalid - fall back to dark theme
-		currentThemeName = "dark";
-		setGlobalTheme(loadTheme("dark"));
+		// Theme is invalid - fall back to the bundled default theme.
+		currentThemeName = getDefaultTheme();
+		setGlobalTheme(loadTheme(getDefaultTheme()));
 		// Don't start watcher for fallback theme
 		return {
 			success: false,
@@ -737,7 +740,7 @@ function startThemeWatcher(): void {
 	stopThemeWatcher();
 
 	// Only watch if it's a custom theme (not built-in)
-	if (!currentThemeName || currentThemeName === "dark" || currentThemeName === "light") {
+	if (!currentThemeName || currentThemeName in getBuiltinThemes()) {
 		return;
 	}
 
@@ -870,7 +873,7 @@ function ansi256ToHex(index: number): string {
  */
 export function getResolvedThemeColors(themeName?: string): Record<string, string> {
 	const name = themeName ?? currentThemeName ?? getDefaultTheme();
-	const isLight = name === "light";
+	const isLight = isLightTheme(name);
 	const themeJson = loadThemeJson(name);
 	const resolved = resolveThemeColors(themeJson.colors, themeJson.vars);
 
@@ -896,7 +899,7 @@ export function getResolvedThemeColors(themeName?: string): Record<string, strin
  */
 export function isLightTheme(themeName?: string): boolean {
 	// Currently just check the name - could be extended to analyze colors
-	return themeName === "light";
+	return themeName === "light" || themeName === "linc-light";
 }
 
 /**

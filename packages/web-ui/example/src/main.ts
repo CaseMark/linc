@@ -67,6 +67,38 @@ setAppStorage(storage);
 
 let casedevModels: Model<Api>[] = [];
 
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function renderStatus(app: HTMLElement, message: string) {
+	render(
+		html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground">
+			<div class="text-muted-foreground">${message}</div>
+		</div>`,
+		app,
+	);
+}
+
+function renderErrorScreen(app: HTMLElement, title: string, detail: string) {
+	render(
+		html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground">
+			<div class="max-w-lg w-full p-8">
+				<h1 class="text-xl font-semibold mb-3">${title}</h1>
+				<p class="text-sm text-muted-foreground mb-4">${detail}</p>
+				${Button({
+					variant: "default",
+					children: html`Retry`,
+					onClick: () => {
+						initApp();
+					},
+				})}
+			</div>
+		</div>`,
+		app,
+	);
+}
+
 async function fetchModels(apiKey: string): Promise<Model<Api>[]> {
 	try {
 		const res = await fetch(`${CASEDEV_API_BASE}/models`, {
@@ -641,47 +673,50 @@ async function initApp() {
 	const app = document.getElementById("app");
 	if (!app) throw new Error("App container not found");
 
-	// Check for stored API key
-	const apiKey = await providerKeys.get("casedev");
-	if (!apiKey) {
-		renderAuthScreen(app);
-		return;
-	}
-
-	// Show loading
-	render(
-		html`<div class="w-full h-screen flex items-center justify-center bg-background text-foreground"><div class="text-muted-foreground">Loading models...</div></div>`,
-		app,
-	);
-
-	// Fetch models
-	casedevModels = await fetchModels(apiKey);
-	// Register into linc-ai registry so built-in ModelSelector can find them
-	registerModels(casedevModels);
-	if (casedevModels.length === 0) {
-		// Key might be invalid
-		renderAuthScreen(app);
-		return;
-	}
-
-	// Create ChatPanel
-	chatPanel = new ChatPanel();
-
-	// Check for session in URL
-	const urlParams = new URLSearchParams(window.location.search);
-	const sessionIdFromUrl = urlParams.get("session");
-
-	if (sessionIdFromUrl) {
-		const loaded = await loadSession(sessionIdFromUrl);
-		if (!loaded) {
-			newSession();
+	try {
+		// Check for stored API key
+		const apiKey = await providerKeys.get("casedev");
+		if (!apiKey) {
+			renderAuthScreen(app);
 			return;
 		}
-	} else {
-		await createAgent();
-	}
 
-	renderApp();
+		renderStatus(app, "Loading models...");
+
+		casedevModels = await fetchModels(apiKey);
+		if (casedevModels.length === 0) {
+			// Key might be invalid
+			renderAuthScreen(app);
+			return;
+		}
+
+		renderStatus(app, "Preparing chat...");
+
+		// Register into linc-ai registry so built-in ModelSelector can find them
+		registerModels(casedevModels);
+
+		// Create ChatPanel
+		chatPanel = new ChatPanel();
+
+		// Check for session in URL
+		const urlParams = new URLSearchParams(window.location.search);
+		const sessionIdFromUrl = urlParams.get("session");
+
+		if (sessionIdFromUrl) {
+			const loaded = await loadSession(sessionIdFromUrl);
+			if (!loaded) {
+				newSession();
+				return;
+			}
+		} else {
+			await createAgent();
+		}
+
+		renderApp();
+	} catch (error) {
+		console.error("Failed to initialize Linc GUI:", error);
+		renderErrorScreen(app, "Failed to initialize Linc GUI", errorMessage(error));
+	}
 }
 
 initApp();

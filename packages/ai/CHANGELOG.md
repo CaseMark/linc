@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-15
+
+### Fixed
+
+- Fixed browser imports by making environment API-key resolution safe when `process` is unavailable.
+
+## [0.1.1] - 2026-03-31
+
 ### Changed
 
 - Changed direct `minimax` and `minimax-cn` model catalogs to keep only `MiniMax-M2.7` and `MiniMax-M2.7-highspeed`, and updated MiniMax and abort coverage to current provider model IDs and usage behavior ([#2596](https://github.com/badlogic/pi-mono/pull/2596) by [@liyuan97](https://github.com/liyuan97))

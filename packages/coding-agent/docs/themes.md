@@ -1,4 +1,4 @@
-> pi can create themes. Ask it to build one for your setup.
+> Linc can create themes. Ask it to build one for your setup.
 
 # Themes
 
@@ -16,12 +16,12 @@ Themes are JSON files that define colors for the TUI.
 
 ## Locations
 
-Pi loads themes from:
+Linc loads themes from:
 
-- Built-in: `dark`, `light`
-- Global: `~/.pi/agent/themes/*.json`
-- Project: `.pi/themes/*.json`
-- Packages: `themes/` directories or `pi.themes` entries in `package.json`
+- Built-in: `linc-mono`, `linc-dark`, `linc-light`, `linc-amber`, `linc-slate`, `linc-catppuccin`, `linc-dracula`, `linc-gruvbox`, `linc-nord`, `linc-one-dark`, `linc-solarized`, `linc-tokyo-night`, `dark`, `light`
+- Global: `~/.linc/agent/themes/*.json`
+- Project: `.linc/themes/*.json`
+- Packages: `themes/` directories or `linc.themes` entries in `package.json`
 - Settings: `themes` array with files or directories
 - CLI: `--theme <path>` (repeatable)
 
@@ -37,22 +37,22 @@ Select a theme via `/settings` or in `settings.json`:
 }
 ```
 
-On first run, pi detects your terminal background and defaults to `dark` or `light`.
+By default, Linc uses `linc-mono`, a high-contrast black/white theme. Use `/settings` to switch to another bundled palette or a custom theme.
 
 ## Creating a Custom Theme
 
 1. Create a theme file:
 
 ```bash
-mkdir -p ~/.pi/agent/themes
-vim ~/.pi/agent/themes/my-theme.json
+mkdir -p ~/.linc/agent/themes
+vim ~/.linc/agent/themes/my-theme.json
 ```
 
 2. Define the theme with all required colors (see [Color Tokens](#color-tokens)):
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/casemarkai/linc/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "primary": "#00aaff",
@@ -116,13 +116,13 @@ vim ~/.pi/agent/themes/my-theme.json
 
 3. Select the theme via `/settings`.
 
-**Hot reload:** When you edit the currently active custom theme file, pi reloads it automatically for immediate visual feedback.
+**Hot reload:** When you edit the currently active custom theme file, Linc reloads it automatically for immediate visual feedback.
 
 ## Theme Format
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/casemarkai/linc/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "blue": "#0066cc",
@@ -268,7 +268,7 @@ Four formats are supported:
 
 ### Terminal Compatibility
 
-Pi uses 24-bit RGB colors. Most modern terminals support this (iTerm2, Kitty, WezTerm, Windows Terminal, VS Code). For older terminals with only 256-color support, pi falls back to the nearest approximation.
+Linc uses 24-bit RGB colors. Most modern terminals support this (iTerm2, Kitty, WezTerm, Windows Terminal, VS Code). For older terminals with only 256-color support, Linc falls back to the nearest approximation.
 
 Check truecolor support:
 
@@ -291,5 +291,13 @@ echo $COLORTERM  # Should output "truecolor" or "24bit"
 ## Examples
 
 See the built-in themes:
+- [linc-mono.json](../src/modes/interactive/theme/linc-mono.json)
+- [linc-catppuccin.json](../src/modes/interactive/theme/linc-catppuccin.json)
+- [linc-dracula.json](../src/modes/interactive/theme/linc-dracula.json)
+- [linc-gruvbox.json](../src/modes/interactive/theme/linc-gruvbox.json)
+- [linc-nord.json](../src/modes/interactive/theme/linc-nord.json)
+- [linc-one-dark.json](../src/modes/interactive/theme/linc-one-dark.json)
+- [linc-solarized.json](../src/modes/interactive/theme/linc-solarized.json)
+- [linc-tokyo-night.json](../src/modes/interactive/theme/linc-tokyo-night.json)
 - [dark.json](../src/modes/interactive/theme/dark.json)
 - [light.json](../src/modes/interactive/theme/light.json)

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-15
+
+### Fixed
+
+- Fixed the example app to show initialization errors and retry instead of remaining on the loading screen.
+
+## [0.1.1] - 2026-03-31
+
 ## [0.62.0] - 2026-03-23
 
 ## [0.61.1] - 2026-03-20

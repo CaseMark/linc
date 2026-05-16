@@ -1,6 +1,6 @@
 # Custom Models
 
-Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.pi/agent/models.json`.
+Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.linc/agent/models.json`.
 
 ## Table of Contents
 
@@ -21,8 +21,7 @@ For local models (Ollama, LM Studio, vLLM), only `id` is required per model:
 {
   "providers": {
     "ollama": {
-      "baseUrl": "http://localhost:11434/v1",
-      "api": "openai-completions",
+      "openaiCompatBaseUrl": "http://localhost:11434/v1",
       "apiKey": "ollama",
       "models": [
         { "id": "llama3.1:8b" },
@@ -33,9 +32,9 @@ For local models (Ollama, LM Studio, vLLM), only `id` is required per model:
 }
 ```
 
-The `apiKey` is required but Ollama ignores it, so any value works.
+The `apiKey` is required but Ollama ignores it, so any value works. `openaiCompatBaseUrl` is shorthand for an OpenAI-compatible Chat Completions endpoint and defaults `api` to `openai-completions`.
 
-Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so pi sends the system prompt as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too.
+Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so Linc sends the system prompt as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too.
 
 You can set `compat` at the provider level to apply to all models, or at the model level to override a specific model. This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers.
 
@@ -106,6 +105,7 @@ Set `api` at provider level (default for all models) or model level (override pe
 | Field | Description |
 |-------|-------------|
 | `baseUrl` | API endpoint URL |
+| `openaiCompatBaseUrl` | OpenAI-compatible Chat Completions endpoint URL; defaults `api` to `openai-completions` |
 | `api` | API type (see above) |
 | `apiKey` | API key (see value resolution below) |
 | `headers` | Custom headers (see value resolution below) |
@@ -157,6 +157,7 @@ The `apiKey` and `headers` fields support three formats:
 | `id` | Yes | — | Model identifier (passed to the API) |
 | `name` | No | `id` | Human-readable model label. Used for matching (`--model` patterns) and shown in model details/status text. |
 | `api` | No | provider's `api` | Override provider's API for this model |
+| `baseUrl` / `openaiCompatBaseUrl` | No | provider endpoint | Override the provider endpoint for this model. `openaiCompatBaseUrl` also defaults this model to `openai-completions`. |
 | `reasoning` | No | `false` | Supports extended thinking |
 | `input` | No | `["text"]` | Input types: `["text"]` or `["text", "image"]` |
 | `contextWindow` | No | `128000` | Context window size in tokens |
@@ -264,7 +265,7 @@ For providers with partial OpenAI compatibility, use the `compat` field.
 | `supportsStore` | Provider supports `store` field |
 | `supportsDeveloperRole` | Use `developer` vs `system` role |
 | `supportsReasoningEffort` | Support for `reasoning_effort` parameter |
-| `reasoningEffortMap` | Map pi thinking levels to provider-specific `reasoning_effort` values |
+| `reasoningEffortMap` | Map Linc thinking levels to provider-specific `reasoning_effort` values |
 | `supportsUsageInStreaming` | Supports `stream_options: { include_usage: true }` (default: `true`) |
 | `maxTokensField` | Use `max_completion_tokens` or `max_tokens` |
 | `requiresToolResultName` | Include `name` on tool result messages |

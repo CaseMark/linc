@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-15
+
+## [0.1.1] - 2026-03-31
+
 ### Added
 
 - `PI_TUI_WRITE_LOG` now accepts a directory path, creating a unique log file (`tui-<timestamp>-<pid>.log`) per instance for easier debugging of multiple pi sessions

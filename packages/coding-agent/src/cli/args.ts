@@ -194,6 +194,8 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} update [source]           Update installed extensions (skips pinned sources)
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} config                    Open TUI to enable/disable package resources
+  ${APP_NAME} gui                       Start the local Linc web UI
+  ${APP_NAME} gateway                   Start an OpenAI-compatible agent gateway
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list
 
 ${chalk.bold("Options:")}
