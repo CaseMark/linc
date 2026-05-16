@@ -1,11 +1,11 @@
 # Settings
 
-Pi uses JSON settings files with project settings overriding global settings.
+Linc uses JSON settings files with project settings overriding global settings.
 
 | Location | Scope |
 |----------|-------|
-| `~/.pi/agent/settings.json` | Global (all projects) |
-| `.pi/settings.json` | Project (current directory) |
+| `~/.linc/agent/settings.json` | Global (all projects) |
+| `.linc/settings.json` | Project (current directory) |
 
 Edit directly or use `/settings` for common options.
 
@@ -38,7 +38,7 @@ Edit directly or use `/settings` for common options.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `theme` | string | `"dark"` | Theme name (`"dark"`, `"light"`, or custom) |
+| `theme` | string | `"linc-mono"` | Theme name (`"linc-mono"`, another bundled theme, or custom) |
 | `quietStartup` | boolean | `false` | Hide startup header |
 | `collapseChangelog` | boolean | `false` | Show condensed changelog after updates |
 | `doubleEscapeAction` | string | `"tree"` | Action for double-escape: `"tree"`, `"fork"`, or `"none"` |
@@ -134,7 +134,7 @@ When a provider requests a retry delay longer than `maxDelayMs` (e.g., Google's 
 | `sessionDir` | string | - | Directory where session files are stored. Accepts absolute or relative paths. |
 
 ```json
-{ "sessionDir": ".pi/sessions" }
+{ "sessionDir": ".linc/sessions" }
 ```
 
 When multiple sources specify a session directory, `--session-dir` CLI flag takes precedence, then `sessionDir` in settings.json, then extension hooks.
@@ -161,7 +161,7 @@ When multiple sources specify a session directory, `--session-dir` CLI flag take
 
 These settings define where to load extensions, skills, prompts, and themes from.
 
-Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in `.pi/settings.json` resolve relative to `.pi`. Absolute paths and `~` are supported.
+Paths in `~/.linc/agent/settings.json` resolve relative to `~/.linc/agent`. Paths in `.linc/settings.json` resolve relative to `.linc`. Absolute paths and `~` are supported.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -207,7 +207,7 @@ See [packages.md](packages.md) for package management details.
   "defaultProvider": "anthropic",
   "defaultModel": "claude-sonnet-4-20250514",
   "defaultThinkingLevel": "medium",
-  "theme": "dark",
+  "theme": "linc-mono",
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
@@ -227,20 +227,20 @@ See [packages.md](packages.md) for package management details.
 Project settings (`.pi/settings.json`) override global settings. Nested objects are merged:
 
 ```json
-// ~/.pi/agent/settings.json (global)
+// ~/.linc/agent/settings.json (global)
 {
-  "theme": "dark",
-  "compaction": { "enabled": true, "reserveTokens": 16384 }
+	"theme": "linc-mono",
+	"compaction": { "enabled": true, "reserveTokens": 16384 }
 }
 
-// .pi/settings.json (project)
+// .linc/settings.json (project)
 {
   "compaction": { "reserveTokens": 8192 }
 }
 
 // Result
 {
-  "theme": "dark",
+	"theme": "linc-mono",
   "compaction": { "enabled": true, "reserveTokens": 8192 }
 }
 ```

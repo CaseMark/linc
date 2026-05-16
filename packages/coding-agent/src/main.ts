@@ -5,6 +5,7 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
+import { execSync, spawn } from "node:child_process";
 import { type ImageContent, loadModels, modelsAreEqual, supportsXhigh } from "@casemark/linc-ai";
 import chalk from "chalk";
 import { createInterface } from "readline";
@@ -15,7 +16,7 @@ import { buildInitialMessage } from "./cli/initial-message.js";
 import { listModels } from "./cli/list-models.js";
 import { ensureAuthenticated, runLogin } from "./cli/login.js";
 import { selectSession } from "./cli/session-picker.js";
-import { APP_NAME, getAgentDir, getModelsPath, VERSION } from "./config.js";
+import { APP_NAME, getAgentDir, getModelsPath, getWebUiExampleDir, VERSION } from "./config.js";
 import { AuthStorage } from "./core/auth-storage.js";
 import { exportFromFile } from "./core/export-html/index.js";
 import type { LoadExtensionsResult } from "./core/extensions/index.js";
@@ -31,7 +32,7 @@ import { SettingsManager } from "./core/settings-manager.js";
 import { printTimings, resetTimings, time } from "./core/timings.js";
 import { allTools } from "./core/tools/index.js";
 import { runMigrations, showDeprecationWarnings } from "./migrations.js";
-import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.js";
+import { InteractiveMode, runGatewayMode, runPrintMode, runRpcMode } from "./modes/index.js";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.js";
 
 /**
@@ -104,7 +105,7 @@ function printPackageCommandHelp(command: PackageCommand): void {
 Install a package and add it to settings.
 
 Options:
-  -l, --local    Install project-locally (.pi/settings.json)
+	  -l, --local    Install project-locally (.linc/settings.json)
 
 Examples:
   ${APP_NAME} install npm:@foo/bar
@@ -124,7 +125,7 @@ Remove a package and its source from settings.
 Alias: ${APP_NAME} uninstall <source> [-l]
 
 Options:
-  -l, --local    Remove from project settings (.pi/settings.json)
+	  -l, --local    Remove from project settings (.linc/settings.json)
 
 Examples:
   ${APP_NAME} remove npm:@foo/bar
@@ -149,6 +150,119 @@ List installed packages from user and project settings.
 `);
 			return;
 	}
+}
+
+function printGuiCommandHelp(): void {
+	console.log(`${chalk.bold("Usage:")}
+  ${APP_NAME} gui
+
+Start the local Linc web UI.
+`);
+}
+
+function printGatewayCommandHelp(): void {
+	console.log(`${chalk.bold("Usage:")}
+  ${APP_NAME} gateway [--host <host>] [--port <port>]
+
+Start an OpenAI-compatible Linc agent gateway.
+
+Options:
+  --host <host>   Host to bind (default: 127.0.0.1)
+  --port <port>   Port to bind (default: 8642)
+`);
+}
+
+async function handleGuiCommand(args: string[]): Promise<boolean> {
+	if (args[0] !== "gui") {
+		return false;
+	}
+
+	const rest = args.slice(1);
+	if (rest.includes("-h") || rest.includes("--help")) {
+		printGuiCommandHelp();
+		return true;
+	}
+
+	const invalidOption = rest.find((arg) => arg.startsWith("-"));
+	if (invalidOption) {
+		console.error(chalk.red(`Unknown option ${invalidOption} for "gui".`));
+		console.error(chalk.dim(`Usage: ${APP_NAME} gui`));
+		process.exitCode = 1;
+		return true;
+	}
+
+	const guiDir = getWebUiExampleDir();
+	if (!guiDir) {
+		console.error(chalk.red("The Linc GUI app is not available in this install."));
+		console.error(
+			chalk.dim(
+				"Run this command from the Linc source checkout, or ship packages/web-ui/example with the CLI package.",
+			),
+		);
+		process.exitCode = 1;
+		return true;
+	}
+
+	console.log(chalk.green("Starting Linc GUI at http://127.0.0.1:5173"));
+	const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+	const child = spawn(npmCommand, ["run", "dev", "--", "--host", "127.0.0.1"], {
+		cwd: guiDir,
+		env: { ...process.env, BROWSER: "none" },
+		stdio: "inherit",
+	});
+
+	const exitCode = await new Promise<number>((resolveExitCode) => {
+		child.on("error", (error) => {
+			console.error(chalk.red(`Failed to start GUI: ${error.message}`));
+			resolveExitCode(1);
+		});
+		child.on("exit", (code) => resolveExitCode(code ?? 1));
+	});
+	if (exitCode !== 0) {
+		process.exitCode = exitCode;
+	}
+	return true;
+}
+
+async function handleGatewayCommand(args: string[]): Promise<boolean> {
+	if (args[0] !== "gateway") {
+		return false;
+	}
+
+	const rest = args.slice(1);
+	if (rest.includes("-h") || rest.includes("--help")) {
+		printGatewayCommandHelp();
+		return true;
+	}
+
+	let host: string | undefined;
+	let port: number | undefined;
+	for (let i = 0; i < rest.length; i++) {
+		const arg = rest[i];
+		if (arg === "--host" && i + 1 < rest.length) {
+			host = rest[++i];
+		} else if (arg === "--port" && i + 1 < rest.length) {
+			const parsed = Number(rest[++i]);
+			if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+				console.error(chalk.red(`Invalid port: ${rest[i]}`));
+				process.exitCode = 1;
+				return true;
+			}
+			port = parsed;
+		} else {
+			console.error(chalk.red(`Unknown option ${arg} for "gateway".`));
+			console.error(chalk.dim(`Usage: ${APP_NAME} gateway [--host <host>] [--port <port>]`));
+			process.exitCode = 1;
+			return true;
+		}
+	}
+
+	await runGatewayMode({
+		host,
+		port,
+		log: (message) => console.log(chalk.green(message)),
+	});
+	return true;
 }
 
 function parsePackageCommand(args: string[]): PackageCommandOptions | undefined {
@@ -645,6 +759,14 @@ export async function main(args: string[]) {
 		process.exit(0);
 	}
 
+	if (await handleGuiCommand(args)) {
+		return;
+	}
+
+	if (await handleGatewayCommand(args)) {
+		return;
+	}
+
 	if (await handlePackageCommand(args)) {
 		return;
 	}
@@ -686,7 +808,6 @@ export async function main(args: string[]) {
 
 	// Check if casedev CLI is installed
 	try {
-		const { execSync } = await import("child_process");
 		execSync("which casedev", { stdio: "ignore" });
 	} catch {
 		console.error(chalk.dim(`  Tip: install the casedev CLI for legal workflows — https://docs.case.dev/cli\n`));
@@ -806,7 +927,7 @@ export async function main(args: string[]) {
 	const isInteractive = !parsed.print && parsed.mode === undefined;
 	const startupBenchmark = isTruthyEnvFlag(process.env.LINC_STARTUP_BENCHMARK);
 	if (startupBenchmark && !isInteractive) {
-		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+		console.error(chalk.red("Error: LINC_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
 	}
 	const mode = parsed.mode || "text";

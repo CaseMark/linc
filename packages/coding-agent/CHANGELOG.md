@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.2.0] - 2026-05-15
+
+### Added
+
+- Added `linc gateway`, an OpenAI-compatible HTTP gateway for using Linc agents from Open WebUI and other chat clients.
+- Added `linc gui` to launch the local web UI example from the CLI.
+- Added bundled `linc-mono`, `linc-light`, `linc-amber`, `linc-slate`, and curated palette themes for Catppuccin, Dracula, Gruvbox, Nord, One Dark, Solarized, and Tokyo Night, and registered all shipped theme JSON files as built-in themes.
+- Added `openaiCompatBaseUrl` support in `models.json` for custom OpenAI-compatible models.
+
+### Changed
+
+- Startup now records the current changelog version without showing changelog entries by default.
+- Changed collapsed changelog display to be enabled by default when changelog notices are shown.
+- Changed the default built-in theme to the monochrome `linc-mono` palette.
+
+### Fixed
+
+- Fixed browser-side model loading in the web UI by avoiding direct `process.env` access when `process` is unavailable.
+- Fixed web UI initialization failures to render an actionable error state instead of leaving the UI stuck on `Loading models...`.
+
 ## [0.1.1] - 2026-03-31
 
 ### Added

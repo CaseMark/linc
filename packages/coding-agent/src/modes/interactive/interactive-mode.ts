@@ -65,7 +65,7 @@ import { type SessionContext, SessionManager } from "../../core/session-manager.
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
 import type { SourceInfo } from "../../core/source-info.js";
 import type { TruncationResult } from "../../core/tools/truncate.js";
-import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.js";
+import { getChangelogPath, parseChangelog } from "../../utils/changelog.js";
 import { copyToClipboard } from "../../utils/clipboard.js";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
 import { parseGitUrl } from "../../utils/git.js";
@@ -640,7 +640,14 @@ export class InteractiveMode {
 	 * Check npm registry for a newer version.
 	 */
 	private async checkForNewVersion(): Promise<string | undefined> {
-		if (process.env.PI_SKIP_VERSION_CHECK || process.env.PI_OFFLINE) return undefined;
+		if (
+			process.env.LINC_SKIP_VERSION_CHECK ||
+			process.env.LINC_OFFLINE ||
+			process.env.PI_SKIP_VERSION_CHECK ||
+			process.env.PI_OFFLINE
+		) {
+			return undefined;
+		}
 
 		try {
 			const response = await fetch("https://registry.npmjs.org/@casemark/linc/latest", {
@@ -662,7 +669,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.LINC_OFFLINE || process.env.PI_OFFLINE) {
 			return [];
 		}
 
@@ -728,7 +735,7 @@ export class InteractiveMode {
 
 	/**
 	 * Get changelog entries to display on startup.
-	 * Only shows new entries since last seen version, skips for resumed sessions.
+	 * Records the last seen version without showing release notes on startup.
 	 */
 	private getChangelogForDisplay(): string | undefined {
 		// Skip changelog for resumed/continued sessions (already have messages)
@@ -737,19 +744,8 @@ export class InteractiveMode {
 		}
 
 		const lastVersion = this.settingsManager.getLastChangelogVersion();
-		const changelogPath = getChangelogPath();
-		const entries = parseChangelog(changelogPath);
-
-		if (!lastVersion) {
-			// Fresh install - just record the version, don't show changelog
+		if (lastVersion !== VERSION) {
 			this.settingsManager.setLastChangelogVersion(VERSION);
-			return undefined;
-		} else {
-			const newEntries = getNewEntries(entries, lastVersion);
-			if (newEntries.length > 0) {
-				this.settingsManager.setLastChangelogVersion(VERSION);
-				return newEntries.map((e) => e.content).join("\n\n");
-			}
 		}
 
 		return undefined;
@@ -3245,7 +3241,7 @@ export class InteractiveMode {
 					transport: this.settingsManager.getTransport(),
 					thinkingLevel: this.session.thinkingLevel,
 					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
-					currentTheme: this.settingsManager.getTheme() || "dark",
+					currentTheme: this.settingsManager.getTheme() || "linc-mono",
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
@@ -3300,7 +3296,7 @@ export class InteractiveMode {
 						this.settingsManager.setTheme(themeName);
 						this.ui.invalidate();
 						if (!result.success) {
-							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
+							this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to linc-mono.`);
 						}
 					},
 					onThemePreview: (themeName) => {
@@ -3966,7 +3962,7 @@ export class InteractiveMode {
 			const themeName = this.settingsManager.getTheme();
 			const themeResult = themeName ? setTheme(themeName, true) : { success: true };
 			if (!themeResult.success) {
-				this.showError(`Failed to load theme "${themeName}": ${themeResult.error}\nFell back to dark theme.`);
+				this.showError(`Failed to load theme "${themeName}": ${themeResult.error}\nFell back to linc-mono.`);
 			}
 			const editorPaddingX = this.settingsManager.getEditorPaddingX();
 			const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();

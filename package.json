@@ -17,6 +17,9 @@
 		"dev:tsc": "concurrently --names \"ai,web-ui\" --prefix-colors \"cyan,green\" \"cd packages/ai && npm run dev:tsc\" \"cd packages/web-ui && npm run dev:tsc\"",
 		"check": "biome check --write --error-on-warnings . && tsgo --noEmit && npm run check:browser-smoke && cd packages/web-ui && npm run check",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
+		"docs:build": "node scripts/preview-linc-docs.mjs --build dist/linc-docs",
+		"docs:preview": "node scripts/preview-linc-docs.mjs",
+		"upstream:pi": "node scripts/upstream-pi-report.mjs",
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",
 		"test": "npm run test --workspaces --if-present",
@@ -30,6 +33,7 @@
 		"release:patch": "node scripts/release.mjs patch",
 		"release:minor": "node scripts/release.mjs minor",
 		"release:major": "node scripts/release.mjs major",
+		"release:prepare": "node scripts/prepare-release.mjs",
 		"prepare": "husky"
 	},
 	"devDependencies": {
@@ -48,7 +52,7 @@
 	"version": "0.0.3",
 	"dependencies": {
 		"@mariozechner/jiti": "^2.6.5",
-		"@casemark/linc": "^0.1.0",
+		"@casemark/linc": "^0.2.0",
 		"get-east-asian-width": "^1.4.0"
 	},
 	"overrides": {

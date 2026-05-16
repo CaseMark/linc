@@ -153,6 +153,15 @@ export function getExamplesPath(): string {
 	return resolve(join(getPackageDir(), "examples"));
 }
 
+/** Get path to the source-checkout web UI example, when available */
+export function getWebUiExampleDir(): string | undefined {
+	const candidate = resolve(join(getPackageDir(), "..", "web-ui", "example"));
+	if (existsSync(join(candidate, "package.json"))) {
+		return candidate;
+	}
+	return undefined;
+}
+
 /** Get path to CHANGELOG.md */
 export function getChangelogPath(): string {
 	return resolve(join(getPackageDir(), "CHANGELOG.md"));
@@ -180,10 +189,10 @@ export function getShareViewerUrl(gistId: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (for Linc: ~/.linc/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the agent config directory (for Linc: ~/.linc/agent/) */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {

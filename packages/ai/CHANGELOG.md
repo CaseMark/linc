@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.2.0] - 2026-05-15
+
+### Fixed
+
+- Fixed browser imports by making environment API-key resolution safe when `process` is unavailable.
+
 ## [0.1.1] - 2026-03-31
 
 ### Changed

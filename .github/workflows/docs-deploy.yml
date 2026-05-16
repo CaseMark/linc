@@ -1,0 +1,43 @@
+name: Docs Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/linc/**"
+      - "scripts/preview-linc-docs.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "vercel.json"
+      - ".github/workflows/docs-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: team_0tko4kTKnjRS1NQMh72JOxzM
+      VERCEL_PROJECT_ID: prj_9OQSg73uYLsmyAJiPUGX42PfD6bg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify docs build
+        run: npm run docs:build
+
+      - name: Deploy docs to Vercel
+        run: npx vercel deploy --prod --yes --token="${VERCEL_TOKEN}"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

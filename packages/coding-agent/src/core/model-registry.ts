@@ -87,6 +87,7 @@ const ModelDefinitionSchema = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
+	openaiCompatBaseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
 	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
 	cost: Type.Optional(
@@ -126,6 +127,7 @@ type ModelOverride = Static<typeof ModelOverrideSchema>;
 
 const ProviderConfigSchema = Type.Object({
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
+	openaiCompatBaseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	apiKey: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
@@ -142,6 +144,28 @@ const ModelsConfigSchema = Type.Object({
 ajv.addSchema(ModelsConfigSchema, "ModelsConfig");
 
 type ModelsConfig = Static<typeof ModelsConfigSchema>;
+type ProviderConfig = ModelsConfig["providers"][string];
+type ModelDefinition = NonNullable<ProviderConfig["models"]>[number];
+
+function getProviderBaseUrl(providerConfig: ProviderConfig): string | undefined {
+	return providerConfig.openaiCompatBaseUrl ?? providerConfig.baseUrl;
+}
+
+function getModelBaseUrl(modelDef: ModelDefinition, providerConfig: ProviderConfig): string | undefined {
+	return modelDef.openaiCompatBaseUrl ?? modelDef.baseUrl ?? getProviderBaseUrl(providerConfig);
+}
+
+function getProviderApi(providerConfig: ProviderConfig): string | undefined {
+	return providerConfig.api ?? (providerConfig.openaiCompatBaseUrl ? "openai-completions" : undefined);
+}
+
+function getModelApi(modelDef: ModelDefinition, providerConfig: ProviderConfig): string | undefined {
+	return (
+		modelDef.api ??
+		getProviderApi(providerConfig) ??
+		(modelDef.openaiCompatBaseUrl ? "openai-completions" : undefined)
+	);
+}
 
 /** Provider override config (baseUrl, headers, apiKey, compat) without custom models */
 interface ProviderOverride {
@@ -389,9 +413,10 @@ export class ModelRegistry {
 
 			for (const [providerName, providerConfig] of Object.entries(config.providers)) {
 				// Apply provider-level baseUrl/headers/apiKey/compat override to built-in models when configured.
-				if (providerConfig.baseUrl || providerConfig.headers || providerConfig.apiKey || providerConfig.compat) {
+				const providerBaseUrl = getProviderBaseUrl(providerConfig);
+				if (providerBaseUrl || providerConfig.headers || providerConfig.apiKey || providerConfig.compat) {
 					overrides.set(providerName, {
-						baseUrl: providerConfig.baseUrl,
+						baseUrl: providerBaseUrl,
 						headers: providerConfig.headers,
 						apiKey: providerConfig.apiKey,
 						compat: providerConfig.compat,
@@ -421,22 +446,25 @@ export class ModelRegistry {
 
 	private validateConfig(config: ModelsConfig): void {
 		for (const [providerName, providerConfig] of Object.entries(config.providers)) {
-			const hasProviderApi = !!providerConfig.api;
+			const hasProviderApi = !!getProviderApi(providerConfig);
+			const providerBaseUrl = getProviderBaseUrl(providerConfig);
 			const models = providerConfig.models ?? [];
 			const hasModelOverrides =
 				providerConfig.modelOverrides && Object.keys(providerConfig.modelOverrides).length > 0;
 
 			if (models.length === 0) {
 				// Override-only config: needs baseUrl, compat, modelOverrides, or some combination.
-				if (!providerConfig.baseUrl && !providerConfig.compat && !hasModelOverrides) {
+				if (!providerBaseUrl && !providerConfig.compat && !hasModelOverrides) {
 					throw new Error(
-						`Provider ${providerName}: must specify "baseUrl", "compat", "modelOverrides", or "models".`,
+						`Provider ${providerName}: must specify "baseUrl", "openaiCompatBaseUrl", "compat", "modelOverrides", or "models".`,
 					);
 				}
 			} else {
 				// Custom models are merged into provider models and require endpoint + auth.
-				if (!providerConfig.baseUrl) {
-					throw new Error(`Provider ${providerName}: "baseUrl" is required when defining custom models.`);
+				if (!providerBaseUrl && models.some((modelDef) => !getModelBaseUrl(modelDef, providerConfig))) {
+					throw new Error(
+						`Provider ${providerName}: "baseUrl" or "openaiCompatBaseUrl" is required when defining custom models unless every model defines its own endpoint.`,
+					);
 				}
 				if (!providerConfig.apiKey) {
 					throw new Error(`Provider ${providerName}: "apiKey" is required when defining custom models.`);
@@ -444,7 +472,7 @@ export class ModelRegistry {
 			}
 
 			for (const modelDef of models) {
-				const hasModelApi = !!modelDef.api;
+				const hasModelApi = !!getModelApi(modelDef, providerConfig);
 
 				if (!hasProviderApi && !hasModelApi) {
 					throw new Error(
@@ -475,7 +503,7 @@ export class ModelRegistry {
 			}
 
 			for (const modelDef of modelDefs) {
-				const api = modelDef.api || providerConfig.api;
+				const api = getModelApi(modelDef, providerConfig);
 				if (!api) continue;
 
 				// Merge headers: provider headers are base, model headers override
@@ -493,15 +521,14 @@ export class ModelRegistry {
 					}
 				}
 
-				// Provider baseUrl is required when custom models are defined.
-				// Individual models can override it with modelDef.baseUrl.
+				// Individual models can override the provider endpoint with baseUrl/openaiCompatBaseUrl.
 				const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 				models.push({
 					id: modelDef.id,
 					name: modelDef.name ?? modelDef.id,
 					api: api as Api,
 					provider: providerName,
-					baseUrl: modelDef.baseUrl ?? providerConfig.baseUrl!,
+					baseUrl: getModelBaseUrl(modelDef, providerConfig)!,
 					reasoning: modelDef.reasoning ?? false,
 					input: (modelDef.input ?? ["text"]) as ("text" | "image")[],
 					cost: modelDef.cost ?? defaultCost,
@@ -591,7 +618,10 @@ export class ModelRegistry {
 	}
 
 	private validateProviderConfig(providerName: string, config: ProviderConfigInput): void {
-		if (config.streamSimple && !config.api) {
+		const providerApi = config.api ?? (config.openaiCompatBaseUrl ? "openai-completions" : undefined);
+		const providerBaseUrl = config.openaiCompatBaseUrl ?? config.baseUrl;
+
+		if (config.streamSimple && !providerApi) {
 			throw new Error(`Provider ${providerName}: "api" is required when registering streamSimple.`);
 		}
 
@@ -599,15 +629,17 @@ export class ModelRegistry {
 			return;
 		}
 
-		if (!config.baseUrl) {
-			throw new Error(`Provider ${providerName}: "baseUrl" is required when defining models.`);
+		if (!providerBaseUrl && config.models.some((modelDef) => !modelDef.openaiCompatBaseUrl && !modelDef.baseUrl)) {
+			throw new Error(
+				`Provider ${providerName}: "baseUrl" or "openaiCompatBaseUrl" is required when defining models unless every model defines its own endpoint.`,
+			);
 		}
 		if (!config.apiKey && !config.oauth) {
 			throw new Error(`Provider ${providerName}: "apiKey" or "oauth" is required when defining models.`);
 		}
 
 		for (const modelDef of config.models) {
-			const api = modelDef.api || config.api;
+			const api = modelDef.api || providerApi || (modelDef.openaiCompatBaseUrl ? "openai-completions" : undefined);
 			if (!api) {
 				throw new Error(`Provider ${providerName}, model ${modelDef.id}: no "api" specified.`);
 			}
@@ -615,6 +647,9 @@ export class ModelRegistry {
 	}
 
 	private applyProviderConfig(providerName: string, config: ProviderConfigInput): void {
+		const providerApi = config.api ?? (config.openaiCompatBaseUrl ? "openai-completions" : undefined);
+		const providerBaseUrl = config.openaiCompatBaseUrl ?? config.baseUrl;
+
 		// Register OAuth provider if provided
 		if (config.oauth) {
 			// Ensure the OAuth provider ID matches the provider name
@@ -629,7 +664,7 @@ export class ModelRegistry {
 			const streamSimple = config.streamSimple;
 			registerApiProvider(
 				{
-					api: config.api!,
+					api: providerApi!,
 					stream: (model, context, options) => streamSimple(model, context, options as SimpleStreamOptions),
 					streamSimple,
 				},
@@ -648,7 +683,9 @@ export class ModelRegistry {
 
 			// Parse and add new models
 			for (const modelDef of config.models) {
-				const api = modelDef.api || config.api;
+				const api =
+					modelDef.api || providerApi || (modelDef.openaiCompatBaseUrl ? "openai-completions" : undefined);
+				const modelBaseUrl = modelDef.openaiCompatBaseUrl ?? modelDef.baseUrl ?? providerBaseUrl;
 
 				// Merge headers
 				const providerHeaders = resolveHeaders(config.headers);
@@ -668,7 +705,7 @@ export class ModelRegistry {
 					name: modelDef.name,
 					api: api as Api,
 					provider: providerName,
-					baseUrl: config.baseUrl!,
+					baseUrl: modelBaseUrl!,
 					reasoning: modelDef.reasoning,
 					input: modelDef.input as ("text" | "image")[],
 					cost: modelDef.cost,
@@ -686,14 +723,14 @@ export class ModelRegistry {
 					this.models = config.oauth.modifyModels(this.models, cred);
 				}
 			}
-		} else if (config.baseUrl) {
+		} else if (providerBaseUrl) {
 			// Override-only: update baseUrl/headers for existing models
 			const resolvedHeaders = resolveHeaders(config.headers);
 			this.models = this.models.map((m) => {
 				if (m.provider !== providerName) return m;
 				return {
 					...m,
-					baseUrl: config.baseUrl ?? m.baseUrl,
+					baseUrl: providerBaseUrl ?? m.baseUrl,
 					headers: resolvedHeaders ? { ...m.headers, ...resolvedHeaders } : m.headers,
 				};
 			});
@@ -706,6 +743,7 @@ export class ModelRegistry {
  */
 export interface ProviderConfigInput {
 	baseUrl?: string;
+	openaiCompatBaseUrl?: string;
 	apiKey?: string;
 	api?: Api;
 	streamSimple?: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
@@ -718,6 +756,7 @@ export interface ProviderConfigInput {
 		name: string;
 		api?: Api;
 		baseUrl?: string;
+		openaiCompatBaseUrl?: string;
 		reasoning: boolean;
 		input: ("text" | "image")[];
 		cost: { input: number; output: number; cacheRead: number; cacheWrite: number };

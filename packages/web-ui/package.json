@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc-web-ui",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"private": true,
 	"description": "Reusable web UI components for AI chat interfaces powered by @casemark/linc-ai",
 	"type": "module",
@@ -19,8 +19,8 @@
 	},
 	"dependencies": {
 		"@lmstudio/sdk": "^1.5.0",
-		"@casemark/linc-ai": "^0.1.1",
-		"@casemark/linc-tui": "^0.1.1",
+		"@casemark/linc-ai": "^0.2.0",
+		"@casemark/linc-tui": "^0.2.0",
 		"docx-preview": "^0.3.7",
 		"jszip": "^3.10.1",
 		"lucide": "^0.544.0",
