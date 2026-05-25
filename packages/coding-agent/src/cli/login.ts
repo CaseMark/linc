@@ -2,6 +2,7 @@
  * linc login — authenticate with Core OAuth tokens or case.dev API keys.
  */
 
+import type { OAuthCredentials } from "@casemark/linc-ai/oauth";
 import chalk from "chalk";
 import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -56,6 +57,8 @@ interface CoreTokenResponse {
 }
 
 type LoginTarget = "core" | "casedev" | "manual";
+const CASEDEV_PROVIDER_ID = "casedev";
+const CASEMARK_CORE_PROVIDER_ID = "casemark-core";
 
 function ask(prompt: string): Promise<string> {
 	const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -107,6 +110,19 @@ async function readJsonSafe<T>(response: Response): Promise<T | null> {
 	} catch {
 		return null;
 	}
+}
+
+function coreResponseToCredentials(result: CoreTokenResponse): OAuthCredentials | null {
+	if (!result.access_token) {
+		return null;
+	}
+	return {
+		refresh: result.refresh_token || "",
+		access: result.access_token,
+		expires: Date.now() + Math.max(1, result.expires_in || 3600) * 1000,
+		scope: result.scope,
+		tokenType: result.token_type,
+	};
 }
 
 async function deviceFlowLoginCasedev(): Promise<string | null> {
@@ -183,7 +199,7 @@ async function deviceFlowLoginCasedev(): Promise<string | null> {
 	return null;
 }
 
-async function deviceFlowLoginCore(): Promise<string | null> {
+async function deviceFlowLoginCore(): Promise<OAuthCredentials | null> {
 	console.error(chalk.dim("  Starting Core device authorization...\n"));
 
 	let startRes: Response;
@@ -236,7 +252,7 @@ async function deviceFlowLoginCore(): Promise<string | null> {
 
 		const result = await readJsonSafe<CoreTokenResponse>(pollRes);
 		if (pollRes.ok && result?.access_token) {
-			return result.access_token;
+			return coreResponseToCredentials(result);
 		}
 
 		const errorCode = result?.error;
@@ -294,7 +310,8 @@ const CASEDEV_CONFIG_PATH = join(homedir(), ".config", "case", "config.json");
 function saveKey(apiKey: string): void {
 	// Save to linc auth storage (~/.linc/agent/auth.json)
 	const authStorage = AuthStorage.create();
-	authStorage.set("casedev", { type: "api_key", key: apiKey });
+	const providerId = isCoreAccessToken(apiKey) ? CASEMARK_CORE_PROVIDER_ID : CASEDEV_PROVIDER_ID;
+	authStorage.set(providerId, { type: "api_key", key: apiKey });
 
 	// Only case.dev sk_case_* keys should be mirrored to casedev CLI config.
 	if (!apiKey.startsWith("sk_case_")) {
@@ -317,6 +334,11 @@ function saveKey(apiKey: string): void {
 	} catch {
 		// Non-fatal — linc auth.json is the primary store
 	}
+}
+
+function saveCoreCredentials(credentials: OAuthCredentials): void {
+	const authStorage = AuthStorage.create();
+	authStorage.set(CASEMARK_CORE_PROVIDER_ID, { type: "oauth", ...credentials });
 }
 
 function readCasedevCliKey(): string | undefined {
@@ -346,24 +368,31 @@ export async function runLogin(): Promise<boolean> {
 
 	console.error("");
 
-	let apiKey: string | null = null;
+	let authToken: string | null = null;
 
 	if (target === "core") {
-		apiKey = await deviceFlowLoginCore();
+		const credentials = await deviceFlowLoginCore();
+		if (!credentials) {
+			return false;
+		}
+		saveCoreCredentials(credentials);
+		authToken = credentials.access;
 	} else if (target === "casedev") {
-		apiKey = await deviceFlowLoginCasedev();
+		authToken = await deviceFlowLoginCasedev();
 	} else {
-		apiKey = await manualTokenLogin();
+		authToken = await manualTokenLogin();
 	}
 
-	if (!apiKey) {
+	if (!authToken) {
 		return false;
 	}
 
-	saveKey(apiKey);
+	if (target !== "core") {
+		saveKey(authToken);
+	}
 
 	// Also set token in current process for model loading.
-	setProcessAuthToken(apiKey);
+	setProcessAuthToken(authToken);
 
 	console.error(chalk.green("\n  Authenticated! Token saved to ~/.linc/agent/auth.json\n"));
 	return true;
@@ -392,10 +421,16 @@ export function isAuthenticated(): boolean {
 	// 4. Check linc auth.json (~/.linc/agent/auth.json)
 	try {
 		const authStorage = AuthStorage.create();
-		const cred = authStorage.get("casedev");
-		if (cred?.type === "api_key" && cred.key) {
-			setProcessAuthToken(cred.key);
-			return true;
+		for (const providerId of [CASEMARK_CORE_PROVIDER_ID, CASEDEV_PROVIDER_ID]) {
+			const cred = authStorage.get(providerId);
+			if (cred?.type === "api_key" && cred.key) {
+				setProcessAuthToken(cred.key);
+				return true;
+			}
+			if (cred?.type === "oauth" && cred.access && Date.now() < cred.expires) {
+				setProcessAuthToken(cred.access);
+				return true;
+			}
 		}
 	} catch {
 		// auth.json doesn't exist or is corrupt
@@ -418,6 +453,17 @@ export function isAuthenticated(): boolean {
 export async function ensureAuthenticated(): Promise<boolean> {
 	if (isAuthenticated()) {
 		return true;
+	}
+
+	try {
+		const authStorage = AuthStorage.create();
+		const token = await authStorage.getApiKey(CASEDEV_PROVIDER_ID);
+		if (token) {
+			setProcessAuthToken(token);
+			return true;
+		}
+	} catch {
+		// Fall through to interactive login.
 	}
 
 	console.error(chalk.yellow("\n  No auth token found. Let's get you set up.\n"));

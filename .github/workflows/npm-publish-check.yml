@@ -2,7 +2,7 @@ name: NPM Publish Check
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "package.json"
       - "package-lock.json"
@@ -10,7 +10,7 @@ on:
       - "scripts/**"
       - ".github/workflows/npm-publish-check.yml"
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "package.json"
       - "package-lock.json"

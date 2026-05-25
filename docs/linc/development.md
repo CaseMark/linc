@@ -33,3 +33,5 @@ npm run docs:preview
 ```
 
 Linc is based on Pi and selectively tracks upstream changes while keeping case.dev as the provider path.
+
+For release mechanics, see [Release](release.md).

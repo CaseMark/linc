@@ -753,6 +753,7 @@ export async function main(args: string[]) {
 	if (args[0] === "logout") {
 		const authStorage = AuthStorage.create();
 		authStorage.remove("casedev");
+		authStorage.remove("casemark-core");
 		delete process.env.CASEDEV_API_KEY;
 		delete process.env.CORE_ACCESS_TOKEN;
 		console.log("Logged out. Auth token removed from ~/.linc/agent/auth.json");

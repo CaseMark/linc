@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `/login` support for CaseMark Core OAuth and manual case.dev API key auth while preserving multi-provider credentials.
+- Added bundled Linc subpath exports for agent core, AI, AI OAuth, and TUI package surfaces.
+
 ## [0.2.0] - 2026-05-15
 
 ### Added

@@ -1,16 +1,23 @@
-import type { OAuthProviderInterface } from "@casemark/linc-ai";
 import { getOAuthProviders } from "@casemark/linc-ai/oauth";
 import { Container, getKeybindings, Spacer, TruncatedText } from "@casemark/linc-tui";
 import type { AuthStorage } from "../../../core/auth-storage.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 
+export const CASEDEV_API_KEY_LOGIN_ID = "casedev-api-key";
+
+interface AuthOption {
+	id: string;
+	name: string;
+	type: "oauth" | "api_key";
+}
+
 /**
  * Component that renders an OAuth provider selector
  */
 export class OAuthSelectorComponent extends Container {
 	private listContainer: Container;
-	private allProviders: OAuthProviderInterface[] = [];
+	private allProviders: AuthOption[] = [];
 	private selectedIndex: number = 0;
 	private mode: "login" | "logout";
 	private authStorage: AuthStorage;
@@ -56,7 +63,23 @@ export class OAuthSelectorComponent extends Container {
 	}
 
 	private loadProviders(): void {
-		this.allProviders = getOAuthProviders();
+		const oauthProviders = getOAuthProviders()
+			.filter((provider) => provider.id !== "casedev")
+			.map((provider): AuthOption => ({ id: provider.id, name: provider.name, type: "oauth" }));
+
+		if (this.mode === "logout") {
+			const options = oauthProviders.filter((provider) => this.authStorage.get(provider.id)?.type === "oauth");
+			if (this.authStorage.get("casedev")?.type === "api_key") {
+				options.unshift({ id: CASEDEV_API_KEY_LOGIN_ID, name: "case.dev API key", type: "api_key" });
+			}
+			this.allProviders = options;
+			return;
+		}
+
+		this.allProviders = [
+			{ id: CASEDEV_API_KEY_LOGIN_ID, name: "case.dev API key", type: "api_key" },
+			...oauthProviders,
+		];
 	}
 
 	private updateList(): void {
@@ -68,9 +91,12 @@ export class OAuthSelectorComponent extends Container {
 
 			const isSelected = i === this.selectedIndex;
 
-			// Check if user is logged in for this provider
-			const credentials = this.authStorage.get(provider.id);
-			const isLoggedIn = credentials?.type === "oauth";
+			const credentials =
+				provider.id === CASEDEV_API_KEY_LOGIN_ID
+					? this.authStorage.get("casedev")
+					: this.authStorage.get(provider.id);
+			const isLoggedIn =
+				provider.type === "api_key" ? credentials?.type === "api_key" : credentials?.type === "oauth";
 			const statusIndicator = isLoggedIn ? theme.fg("success", " ✓ logged in") : "";
 
 			let line = "";
@@ -89,7 +115,7 @@ export class OAuthSelectorComponent extends Container {
 		// Show "no providers" if empty
 		if (this.allProviders.length === 0) {
 			const message =
-				this.mode === "login" ? "No OAuth providers available" : "No OAuth providers logged in. Use /login first.";
+				this.mode === "login" ? "No auth providers available" : "No auth credentials stored. Use /login first.";
 			this.listContainer.addChild(new TruncatedText(theme.fg("muted", `  ${message}`), 0, 0));
 		}
 	}

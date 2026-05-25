@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerOAuthProvider } from "@casemark/linc-ai/oauth";
+import { registerOAuthProvider, resetOAuthProviders } from "@casemark/linc-ai/oauth";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
@@ -23,6 +23,7 @@ describe("AuthStorage", () => {
 			rmSync(tempDir, { recursive: true });
 		}
 		clearConfigValueCache();
+		resetOAuthProviders();
 		vi.restoreAllMocks();
 	});
 
@@ -240,6 +241,91 @@ describe("AuthStorage", () => {
 
 				expect(keyA).toBe("key-anthropic");
 				expect(keyB).toBe("key-openai");
+			});
+
+			test("casemark core auth is used for routed provider models", async () => {
+				writeAuthJson({
+					"casemark-core": { type: "api_key", key: "core_at_test-token" },
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				expect(authStorage.hasAuth("casedev")).toBe(true);
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("core_at_test-token");
+				await expect(authStorage.getApiKey("anthropic")).resolves.toBe("core_at_test-token");
+			});
+
+			test("case.dev auth is used when core auth is absent", async () => {
+				writeAuthJson({
+					casedev: { type: "api_key", key: "sk_case_test-token" },
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				expect(authStorage.hasAuth("casedev")).toBe(true);
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("sk_case_test-token");
+				await expect(authStorage.getApiKey("anthropic")).resolves.toBe("sk_case_test-token");
+			});
+
+			test("expired casemark core oauth refreshes for routed provider models", async () => {
+				registerOAuthProvider({
+					id: "casemark-core",
+					name: "Test CaseMark Core",
+					async login() {
+						throw new Error("Not used in this test");
+					},
+					async refreshToken(credentials) {
+						return {
+							...credentials,
+							access: "core_at_refreshed-token",
+							expires: Date.now() + 60_000,
+						};
+					},
+					getApiKey(credentials) {
+						return credentials.access;
+					},
+				});
+				writeAuthJson({
+					"casemark-core": {
+						type: "oauth",
+						refresh: "refresh-token",
+						access: "core_at_expired-token",
+						expires: Date.now() - 10_000,
+					},
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("core_at_refreshed-token");
+			});
+
+			test("environment auth takes priority over stored global auth", async () => {
+				const originalCoreToken = process.env.CORE_ACCESS_TOKEN;
+				const originalCasedevKey = process.env.CASEDEV_API_KEY;
+
+				try {
+					process.env.CASEDEV_API_KEY = "sk_case_env-token";
+					delete process.env.CORE_ACCESS_TOKEN;
+					writeAuthJson({
+						"casemark-core": { type: "api_key", key: "core_at_stored-token" },
+						casedev: { type: "api_key", key: "sk_case_stored-token" },
+					});
+
+					authStorage = AuthStorage.create(authJsonPath);
+
+					await expect(authStorage.getApiKey("casedev")).resolves.toBe("sk_case_env-token");
+				} finally {
+					if (originalCoreToken === undefined) {
+						delete process.env.CORE_ACCESS_TOKEN;
+					} else {
+						process.env.CORE_ACCESS_TOKEN = originalCoreToken;
+					}
+					if (originalCasedevKey === undefined) {
+						delete process.env.CASEDEV_API_KEY;
+					} else {
+						process.env.CASEDEV_API_KEY = originalCasedevKey;
+					}
+				}
 			});
 
 			test("failed commands are cached (not retried)", async () => {

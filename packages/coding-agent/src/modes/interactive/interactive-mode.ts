@@ -87,7 +87,7 @@ import { FooterComponent } from "./components/footer.js";
 import { keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.js";
 import { LoginDialogComponent } from "./components/login-dialog.js";
 import { ModelSelectorComponent } from "./components/model-selector.js";
-import { OAuthSelectorComponent } from "./components/oauth-selector.js";
+import { CASEDEV_API_KEY_LOGIN_ID, OAuthSelectorComponent } from "./components/oauth-selector.js";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.js";
 import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
@@ -116,6 +116,12 @@ import {
 interface Expandable {
 	setExpanded(expanded: boolean): void;
 }
+
+const CASEDEV_PROVIDER_ID = "casedev";
+const CASEMARK_CORE_PROVIDER_ID = "casemark-core";
+const CASEDEV_API_BASE = process.env.CASEDEV_API_BASE_URL || "https://api.case.dev";
+const CASEDEV_LLM_BASE = `${CASEDEV_API_BASE.replace(/\/+$/, "")}/llm/v1`;
+const CASEDEV_CONFIG_PATH = path.join(os.homedir(), ".config", "case", "config.json");
 
 function isExpandable(obj: unknown): obj is Expandable {
 	return typeof obj === "object" && obj !== null && "setExpanded" in obj && typeof obj.setExpanded === "function";
@@ -3783,11 +3789,12 @@ export class InteractiveMode {
 	private async showOAuthSelector(mode: "login" | "logout"): Promise<void> {
 		if (mode === "logout") {
 			const providers = this.session.modelRegistry.authStorage.list();
-			const loggedInProviders = providers.filter(
-				(p) => this.session.modelRegistry.authStorage.get(p)?.type === "oauth",
-			);
+			const loggedInProviders = providers.filter((p) => {
+				const credential = this.session.modelRegistry.authStorage.get(p);
+				return credential?.type === "oauth" || (p === CASEDEV_PROVIDER_ID && credential?.type === "api_key");
+			});
 			if (loggedInProviders.length === 0) {
-				this.showStatus("No OAuth providers logged in. Use /login first.");
+				this.showStatus("No auth credentials stored. Use /login first.");
 				return;
 			}
 		}
@@ -3800,16 +3807,23 @@ export class InteractiveMode {
 					done();
 
 					if (mode === "login") {
-						await this.showLoginDialog(providerId);
+						if (providerId === CASEDEV_API_KEY_LOGIN_ID) {
+							await this.showCasedevApiKeyDialog();
+						} else {
+							await this.showLoginDialog(providerId);
+						}
 					} else {
 						// Logout flow
 						const providerInfo = this.session.modelRegistry.authStorage
 							.getOAuthProviders()
 							.find((p) => p.id === providerId);
-						const providerName = providerInfo?.name || providerId;
+						const providerName =
+							providerId === CASEDEV_API_KEY_LOGIN_ID ? "case.dev API key" : providerInfo?.name || providerId;
 
 						try {
-							this.session.modelRegistry.authStorage.logout(providerId);
+							this.session.modelRegistry.authStorage.logout(
+								providerId === CASEDEV_API_KEY_LOGIN_ID ? CASEDEV_PROVIDER_ID : providerId,
+							);
 							this.session.modelRegistry.refresh();
 							await this.updateAvailableProviderCount();
 							this.showStatus(`Logged out of ${providerName}`);
@@ -3825,6 +3839,82 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	private saveCasedevCliKey(apiKey: string): void {
+		try {
+			const dir = path.dirname(CASEDEV_CONFIG_PATH);
+			if (!fs.existsSync(dir)) {
+				fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+			}
+			let config: Record<string, unknown> = {};
+			if (fs.existsSync(CASEDEV_CONFIG_PATH)) {
+				config = JSON.parse(fs.readFileSync(CASEDEV_CONFIG_PATH, "utf-8")) as Record<string, unknown>;
+			}
+			config.apiKey = apiKey;
+			fs.writeFileSync(CASEDEV_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+			fs.chmodSync(CASEDEV_CONFIG_PATH, 0o600);
+		} catch {
+			// The linc auth file is the source of truth; casedev CLI mirroring is best-effort.
+		}
+	}
+
+	private async verifyCasedevApiKey(apiKey: string): Promise<void> {
+		const res = await fetch(`${CASEDEV_LLM_BASE}/models`, {
+			headers: { Authorization: `Bearer ${apiKey}` },
+		});
+		if (!res.ok) {
+			throw new Error(`Token verification failed: ${res.status} ${res.statusText}`);
+		}
+	}
+
+	private async showCasedevApiKeyDialog(): Promise<void> {
+		const dialog = new LoginDialogComponent(this.ui, CASEDEV_API_KEY_LOGIN_ID, (_success, _message) => {
+			// Completion handled below.
+		});
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const apiKey = (await dialog.showPrompt("Paste your case.dev API key:", "sk_case_...")).trim();
+			if (!apiKey) {
+				throw new Error("No API key provided");
+			}
+			if (!apiKey.startsWith("sk_case_")) {
+				throw new Error("Expected a case.dev API key starting with sk_case_");
+			}
+
+			dialog.showProgress("Verifying case.dev API key...");
+			await this.verifyCasedevApiKey(apiKey);
+
+			const authStorage = this.session.modelRegistry.authStorage;
+			authStorage.set(CASEDEV_PROVIDER_ID, { type: "api_key", key: apiKey });
+			authStorage.setRuntimeApiKey(CASEDEV_PROVIDER_ID, apiKey);
+			process.env.CASEDEV_API_KEY = apiKey;
+			delete process.env.CORE_ACCESS_TOKEN;
+			this.saveCasedevCliKey(apiKey);
+
+			restoreEditor();
+			this.session.modelRegistry.refresh();
+			await this.updateAvailableProviderCount();
+			this.showStatus(`Logged in to case.dev. API key saved to ${getAuthPath()}`);
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to save case.dev API key: ${errorMsg}`);
+			}
+		}
 	}
 
 	private async showLoginDialog(providerId: string): Promise<void> {
@@ -3901,6 +3991,15 @@ export class InteractiveMode {
 
 				signal: dialog.signal,
 			});
+
+			if (providerId === CASEMARK_CORE_PROVIDER_ID) {
+				const coreToken = await this.session.modelRegistry.authStorage.getApiKey(CASEMARK_CORE_PROVIDER_ID);
+				if (coreToken) {
+					this.session.modelRegistry.authStorage.setRuntimeApiKey(CASEDEV_PROVIDER_ID, coreToken);
+					process.env.CORE_ACCESS_TOKEN = coreToken;
+					delete process.env.CASEDEV_API_KEY;
+				}
+			}
 
 			// Success
 			restoreEditor();

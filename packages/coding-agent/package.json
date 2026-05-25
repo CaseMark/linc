@@ -20,6 +20,22 @@
 		"./hooks": {
 			"types": "./dist/core/hooks/index.d.ts",
 			"import": "./dist/core/hooks/index.js"
+		},
+		"./agent-core": {
+			"types": "./dist/agent-core.d.ts",
+			"import": "./dist/agent-core.js"
+		},
+		"./ai": {
+			"types": "./dist/ai.d.ts",
+			"import": "./dist/ai.js"
+		},
+		"./ai/oauth": {
+			"types": "./dist/ai-oauth.d.ts",
+			"import": "./dist/ai-oauth.js"
+		},
+		"./tui": {
+			"types": "./dist/tui.d.ts",
+			"import": "./dist/tui.js"
 		}
 	},
 	"files": [
