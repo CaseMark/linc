@@ -1,6 +1,7 @@
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface } from "./types.js";
 
-const CASEDEV_API_BASE = process.env.CASEDEV_API_BASE_URL || "https://api.case.dev";
+const env = typeof process === "undefined" ? undefined : process.env;
+const CASEDEV_API_BASE = env?.CASEDEV_API_BASE_URL || "https://api.case.dev";
 const NEVER_EXPIRES = 253402300799000;
 
 interface DeviceFlowStartResponse {

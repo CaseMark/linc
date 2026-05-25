@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerOAuthProvider } from "@casemark/linc-ai/oauth";
+import { registerOAuthProvider, resetOAuthProviders } from "@casemark/linc-ai/oauth";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
@@ -23,6 +23,7 @@ describe("AuthStorage", () => {
 			rmSync(tempDir, { recursive: true });
 		}
 		clearConfigValueCache();
+		resetOAuthProviders();
 		vi.restoreAllMocks();
 	});
 
@@ -264,6 +265,38 @@ describe("AuthStorage", () => {
 				expect(authStorage.hasAuth("casedev")).toBe(true);
 				await expect(authStorage.getApiKey("casedev")).resolves.toBe("sk_case_test-token");
 				await expect(authStorage.getApiKey("anthropic")).resolves.toBe("sk_case_test-token");
+			});
+
+			test("expired casemark core oauth refreshes for routed provider models", async () => {
+				registerOAuthProvider({
+					id: "casemark-core",
+					name: "Test CaseMark Core",
+					async login() {
+						throw new Error("Not used in this test");
+					},
+					async refreshToken(credentials) {
+						return {
+							...credentials,
+							access: "core_at_refreshed-token",
+							expires: Date.now() + 60_000,
+						};
+					},
+					getApiKey(credentials) {
+						return credentials.access;
+					},
+				});
+				writeAuthJson({
+					"casemark-core": {
+						type: "oauth",
+						refresh: "refresh-token",
+						access: "core_at_expired-token",
+						expires: Date.now() - 10_000,
+					},
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("core_at_refreshed-token");
 			});
 
 			test("environment auth takes priority over stored global auth", async () => {

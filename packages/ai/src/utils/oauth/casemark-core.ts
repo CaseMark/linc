@@ -1,8 +1,9 @@
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface } from "./types.js";
 
-const CORE_API_BASE = process.env.CORE_API_BASE_URL || "https://core.case.dev";
-const CORE_OAUTH_CLIENT_ID = process.env.LINC_CORE_OAUTH_CLIENT_ID || "linc";
-const CORE_OAUTH_SCOPE = process.env.LINC_CORE_OAUTH_SCOPE || "core:chat";
+const env = typeof process === "undefined" ? undefined : process.env;
+const CORE_API_BASE = env?.CORE_API_BASE_URL || "https://core.case.dev";
+const CORE_OAUTH_CLIENT_ID = env?.LINC_CORE_OAUTH_CLIENT_ID || "linc";
+const CORE_OAUTH_SCOPE = env?.LINC_CORE_OAUTH_SCOPE || "core:chat";
 
 interface CoreDeviceCodeResponse {
 	device_code: string;
