@@ -56,6 +56,8 @@ interface CoreTokenResponse {
 }
 
 type LoginTarget = "core" | "casedev" | "manual";
+const CASEDEV_PROVIDER_ID = "casedev";
+const CASEMARK_CORE_PROVIDER_ID = "casemark-core";
 
 function ask(prompt: string): Promise<string> {
 	const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -294,7 +296,8 @@ const CASEDEV_CONFIG_PATH = join(homedir(), ".config", "case", "config.json");
 function saveKey(apiKey: string): void {
 	// Save to linc auth storage (~/.linc/agent/auth.json)
 	const authStorage = AuthStorage.create();
-	authStorage.set("casedev", { type: "api_key", key: apiKey });
+	const providerId = isCoreAccessToken(apiKey) ? CASEMARK_CORE_PROVIDER_ID : CASEDEV_PROVIDER_ID;
+	authStorage.set(providerId, { type: "api_key", key: apiKey });
 
 	// Only case.dev sk_case_* keys should be mirrored to casedev CLI config.
 	if (!apiKey.startsWith("sk_case_")) {
@@ -392,10 +395,16 @@ export function isAuthenticated(): boolean {
 	// 4. Check linc auth.json (~/.linc/agent/auth.json)
 	try {
 		const authStorage = AuthStorage.create();
-		const cred = authStorage.get("casedev");
-		if (cred?.type === "api_key" && cred.key) {
-			setProcessAuthToken(cred.key);
-			return true;
+		for (const providerId of [CASEMARK_CORE_PROVIDER_ID, CASEDEV_PROVIDER_ID]) {
+			const cred = authStorage.get(providerId);
+			if (cred?.type === "api_key" && cred.key) {
+				setProcessAuthToken(cred.key);
+				return true;
+			}
+			if (cred?.type === "oauth" && cred.access) {
+				setProcessAuthToken(cred.access);
+				return true;
+			}
 		}
 	} catch {
 		// auth.json doesn't exist or is corrupt

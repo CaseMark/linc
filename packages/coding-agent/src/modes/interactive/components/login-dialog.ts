@@ -35,7 +35,7 @@ export class LoginDialogComponent extends Container implements Focusable {
 		this.tui = tui;
 
 		const providerInfo = getOAuthProviders().find((p) => p.id === providerId);
-		const providerName = providerInfo?.name || providerId;
+		const providerName = providerId === "casedev-api-key" ? "case.dev API key" : providerInfo?.name || providerId;
 
 		// Top border
 		this.addChild(new DynamicBorder());

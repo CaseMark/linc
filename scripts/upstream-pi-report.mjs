@@ -94,6 +94,9 @@ function buildPathSummary(diffNameStatus) {
 function buildRiskNotes(diffNameStatus) {
 	const paths = diffNameStatus.split("\n").filter(Boolean).map((line) => line.split("\t").at(-1) ?? "");
 	const notes = [];
+	if (paths.some((path) => path.startsWith("packages/agent/"))) {
+		notes.push("- `packages/agent` should track `@earendil-works/pi-agent-core` without Linc-specific changes.");
+	}
 	if (paths.some((path) => path.includes("providers") || path.includes("models"))) {
 		notes.push("- Provider/model changes need manual Linc filtering because Linc routes through case.dev only.");
 	}
@@ -110,6 +113,27 @@ function buildRiskNotes(diffNameStatus) {
 		notes.push("- Pi removed or reshaped packages that Linc still carries; package deletions are not automatically portable.");
 	}
 	return notes.length > 0 ? notes : ["- No obvious Linc-specific risk markers found in changed paths."];
+}
+
+function buildPackagePolicyLines(config) {
+	const packagePolicy = config.packagePolicy;
+	if (!packagePolicy?.packages) {
+		return ["No package policy configured."];
+	}
+
+	const lines = [
+		`Source upstream: ${packagePolicy.sourceUpstream ?? config.remote}`,
+		`Bundle package: ${packagePolicy.bundlePackage ?? "(unspecified)"}`,
+		"",
+	];
+	for (const [name, policy] of Object.entries(packagePolicy.packages)) {
+		lines.push(`- ${name}: ${policy.upstreamPath} -> ${policy.localPath}`);
+		if (policy.lincSubpath) {
+			lines.push(`  Linc import: \`${policy.lincSubpath}\``);
+		}
+		lines.push(`  Policy: ${policy.policy}`);
+	}
+	return lines;
 }
 
 function writeGithubOutput(values) {
@@ -163,6 +187,10 @@ function main() {
 		"## Linc Review Notes",
 		"",
 		...riskNotes,
+		"",
+		"## Package Policy",
+		"",
+		...buildPackagePolicyLines(config),
 		"",
 		"## Commits",
 		"",

@@ -27,6 +27,14 @@ export type AuthCredential = ApiKeyCredential | OAuthCredential;
 
 export type AuthStorageData = Record<string, AuthCredential>;
 
+const CASEDEV_PROVIDER_ID = "casedev";
+const CASEMARK_CORE_PROVIDER_ID = "casemark-core";
+const GLOBAL_LLM_AUTH_PROVIDERS = [CASEMARK_CORE_PROVIDER_ID, CASEDEV_PROVIDER_ID] as const;
+
+function isGlobalLlmAuthProvider(providerId: string): boolean {
+	return providerId === CASEMARK_CORE_PROVIDER_ID || providerId === CASEDEV_PROVIDER_ID;
+}
+
 type LockResult<T> = {
 	result: T;
 	next?: string;
@@ -319,6 +327,8 @@ export class AuthStorage {
 	hasAuth(provider: string): boolean {
 		if (this.runtimeOverrides.has(provider)) return true;
 		if (this.data[provider]) return true;
+		if (GLOBAL_LLM_AUTH_PROVIDERS.some((authProvider) => this.runtimeOverrides.has(authProvider))) return true;
+		if (GLOBAL_LLM_AUTH_PROVIDERS.some((authProvider) => this.data[authProvider])) return true;
 		if (getEnvApiKey(provider)) return true;
 		if (this.fallbackResolver?.(provider)) return true;
 		return false;
@@ -361,10 +371,7 @@ export class AuthStorage {
 	 * Refresh OAuth token with backend locking to prevent race conditions.
 	 * Multiple pi instances may try to refresh simultaneously when tokens expire.
 	 *
-	 * Retained for upstream parity. The case.dev fork resolves a single case.dev
-	 * API key in getApiKey(), so this path is currently not invoked.
 	 */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: Retained intentionally for upstream parity while auth remains case.dev-only.
 	private async refreshOAuthTokenWithLock(
 		providerId: OAuthProviderId,
 	): Promise<{ apiKey: string; newCredentials: OAuthCredentials } | null> {
@@ -415,21 +422,70 @@ export class AuthStorage {
 	 * Get API key / bearer token for the configured LLM backend.
 	 * All providers route through a single OpenAI-compatible endpoint.
 	 */
-	async getApiKey(_providerId?: string): Promise<string | undefined> {
-		// Runtime override takes highest priority
-		const runtimeKey = this.runtimeOverrides.get("casedev");
+	private getStoredCredentialProvider(providerId?: string): string | undefined {
+		if (providerId === CASEMARK_CORE_PROVIDER_ID && this.data[providerId]) {
+			return providerId;
+		}
+		if (providerId && !isGlobalLlmAuthProvider(providerId) && this.data[providerId]) {
+			return providerId;
+		}
+		return GLOBAL_LLM_AUTH_PROVIDERS.find((provider) => this.data[provider]);
+	}
+
+	private getRuntimeCredentialProvider(providerId?: string): string | undefined {
+		if (providerId === CASEMARK_CORE_PROVIDER_ID && this.runtimeOverrides.has(providerId)) {
+			return providerId;
+		}
+		if (providerId && !isGlobalLlmAuthProvider(providerId) && this.runtimeOverrides.has(providerId)) {
+			return providerId;
+		}
+		return GLOBAL_LLM_AUTH_PROVIDERS.find((provider) => this.runtimeOverrides.has(provider));
+	}
+
+	/**
+	 * Get API key / bearer token for the configured LLM backend.
+	 * Core and case.dev are first-class auth providers for the shared LLM endpoint.
+	 */
+	async getApiKey(providerId?: string): Promise<string | undefined> {
+		// Runtime override takes highest priority.
+		const runtimeProvider = this.getRuntimeCredentialProvider(providerId);
+		const runtimeKey = runtimeProvider ? this.runtimeOverrides.get(runtimeProvider) : undefined;
 		if (runtimeKey) {
 			return runtimeKey;
 		}
 
-		// Check auth.json for stored key
-		const cred = this.data.casedev;
+		const envKey = getEnvApiKey(providerId);
+		if (envKey) {
+			return envKey;
+		}
+
+		// Check auth.json for stored key/token.
+		const storedProvider = this.getStoredCredentialProvider(providerId);
+		const cred = storedProvider ? this.data[storedProvider] : undefined;
 		if (cred?.type === "api_key") {
 			return resolveConfigValue(cred.key);
 		}
+		if (cred?.type === "oauth" && storedProvider) {
+			if (Date.now() < cred.expires) {
+				const provider = getOAuthProvider(storedProvider);
+				return provider?.getApiKey(cred);
+			}
 
-		// Fall back to environment variable
-		return getEnvApiKey();
+			try {
+				const refreshed = await this.refreshOAuthTokenWithLock(storedProvider);
+				return refreshed?.apiKey;
+			} catch (error) {
+				this.recordError(error);
+				return undefined;
+			}
+		}
+
+		const fallbackKey = providerId ? this.fallbackResolver?.(providerId) : undefined;
+		if (fallbackKey) {
+			return resolveConfigValue(fallbackKey);
+		}
+
+		return undefined;
 	}
 
 	/**

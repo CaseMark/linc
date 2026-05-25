@@ -242,6 +242,59 @@ describe("AuthStorage", () => {
 				expect(keyB).toBe("key-openai");
 			});
 
+			test("casemark core auth is used for routed provider models", async () => {
+				writeAuthJson({
+					"casemark-core": { type: "api_key", key: "core_at_test-token" },
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				expect(authStorage.hasAuth("casedev")).toBe(true);
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("core_at_test-token");
+				await expect(authStorage.getApiKey("anthropic")).resolves.toBe("core_at_test-token");
+			});
+
+			test("case.dev auth is used when core auth is absent", async () => {
+				writeAuthJson({
+					casedev: { type: "api_key", key: "sk_case_test-token" },
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				expect(authStorage.hasAuth("casedev")).toBe(true);
+				await expect(authStorage.getApiKey("casedev")).resolves.toBe("sk_case_test-token");
+				await expect(authStorage.getApiKey("anthropic")).resolves.toBe("sk_case_test-token");
+			});
+
+			test("environment auth takes priority over stored global auth", async () => {
+				const originalCoreToken = process.env.CORE_ACCESS_TOKEN;
+				const originalCasedevKey = process.env.CASEDEV_API_KEY;
+
+				try {
+					process.env.CASEDEV_API_KEY = "sk_case_env-token";
+					delete process.env.CORE_ACCESS_TOKEN;
+					writeAuthJson({
+						"casemark-core": { type: "api_key", key: "core_at_stored-token" },
+						casedev: { type: "api_key", key: "sk_case_stored-token" },
+					});
+
+					authStorage = AuthStorage.create(authJsonPath);
+
+					await expect(authStorage.getApiKey("casedev")).resolves.toBe("sk_case_env-token");
+				} finally {
+					if (originalCoreToken === undefined) {
+						delete process.env.CORE_ACCESS_TOKEN;
+					} else {
+						process.env.CORE_ACCESS_TOKEN = originalCoreToken;
+					}
+					if (originalCasedevKey === undefined) {
+						delete process.env.CASEDEV_API_KEY;
+					} else {
+						process.env.CASEDEV_API_KEY = originalCasedevKey;
+					}
+				}
+			});
+
 			test("failed commands are cached (not retried)", async () => {
 				const counterFile = join(tempDir, "counter");
 				writeFileSync(counterFile, "0");

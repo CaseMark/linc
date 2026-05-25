@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added first-class CaseMark Core and case.dev OAuth provider exports for Linc authentication.
+
 ## [0.2.0] - 2026-05-15
 
 ### Fixed

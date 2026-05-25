@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const docsRoot = join(repoRoot, "docs", "linc");
 const defaultPort = 4317;
-const docOrder = ["overview", "quickstart", "web-ui", "gateway", "configuration", "development"];
+const docOrder = ["overview", "quickstart", "web-ui", "gateway", "configuration", "development", "release"];
 
 function parsePort(argv) {
 	const index = argv.indexOf("--port");

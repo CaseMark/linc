@@ -2,5 +2,34 @@
 	"remote": "https://github.com/earendil-works/pi.git",
 	"branch": "main",
 	"lastReviewedSha": "7e94d36a44479326a6b2ee4227fc41f10ea978aa",
-	"docsSource": "packages/coding-agent/docs"
+	"docsSource": "packages/coding-agent/docs",
+	"packagePolicy": {
+		"bundlePackage": "@casemark/linc",
+		"sourceUpstream": "https://github.com/earendil-works/pi.git",
+		"packages": {
+			"agent-core": {
+				"upstreamPath": "packages/agent",
+				"localPath": "packages/agent",
+				"lincSubpath": "@casemark/linc/agent-core",
+				"policy": "track-upstream-unmodified"
+			},
+			"ai": {
+				"upstreamPath": "packages/ai",
+				"localPath": "packages/ai",
+				"lincSubpath": "@casemark/linc/ai",
+				"policy": "track-upstream-with-linc-auth-provider-delta"
+			},
+			"tui": {
+				"upstreamPath": "packages/tui",
+				"localPath": "packages/tui",
+				"lincSubpath": "@casemark/linc/tui",
+				"policy": "track-upstream-with-linc-theme-provider-delta"
+			},
+			"web-ui": {
+				"upstreamPath": "packages/web-ui",
+				"localPath": "packages/web-ui",
+				"policy": "track-upstream-with-linc-web-ui-delta"
+			}
+		}
+	}
 }
