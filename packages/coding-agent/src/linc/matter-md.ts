@@ -1,10 +1,12 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import type { ExtensionContext, ToolResultEvent, ToolResultEventResult } from "../core/extensions/types.ts";
+import type { ReadonlySessionManager } from "../core/session-manager.ts";
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
 import { getAttachedVault, type LincVaultRef } from "./vault-attachment.ts";
 
 export const MATTER_MD_FILENAME = "MATTER.md";
+export const LINC_MATTER_MD_ENTRY_TYPE = "linc.matterMd";
 
 const MATTER_MD_STATUS_KEY = "linc.matter";
 
@@ -26,7 +28,29 @@ export interface MatterMdState {
 	vault?: LincVaultRef;
 }
 
-function getMatterMdPath(ctx: ExtensionContext): string {
+export interface MatterMdInitializationAnswers {
+	title: string;
+	representation?: string;
+	goal?: string;
+	sourceRules?: string;
+	openQuestions?: string;
+}
+
+export type MatterMdInitializationDecision = "initialized" | "skipped";
+
+export interface MatterMdEntryData {
+	vaultId: string;
+	decision: MatterMdInitializationDecision;
+}
+
+interface CaseDevVaultObjectRecord {
+	id: string;
+	name?: string;
+	path?: string;
+	filename?: string;
+}
+
+export function getMatterMdPath(ctx: ExtensionContext): string {
 	return join(ctx.cwd, MATTER_MD_FILENAME);
 }
 
@@ -39,10 +63,104 @@ async function fileExists(path: string): Promise<boolean> {
 	}
 }
 
-function buildStarterMatterMd(vault: LincVaultRef): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readMatterMdEntryData(value: unknown): MatterMdEntryData | undefined {
+	if (!isRecord(value)) return undefined;
+	if (typeof value.vaultId !== "string" || value.vaultId.length === 0) return undefined;
+	if (value.decision !== "initialized" && value.decision !== "skipped") return undefined;
+	return { vaultId: value.vaultId, decision: value.decision };
+}
+
+export function getMatterMdInitializationDecision(
+	sessionManager: ReadonlySessionManager,
+	vaultId: string,
+): MatterMdInitializationDecision | undefined {
+	const entries = sessionManager.getEntries();
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry.type !== "custom" || entry.customType !== LINC_MATTER_MD_ENTRY_TYPE) continue;
+		const data = readMatterMdEntryData(entry.data);
+		if (data?.vaultId === vaultId) return data.decision;
+	}
+	return undefined;
+}
+
+function readVaultObjectRecord(value: unknown): CaseDevVaultObjectRecord | undefined {
+	if (!isRecord(value)) return undefined;
+	const id = typeof value.id === "string" ? value.id : typeof value.objectId === "string" ? value.objectId : undefined;
+	if (!id) return undefined;
+	return {
+		id,
+		name: typeof value.name === "string" ? value.name : undefined,
+		path: typeof value.path === "string" ? value.path : undefined,
+		filename: typeof value.filename === "string" ? value.filename : undefined,
+	};
+}
+
+function collectVaultObjectRecords(value: unknown): CaseDevVaultObjectRecord[] {
+	if (Array.isArray(value)) {
+		return value
+			.map(readVaultObjectRecord)
+			.filter((record): record is CaseDevVaultObjectRecord => record !== undefined);
+	}
+	if (!isRecord(value)) return [];
+	for (const key of ["objects", "items", "data", "results"]) {
+		const records = collectVaultObjectRecords(value[key]);
+		if (records.length > 0) return records;
+	}
+	const record = readVaultObjectRecord(value);
+	return record ? [record] : [];
+}
+
+function findMatterMdObject(output: string): CaseDevVaultObjectRecord | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(output) as unknown;
+	} catch {
+		return undefined;
+	}
+	const records = collectVaultObjectRecords(parsed);
+	return records.find((record) => {
+		const names = [record.filename, record.name, record.path].filter((name): name is string => name !== undefined);
+		return names.some((name) => basename(name) === MATTER_MD_FILENAME);
+	});
+}
+
+async function downloadMatterMdFromVault(ctx: ExtensionContext, vault: LincVaultRef): Promise<boolean> {
+	const listResult = await runCaseDevCli(ctx, ["vault", "object", "list", vault.id], ctx.signal);
+	const matterObject = findMatterMdObject(formatCaseDevCliResult(listResult));
+	if (!matterObject) return false;
+
+	await runCaseDevCli(
+		ctx,
+		["vault", "download", "--vault", vault.id, "--object", matterObject.id, "--out", ctx.cwd],
+		ctx.signal,
+	);
+
+	if (!(await fileExists(getMatterMdPath(ctx)))) {
+		throw new Error(
+			`Downloaded ${MATTER_MD_FILENAME} from Case.dev vault but it was not written to the workspace root.`,
+		);
+	}
+
+	return true;
+}
+
+function escapeYamlString(value: string): string {
+	return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function buildStarterMatterMd(vault: LincVaultRef, answers: MatterMdInitializationAnswers): string {
+	const representation = answers.representation?.trim();
+	const goal = answers.goal?.trim();
+	const sourceRules = answers.sourceRules?.trim();
+	const openQuestions = answers.openQuestions?.trim();
 	return `---
 mattermd: "0.1"
-title: "${vault.name.replaceAll('"', '\\"')}"
+title: "${escapeYamlString(answers.title.trim() || vault.name)}"
 ---
 
 # Matter
@@ -51,11 +169,17 @@ title: "${vault.name.replaceAll('"', '\\"')}"
 
 ## Representation
 
+${representation ?? ""}
+
 ## Goals
+
+${goal ?? ""}
 
 ## Jurisdiction
 
 ## Source Rules
+
+${sourceRules ?? ""}
 
 ## Working Preferences
 
@@ -70,6 +194,7 @@ title: "${vault.name.replaceAll('"', '\\"')}"
 
 | Question | Why It Matters | Status |
 |---|---|---|
+${openQuestions ? `| ${openQuestions.replaceAll("|", "\\|")} | Initial matter setup | Open |` : ""}
 
 ## Board
 
@@ -115,14 +240,31 @@ export async function materializeMatterMd(ctx: ExtensionContext): Promise<Matter
 		return undefined;
 	}
 
-	if (!(await fileExists(path))) {
-		await writeFile(path, buildStarterMatterMd(vault), "utf-8");
-		await syncMatterMdToVault(ctx);
-	}
+	if (!(await downloadMatterMdFromVault(ctx, vault))) return undefined;
 
 	const state = await readMatterMd(ctx);
 	setMatterMdStatus(ctx, state);
 	return state;
+}
+
+export async function initializeMatterMd(
+	ctx: ExtensionContext,
+	answers: MatterMdInitializationAnswers,
+): Promise<MatterMdState> {
+	const vault = getAttachedVault(ctx.sessionManager);
+	if (!vault) {
+		throw new Error("No Case.dev vault attached. Attach a vault before initializing MATTER.md.");
+	}
+
+	await writeMatterMdContent(ctx, buildStarterMatterMd(vault, answers));
+	const state = await readMatterMd(ctx);
+	if (!state) throw new Error("Failed to initialize MATTER.md at the workspace root.");
+	return state;
+}
+
+export async function writeMatterMdContent(ctx: ExtensionContext, content: string): Promise<string> {
+	await writeFile(getMatterMdPath(ctx), content, "utf-8");
+	return syncMatterMdToVault(ctx);
 }
 
 export async function syncMatterMdToVault(ctx: ExtensionContext): Promise<string> {

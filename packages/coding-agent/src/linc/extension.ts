@@ -2,11 +2,15 @@ import type { ExtensionCommandContext, ExtensionContext, ExtensionFactory } from
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
 import {
 	buildMatterMdSystemPrompt,
+	getMatterMdInitializationDecision,
+	initializeMatterMd,
+	LINC_MATTER_MD_ENTRY_TYPE,
+	type MatterMdInitializationAnswers,
 	materializeMatterMd,
 	readMatterMd,
 	syncMatterMdToolResult,
-	syncMatterMdToVault,
 } from "./matter-md.ts";
+import { createMatterMdTools } from "./matter-md-tools.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE, type LincVaultRef } from "./vault-attachment.ts";
 
 const LINC_VAULT_STATUS_KEY = "linc.vault";
@@ -85,12 +89,80 @@ function buildVaultSystemPrompt(vault: LincVaultRef): string {
 	].join("\n");
 }
 
+function normalizeOptionalAnswer(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
+}
+
 export function createLincExtension(): ExtensionFactory {
 	return (pi) => {
+		for (const tool of createMatterMdTools()) {
+			pi.registerTool(tool);
+		}
+
+		const promptMatterMdInitialization = async (
+			ctx: ExtensionContext,
+			vault: LincVaultRef,
+		): Promise<MatterMdInitializationAnswers | undefined> => {
+			const shouldInitialize = await ctx.ui.confirm(
+				"Initialize MATTER.md",
+				`${formatVaultRef(vault)} does not have MATTER.md yet. Create durable matter context now?`,
+				{ signal: ctx.signal },
+			);
+			if (!shouldInitialize) return undefined;
+
+			const title = normalizeOptionalAnswer(await ctx.ui.input("Matter title", vault.name, { signal: ctx.signal }));
+			const representation = normalizeOptionalAnswer(
+				await ctx.ui.input("Who do we represent?", "Client, party, or role", { signal: ctx.signal }),
+			);
+			const goal = normalizeOptionalAnswer(
+				await ctx.ui.input("Immediate goal", "What should Linc optimize for in this matter?", {
+					signal: ctx.signal,
+				}),
+			);
+			const sourceRules = normalizeOptionalAnswer(
+				await ctx.ui.input("Source rules", "Citation, privilege, source-of-truth, or evidence rules", {
+					signal: ctx.signal,
+				}),
+			);
+			const openQuestions = normalizeOptionalAnswer(
+				await ctx.ui.input("Open questions", "One durable open question or task", { signal: ctx.signal }),
+			);
+
+			return {
+				title: title ?? vault.name,
+				representation,
+				goal,
+				sourceRules,
+				openQuestions,
+			};
+		};
+
+		const ensureMatterMd = async (ctx: ExtensionContext, options?: { promptForMissing: boolean }) => {
+			const matter = await materializeMatterMd(ctx);
+			if (matter) return matter;
+
+			const vault = getAttachedVault(ctx.sessionManager);
+			if (!vault || !ctx.hasUI || !options?.promptForMissing) return undefined;
+			if (getMatterMdInitializationDecision(ctx.sessionManager, vault.id) !== undefined) return undefined;
+
+			const answers = await promptMatterMdInitialization(ctx, vault);
+			if (!answers) {
+				pi.appendEntry(LINC_MATTER_MD_ENTRY_TYPE, { vaultId: vault.id, decision: "skipped" });
+				ctx.ui.notify("Skipped MATTER.md initialization", "info");
+				return undefined;
+			}
+
+			const initialized = await initializeMatterMd(ctx, answers);
+			pi.appendEntry(LINC_MATTER_MD_ENTRY_TYPE, { vaultId: vault.id, decision: "initialized" });
+			ctx.ui.notify("Initialized MATTER.md and synced it to the attached Case.dev vault", "info");
+			return initialized;
+		};
+
 		const attachVault = async (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, { vault });
 			setVaultStatus(ctx, vault);
-			await materializeMatterMd(ctx);
+			await ensureMatterMd(ctx, { promptForMissing: true });
 			ctx.ui.notify(`Attached vault: ${formatVaultRef(vault)}`, "info");
 		};
 
@@ -102,11 +174,11 @@ export function createLincExtension(): ExtensionFactory {
 
 		pi.on("session_start", async (_event, ctx) => {
 			setVaultStatus(ctx);
-			await materializeMatterMd(ctx);
+			await ensureMatterMd(ctx, { promptForMissing: true });
 		});
 
 		pi.on("session_compact", async (_event, ctx) => {
-			await materializeMatterMd(ctx);
+			await ensureMatterMd(ctx, { promptForMissing: false });
 		});
 
 		pi.on("tool_result", async (event, ctx) => {
@@ -174,41 +246,6 @@ export function createLincExtension(): ExtensionFactory {
 			getArgumentCompletions(argumentPrefix) {
 				const prefix = argumentPrefix.trim();
 				return ["show", "clear", "attach"]
-					.filter((value) => value.startsWith(prefix))
-					.map((value) => ({ label: value, value }));
-			},
-		});
-
-		pi.registerCommand("matter", {
-			description: "Show, initialize, or sync the workspace MATTER.md",
-			async handler(args, ctx) {
-				const trimmed = args.trim();
-				if (trimmed === "" || trimmed === "show") {
-					const matter = await readMatterMd(ctx);
-					ctx.ui.notify(matter ? `Loaded MATTER.md: ${matter.path}` : "No MATTER.md loaded", "info");
-					return;
-				}
-
-				if (trimmed === "init") {
-					const matter = await materializeMatterMd(ctx);
-					ctx.ui.notify(
-						matter ? `Loaded MATTER.md: ${matter.path}` : "Attach a Case.dev vault before initializing MATTER.md",
-						"info",
-					);
-					return;
-				}
-
-				if (trimmed === "sync") {
-					await syncMatterMdToVault(ctx);
-					ctx.ui.notify("Synced MATTER.md to Case.dev vault", "info");
-					return;
-				}
-
-				throw new Error("Usage: /matter, /matter show, /matter init, or /matter sync");
-			},
-			getArgumentCompletions(argumentPrefix) {
-				const prefix = argumentPrefix.trim();
-				return ["show", "init", "sync"]
 					.filter((value) => value.startsWith(prefix))
 					.map((value) => ({ label: value, value }));
 			},
