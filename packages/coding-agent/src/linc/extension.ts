@@ -377,3 +377,5 @@ export function createLincExtension(): ExtensionFactory {
 		});
 	};
 }
+
+export default createLincExtension();

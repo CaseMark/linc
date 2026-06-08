@@ -439,6 +439,14 @@ export function getBundledInteractiveAssetPath(name: string): string {
 	return join(getInteractiveAssetsDir(), name);
 }
 
+export function getBundledLincExtensionPath(): string {
+	const packageDir = getPackageDir();
+	if (existsSync(join(packageDir, "src"))) {
+		return join(packageDir, "src", "linc", "extension.ts");
+	}
+	return join(packageDir, "dist", "linc", "extension.js");
+}
+
 // =============================================================================
 // App Config (from package.json piConfig)
 // =============================================================================
