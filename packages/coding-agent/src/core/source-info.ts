@@ -9,16 +9,21 @@ export interface SourceInfo {
 	scope: SourceScope;
 	origin: SourceOrigin;
 	baseDir?: string;
+	label?: string;
 }
 
 export function createSourceInfo(path: string, metadata: PathMetadata): SourceInfo {
-	return {
+	const sourceInfo: SourceInfo = {
 		path,
 		source: metadata.source,
 		scope: metadata.scope,
 		origin: metadata.origin,
 		baseDir: metadata.baseDir,
 	};
+	if (metadata.label) {
+		sourceInfo.label = metadata.label;
+	}
+	return sourceInfo;
 }
 
 export function createSyntheticSourceInfo(
@@ -28,13 +33,18 @@ export function createSyntheticSourceInfo(
 		scope?: SourceScope;
 		origin?: SourceOrigin;
 		baseDir?: string;
+		label?: string;
 	},
 ): SourceInfo {
-	return {
+	const sourceInfo: SourceInfo = {
 		path,
 		source: options.source,
 		scope: options.scope ?? "temporary",
 		origin: options.origin ?? "top-level",
 		baseDir: options.baseDir,
 	};
+	if (options.label) {
+		sourceInfo.label = options.label;
+	}
+	return sourceInfo;
 }

@@ -439,17 +439,22 @@ export function getBundledInteractiveAssetPath(name: string): string {
 	return join(getInteractiveAssetsDir(), name);
 }
 
-export function getBundledLincExtensionPaths(): string[] {
+export interface BundledLincExtensionPath {
+	path: string;
+	label: string;
+}
+
+export function getBundledLincExtensionPaths(): BundledLincExtensionPath[] {
 	const packageDir = getPackageDir();
 	if (existsSync(join(packageDir, "src"))) {
 		return [
-			join(packageDir, "src", "linc", "extensions", "vault.ts"),
-			join(packageDir, "src", "linc", "extensions", "matter.ts"),
+			{ path: join(packageDir, "src", "linc", "extensions", "vault.ts"), label: "Case.dev Vault" },
+			{ path: join(packageDir, "src", "linc", "extensions", "matter.ts"), label: "Matter Context" },
 		];
 	}
 	return [
-		join(packageDir, "dist", "linc", "extensions", "vault.js"),
-		join(packageDir, "dist", "linc", "extensions", "matter.js"),
+		{ path: join(packageDir, "dist", "linc", "extensions", "vault.js"), label: "Case.dev Vault" },
+		{ path: join(packageDir, "dist", "linc", "extensions", "matter.js"), label: "Matter Context" },
 	];
 }
 

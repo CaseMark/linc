@@ -23,6 +23,7 @@ export interface ResourceExtensionPaths {
 	skillPaths?: Array<{ path: string; metadata: PathMetadata }>;
 	promptPaths?: Array<{ path: string; metadata: PathMetadata }>;
 	themePaths?: Array<{ path: string; metadata: PathMetadata }>;
+	contextFilePaths?: Array<{ path: string; metadata: PathMetadata }>;
 }
 
 export interface ResourceLoaderReloadOptions {
@@ -124,7 +125,7 @@ export interface DefaultResourceLoaderOptions {
 	agentDir: string;
 	settingsManager?: SettingsManager;
 	eventBus?: EventBus;
-	bundledExtensionPaths?: string[];
+	bundledExtensionPaths?: Array<string | { path: string; label?: string }>;
 	additionalExtensionPaths?: string[];
 	additionalSkillPaths?: string[];
 	additionalPromptTemplatePaths?: string[];
@@ -164,6 +165,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private eventBus: EventBus;
 	private packageManager: DefaultPackageManager;
 	private bundledExtensionPaths: string[];
+	private bundledExtensionLabels: Map<string, string>;
 	private additionalExtensionPaths: string[];
 	private additionalSkillPaths: string[];
 	private additionalPromptTemplatePaths: string[];
@@ -209,6 +211,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private extensionSkillSourceInfos: Map<string, SourceInfo>;
 	private extensionPromptSourceInfos: Map<string, SourceInfo>;
 	private extensionThemeSourceInfos: Map<string, SourceInfo>;
+	private extensionContextFilePaths: string[];
 	private lastPromptPaths: string[];
 	private lastThemePaths: string[];
 
@@ -222,7 +225,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 			agentDir: this.agentDir,
 			settingsManager: this.settingsManager,
 		});
-		this.bundledExtensionPaths = options.bundledExtensionPaths ?? [];
+		const bundledExtensions = this.normalizeBundledExtensionPaths(options.bundledExtensionPaths ?? []);
+		this.bundledExtensionPaths = bundledExtensions.paths;
+		this.bundledExtensionLabels = bundledExtensions.labelsByPath;
 		this.additionalExtensionPaths = options.additionalExtensionPaths ?? [];
 		this.additionalSkillPaths = options.additionalSkillPaths ?? [];
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
@@ -256,6 +261,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.extensionSkillSourceInfos = new Map();
 		this.extensionPromptSourceInfos = new Map();
 		this.extensionThemeSourceInfos = new Map();
+		this.extensionContextFilePaths = [];
 		this.lastPromptPaths = [];
 		this.lastThemePaths = [];
 	}
@@ -292,6 +298,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const skillPaths = this.normalizeExtensionPaths(paths.skillPaths ?? []);
 		const promptPaths = this.normalizeExtensionPaths(paths.promptPaths ?? []);
 		const themePaths = this.normalizeExtensionPaths(paths.themePaths ?? []);
+		const contextFilePaths = this.normalizeExtensionPaths(paths.contextFilePaths ?? []);
 
 		for (const entry of skillPaths) {
 			this.extensionSkillSourceInfos.set(entry.path, createSourceInfo(entry.path, entry.metadata));
@@ -325,6 +332,17 @@ export class DefaultResourceLoader implements ResourceLoader {
 				themePaths.map((entry) => entry.path),
 			);
 			this.updateThemesFromPaths(this.lastThemePaths);
+		}
+
+		if (!this.noContextFiles && contextFilePaths.length > 0) {
+			this.extensionContextFilePaths = this.mergePaths(
+				this.extensionContextFilePaths,
+				contextFilePaths.map((entry) => entry.path),
+			);
+			this.agentsFiles = this.mergeContextFiles(
+				this.agentsFiles,
+				this.loadContextFilesFromPaths(this.extensionContextFilePaths),
+			);
 		}
 	}
 
@@ -390,7 +408,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const bundledExtensions = this.mergePaths(this.bundledExtensionPaths, []);
 		for (const p of bundledExtensions) {
-			metadataByPath.set(p, { source: "builtin", scope: "temporary", origin: "top-level", baseDir: dirname(p) });
+			metadataByPath.set(p, {
+				source: "builtin",
+				scope: "temporary",
+				origin: "top-level",
+				baseDir: dirname(p),
+				label: this.bundledExtensionLabels.get(p),
+			});
 		}
 
 		const extensionPaths = this.noExtensions
@@ -467,6 +491,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
+		this.extensionContextFilePaths = [];
 
 		const baseSystemPrompt = resolvePromptInput(
 			this.systemPromptSource ?? this.discoverSystemPromptFile(),
@@ -509,6 +534,23 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	private resolveExtensionLoadPath(path: string): string {
 		return resolvePath(path, this.cwd, { normalizeUnicodeSpaces: true });
+	}
+
+	private normalizeBundledExtensionPaths(entries: Array<string | { path: string; label?: string }>): {
+		paths: string[];
+		labelsByPath: Map<string, string>;
+	} {
+		const paths: string[] = [];
+		const labelsByPath = new Map<string, string>();
+		for (const entry of entries) {
+			const path = typeof entry === "string" ? entry : entry.path;
+			const resolvedPath = this.resolveResourcePath(path);
+			paths.push(resolvedPath);
+			if (typeof entry !== "string" && entry.label) {
+				labelsByPath.set(resolvedPath, entry.label);
+			}
+		}
+		return { paths, labelsByPath };
 	}
 
 	private async loadFinalExtensionSet(
@@ -676,6 +718,34 @@ export class DefaultResourceLoader implements ResourceLoader {
 			return theme;
 		});
 		this.themeDiagnostics = resolvedThemes.diagnostics;
+	}
+
+	private loadContextFilesFromPaths(paths: string[]): Array<{ path: string; content: string }> {
+		const files: Array<{ path: string; content: string }> = [];
+		for (const p of paths) {
+			const resolved = this.resolveResourcePath(p);
+			if (!existsSync(resolved)) continue;
+			try {
+				const stats = statSync(resolved);
+				if (!stats.isFile()) continue;
+				files.push({ path: resolved, content: readFileSync(resolved, "utf-8") });
+			} catch {}
+		}
+		return files;
+	}
+
+	private mergeContextFiles(
+		base: Array<{ path: string; content: string }>,
+		additional: Array<{ path: string; content: string }>,
+	): Array<{ path: string; content: string }> {
+		const byPath = new Map<string, { path: string; content: string }>();
+		for (const file of base) {
+			byPath.set(canonicalizePath(this.resolveResourcePath(file.path)), file);
+		}
+		for (const file of additional) {
+			byPath.set(canonicalizePath(this.resolveResourcePath(file.path)), file);
+		}
+		return Array.from(byPath.values());
 	}
 
 	private applyExtensionSourceInfo(extensions: Extension[], metadataByPath: Map<string, PathMetadata>): void {

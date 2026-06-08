@@ -534,6 +534,7 @@ export interface ResourcesDiscoverResult {
 	skillPaths?: string[];
 	promptPaths?: string[];
 	themePaths?: string[];
+	contextFilePaths?: string[];
 }
 
 // ============================================================================

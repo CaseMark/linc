@@ -978,7 +978,10 @@ export class InteractiveMode {
 		return result;
 	}
 
-	private formatExtensionDisplayPath(path: string): string {
+	private formatExtensionDisplayPath(path: string, sourceInfo?: SourceInfo): string {
+		if (sourceInfo?.label) {
+			return sourceInfo.label;
+		}
 		let result = this.formatDisplayPath(path);
 		result = result.replace(/\/index\.ts$/, "").replace(/\/index\.js$/, "");
 		return result;
@@ -1056,6 +1059,9 @@ export class InteractiveMode {
 	}
 
 	private getCompactExtensionLabel(resourcePath: string, sourceInfo?: SourceInfo): string {
+		if (sourceInfo?.label) {
+			return sourceInfo.label;
+		}
 		if (!this.isPackageSource(sourceInfo)) {
 			return this.getCompactPathLabel(resourcePath, sourceInfo);
 		}
@@ -1127,6 +1133,9 @@ export class InteractiveMode {
 			.filter((extension) => !this.isPackageSource(extension.sourceInfo));
 
 		return extensions.map((extension) => {
+			if (extension.sourceInfo?.label) {
+				return extension.sourceInfo.label;
+			}
 			if (this.isPackageSource(extension.sourceInfo)) {
 				return this.getCompactExtensionLabel(extension.path, extension.sourceInfo);
 			}
@@ -1448,9 +1457,9 @@ export class InteractiveMode {
 			if (extensions.length > 0) {
 				const groups = this.buildScopeGroups(extensions);
 				const extList = this.formatScopeGroups(groups, {
-					formatPath: (item) => this.formatExtensionDisplayPath(item.path),
+					formatPath: (item) => this.formatExtensionDisplayPath(item.path, item.sourceInfo),
 					formatPackagePath: (item) =>
-						this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),
+						this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo), item.sourceInfo),
 				});
 				const extensionCompactList = formatCompactList(this.getCompactExtensionLabels(extensions));
 				addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading");

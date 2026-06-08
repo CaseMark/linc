@@ -1,4 +1,4 @@
-import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
+import type { ExtensionCommandContext, ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
 import {
 	findVaultByOption,
 	formatVaultOption,
@@ -25,11 +25,12 @@ function buildVaultSystemPrompt(vault: LincVaultRef): string {
 }
 
 const vaultExtension: ExtensionFactory = (pi) => {
-	const attachVault = async (vault: LincVaultRef, ctx: ExtensionContext) => {
+	const attachVault = async (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
 		pi.appendEntry(LINC_VAULT_ENTRY_TYPE, { vault });
 		setVaultStatus(ctx, vault);
 		await ensureMatterMd(pi, ctx, { sourcePrecedence: "vault-first", promptForMissing: true });
 		ctx.ui.notify(`Attached vault: ${formatVaultRef(vault)}`, "info");
+		await ctx.reload();
 	};
 
 	const clearVault = (ctx: ExtensionContext) => {

@@ -358,7 +358,7 @@ A `project_trust` handler must return `{ trusted: "yes" | "no" | "undecided" }`.
 
 #### resources_discover
 
-Fired after `session_start` so extensions can contribute additional skill, prompt, and theme paths.
+Fired after `session_start` so extensions can contribute additional skill, prompt, theme, and context file paths.
 The startup path uses `reason: "startup"`. Reload uses `reason: "reload"`.
 
 ```typescript
@@ -369,6 +369,7 @@ pi.on("resources_discover", async (event, _ctx) => {
     skillPaths: ["/path/to/skills"],
     promptPaths: ["/path/to/prompts"],
     themePaths: ["/path/to/themes"],
+    contextFilePaths: ["/path/to/MATTER.md"],
   };
 });
 ```
@@ -1468,6 +1469,7 @@ Each entry has this shape:
     scope: "user" | "project" | "temporary";
     origin: "package" | "top-level";
     baseDir?: string;
+    label?: string;
   };
 }
 ```

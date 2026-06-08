@@ -226,7 +226,10 @@ Project skill`,
 			const loader = new DefaultResourceLoader({
 				cwd,
 				agentDir,
-				bundledExtensionPaths: [bundledVaultPath, bundledMatterPath],
+				bundledExtensionPaths: [
+					{ path: bundledVaultPath, label: "Case.dev Vault" },
+					{ path: bundledMatterPath, label: "Matter Context" },
+				],
 				noExtensions: true,
 			});
 			await loader.reload();
@@ -242,6 +245,7 @@ Project skill`,
 				scope: "temporary",
 				origin: "top-level",
 				baseDir: bundledDir,
+				label: "Case.dev Vault",
 			});
 			expect(extensionsResult.extensions[1]?.sourceInfo).toEqual({
 				path: bundledMatterPath,
@@ -249,6 +253,7 @@ Project skill`,
 				scope: "temporary",
 				origin: "top-level",
 				baseDir: bundledDir,
+				label: "Matter Context",
 			});
 			expect(extensionsResult.extensions[0]?.commands.get("bundled-vault")?.sourceInfo?.source).toBe("builtin");
 			expect(extensionsResult.extensions[1]?.commands.get("bundled-matter")?.sourceInfo?.source).toBe("builtin");
@@ -603,6 +608,33 @@ Extra content`,
 			expect(loadedSkill).toBeDefined();
 			expect(loadedSkill?.filePath).toBe(skillPath);
 			expect(loadedSkill?.sourceInfo?.source).toBe("extension:file-url");
+		});
+
+		it("should load context files returned by extensions", async () => {
+			const contextPath = join(tempDir, "MATTER.md");
+			writeFileSync(contextPath, "# Matter\n\nLoaded from extension.\n");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			loader.extendResources({
+				contextFilePaths: [
+					{
+						path: contextPath,
+						metadata: {
+							source: "extension:matter",
+							scope: "temporary",
+							origin: "top-level",
+							baseDir: tempDir,
+						},
+					},
+				],
+			});
+
+			expect(loader.getAgentsFiles().agentsFiles).toContainEqual({
+				path: contextPath,
+				content: "# Matter\n\nLoaded from extension.\n",
+			});
 		});
 	});
 

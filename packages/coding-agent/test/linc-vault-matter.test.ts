@@ -6,6 +6,8 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	ExtensionEvent,
+	ExtensionHandler,
 	RegisteredCommand,
 } from "../src/core/extensions/types.ts";
 import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef } from "../src/linc/casedev-vaults.ts";
@@ -71,12 +73,15 @@ function loadLincCommands() {
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const entries: Array<{ customType: string; data?: unknown }> = [];
 	const userMessages: string[] = [];
+	const handlers = new Map<string, ExtensionHandler<ExtensionEvent, unknown>[]>();
 	const pi = {
 		registerTool: () => {},
 		registerCommand: (name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
 			commands.set(name, options);
 		},
-		on: () => {},
+		on: (event: string, handler: ExtensionHandler<ExtensionEvent, unknown>) => {
+			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+		},
 		appendEntry: (customType: string, data?: unknown) => {
 			entries.push({ customType, data });
 		},
@@ -87,7 +92,7 @@ function loadLincCommands() {
 
 	vaultExtension(pi);
 	matterExtension(pi);
-	return { commands, entries, userMessages };
+	return { commands, entries, userMessages, handlers };
 }
 
 describe("Linc vault attachment state", () => {
@@ -295,6 +300,20 @@ describe("Linc matter and vault commands", () => {
 
 		expect(userMessages).toEqual([]);
 		expect(notifications).toEqual([{ message: "Attach a Case.dev vault before running /autoinit", type: "warning" }]);
+	});
+
+	it("discovers MATTER.md as a session context file", async () => {
+		await writeFile(join(cwd, "MATTER.md"), "# Matter\n", "utf-8");
+		const { handlers } = loadLincCommands();
+		const resourceHandlers = handlers.get("resources_discover");
+		expect(resourceHandlers).toBeDefined();
+
+		const result = await resourceHandlers![0]!(
+			{ type: "resources_discover", cwd, reason: "startup" },
+			createContext({ cwd }),
+		);
+
+		expect(result).toEqual({ contextFilePaths: [join(cwd, "MATTER.md")] });
 	});
 
 	it("sends an exploratory matter initialization prompt for /autoinit", async () => {

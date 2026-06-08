@@ -27,6 +27,11 @@ const matterExtension: ExtensionFactory = (pi) => {
 		await ensureMatterMd(pi, ctx, { promptForMissing: false });
 	});
 
+	pi.on("resources_discover", async (_event, ctx) => {
+		const matter = await readMatterMd(ctx);
+		return matter ? { contextFilePaths: [matter.path] } : undefined;
+	});
+
 	pi.on("tool_result", async (event, ctx) => {
 		return syncMatterMdToolResult(ctx, event);
 	});
