@@ -15,7 +15,7 @@
 	},
 	"bin": {
 		"linc": "dist/cli.js",
-		"dark-linc": "dist/cli.js"
+		"dark-linc": "scripts/dark-linc.mjs"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",

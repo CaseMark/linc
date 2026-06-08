@@ -32,7 +32,7 @@
 			},
 			"bin": {
 				"linc": "dist/cli.js",
-				"dark-linc": "dist/cli.js"
+				"dark-linc": "scripts/dark-linc.mjs"
 			},
 			"engines": {
 				"node": ">=22.19.0"
