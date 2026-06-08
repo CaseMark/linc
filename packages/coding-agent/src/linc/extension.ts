@@ -1,6 +1,8 @@
-import type { ExtensionCommandContext, ExtensionFactory } from "../core/extensions/types.ts";
+import type { ExtensionCommandContext, ExtensionContext, ExtensionFactory } from "../core/extensions/types.ts";
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE, type LincVaultRef } from "./vault-attachment.ts";
+
+const LINC_VAULT_STATUS_KEY = "linc.vault";
 
 interface CaseDevVaultRecord {
 	id: string;
@@ -64,17 +66,43 @@ function findVaultByOption(vaults: CaseDevVaultRecord[], option: string): CaseDe
 	return vaults.find((vault) => formatVaultOption(vault) === option);
 }
 
+function setVaultStatus(ctx: ExtensionContext, vault = getAttachedVault(ctx.sessionManager)): void {
+	ctx.ui.setStatus(LINC_VAULT_STATUS_KEY, vault ? `vault: ${vault.name}` : undefined);
+}
+
+function buildVaultSystemPrompt(vault: LincVaultRef): string {
+	return [
+		"# Case.dev Vault",
+		`This Linc session is attached to Case.dev vault ${formatVaultRef(vault)}.`,
+		"Use the Case.dev vault tools against this attached vault unless the user explicitly names another vault.",
+	].join("\n");
+}
+
 export function createLincExtension(): ExtensionFactory {
 	return (pi) => {
 		const attachVault = (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, { vault });
+			setVaultStatus(ctx, vault);
 			ctx.ui.notify(`Attached vault: ${formatVaultRef(vault)}`, "info");
 		};
 
 		const clearVault = (ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, {});
+			setVaultStatus(ctx, undefined);
 			ctx.ui.notify("Cleared attached vault", "info");
 		};
+
+		pi.on("session_start", (_event, ctx) => {
+			setVaultStatus(ctx);
+		});
+
+		pi.on("before_agent_start", (event, ctx) => {
+			const vault = getAttachedVault(ctx.sessionManager);
+			if (!vault) return undefined;
+			return {
+				systemPrompt: `${event.systemPrompt}\n\n${buildVaultSystemPrompt(vault)}`,
+			};
+		});
 
 		pi.registerCommand("vault", {
 			description: "Attach, show, or clear the active Case.dev vault",
