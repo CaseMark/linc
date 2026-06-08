@@ -448,13 +448,13 @@ export function getBundledLincExtensionPaths(): BundledLincExtensionPath[] {
 	const packageDir = getPackageDir();
 	if (existsSync(join(packageDir, "src"))) {
 		return [
-			{ path: join(packageDir, "src", "linc", "extensions", "vault.ts"), label: "Case.dev Vault" },
-			{ path: join(packageDir, "src", "linc", "extensions", "matter.ts"), label: "Matter Context" },
+			{ path: join(packageDir, "src", "linc", "extensions", "vault.ts"), label: "vault" },
+			{ path: join(packageDir, "src", "linc", "extensions", "matter.ts"), label: "matter" },
 		];
 	}
 	return [
-		{ path: join(packageDir, "dist", "linc", "extensions", "vault.js"), label: "Case.dev Vault" },
-		{ path: join(packageDir, "dist", "linc", "extensions", "matter.js"), label: "Matter Context" },
+		{ path: join(packageDir, "dist", "linc", "extensions", "vault.js"), label: "vault" },
+		{ path: join(packageDir, "dist", "linc", "extensions", "matter.js"), label: "matter" },
 	];
 }
 

@@ -227,8 +227,8 @@ Project skill`,
 				cwd,
 				agentDir,
 				bundledExtensionPaths: [
-					{ path: bundledVaultPath, label: "Case.dev Vault" },
-					{ path: bundledMatterPath, label: "Matter Context" },
+					{ path: bundledVaultPath, label: "vault" },
+					{ path: bundledMatterPath, label: "matter" },
 				],
 				noExtensions: true,
 			});
@@ -245,7 +245,7 @@ Project skill`,
 				scope: "temporary",
 				origin: "top-level",
 				baseDir: bundledDir,
-				label: "Case.dev Vault",
+				label: "vault",
 			});
 			expect(extensionsResult.extensions[1]?.sourceInfo).toEqual({
 				path: bundledMatterPath,
@@ -253,7 +253,7 @@ Project skill`,
 				scope: "temporary",
 				origin: "top-level",
 				baseDir: bundledDir,
-				label: "Matter Context",
+				label: "matter",
 			});
 			expect(extensionsResult.extensions[0]?.commands.get("bundled-vault")?.sourceInfo?.source).toBe("builtin");
 			expect(extensionsResult.extensions[1]?.commands.get("bundled-matter")?.sourceInfo?.source).toBe("builtin");
