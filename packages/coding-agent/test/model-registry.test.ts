@@ -29,6 +29,7 @@ describe("ModelRegistry", () => {
 		clearApiKeyCache();
 		clearDeprecationWarningsForTests();
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 	});
 
 	/** Create minimal provider config  */
@@ -91,6 +92,92 @@ describe("ModelRegistry", () => {
 	const emptyContext: Context = {
 		messages: [],
 	};
+
+	describe("Linc Casemark Core models", () => {
+		test("lists Casemark Core models after Case.dev auth is configured", () => {
+			authStorage.set("casemark-core", { type: "api_key", key: "sk_case_test" });
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const availableModels = registry.getAvailable();
+
+			expect(availableModels.some((model) => model.provider === "casemark-core")).toBe(true);
+			expect(registry.find("casemark-core", "casemark/core-large")).toMatchObject({
+				api: "openai-completions",
+				baseUrl: "https://api.case.dev/llm/v1",
+				provider: "casemark-core",
+			});
+		});
+
+		test("lists packaged Case.dev models after Case.dev auth is configured", () => {
+			authStorage.set("casedev", { type: "api_key", key: "sk_case_test" });
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+			expect(registry.find("casedev", "casemark/core-large")).toMatchObject({
+				api: "openai-completions",
+				baseUrl: "https://api.case.dev/llm/v1",
+				provider: "casedev",
+			});
+			expect(registry.getAvailable().some((model) => model.provider === "casedev")).toBe(true);
+		});
+
+		test("refreshes Case.dev models from the remote model catalog", async () => {
+			authStorage.set("casedev", { type: "api_key", key: "sk_case_test" });
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => ({
+					ok: true,
+					json: async () => ({
+						object: "list",
+						data: [
+							{
+								id: "casemark/core-large",
+								object: "model",
+								type: "language",
+								name: "CaseMark Core Large",
+								context_window: 200000,
+								max_tokens: 128000,
+								tags: ["reasoning"],
+								pricing: { input: "0.000005", output: "0.000012" },
+							},
+							{
+								id: "casemark/new-model",
+								object: "model",
+								type: "language",
+								name: "CaseMark New Model",
+								context_window: 64000,
+								max_tokens: 16000,
+								tags: ["reasoning", "tool-use"],
+								pricing: { input: "0.000001", output: "0.000003" },
+							},
+							{
+								id: "casemark/embed-v1",
+								object: "model",
+								type: "embedding",
+								name: "CaseMark Embed V1",
+								context_window: 10240,
+								max_tokens: 0,
+							},
+						],
+					}),
+				})),
+			);
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const error = await registry.refreshCaseDevModels();
+
+			expect(error).toBeUndefined();
+			expect(registry.find("casedev", "casemark/new-model")).toMatchObject({
+				name: "CaseMark New Model",
+				provider: "casedev",
+				reasoning: true,
+				contextWindow: 64000,
+				maxTokens: 16000,
+				cost: { input: 1, output: 3, cacheRead: 0, cacheWrite: 0 },
+			});
+			expect(registry.find("casedev", "casemark/embed-v1")).toBeUndefined();
+		});
+	});
 
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {

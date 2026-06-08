@@ -1,0 +1,6 @@
+{
+	"remote": "pi",
+	"repository": "https://github.com/earendil-works/pi.git",
+	"branch": "main",
+	"lastMergedSha": "130ae577acd76ea2f040f2e357b0f3e730a53883"
+}

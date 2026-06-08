@@ -100,6 +100,8 @@ function getApiKeyEnvVars(provider: string): readonly string[] | undefined {
 
 	const envMap: Record<string, string> = {
 		"ant-ling": "ANT_LING_API_KEY",
+		casedev: "CASEDEV_API_KEY",
+		"casemark-core": "CASEDEV_API_KEY",
 		openai: "OPENAI_API_KEY",
 		"azure-openai-responses": "AZURE_OPENAI_API_KEY",
 		nvidia: "NVIDIA_API_KEY",

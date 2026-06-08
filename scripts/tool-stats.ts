@@ -156,13 +156,13 @@ const html = `<!doctype html>
 <html>
 <head>
 	<meta charset="utf-8">
-	<title>Pi Tool Stats</title>
+	<title>Linc Tool Stats</title>
 	<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 	<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-zinc-950 text-zinc-100 p-6">
 	<main class="max-w-7xl mx-auto space-y-6">
-		<h1 class="text-3xl font-bold">Pi Tool Stats</h1>
+		<h1 class="text-3xl font-bold">Linc Tool Stats</h1>
 		<p class="text-zinc-400">${data.files} session files from <code>${sessionsDir}</code>. Generated ${data.generatedAt}.</p>
 		<section class="grid md:grid-cols-2 gap-6">
 			<div class="bg-zinc-900 rounded p-4"><h2 class="font-semibold mb-3">Estimated result tokens by tool</h2><canvas id="tokens"></canvas></div>

@@ -3,6 +3,8 @@ export const BUILT_IN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	"amazon-bedrock": "Amazon Bedrock",
 	"ant-ling": "Ant Ling",
 	"azure-openai-responses": "Azure OpenAI Responses",
+	"casemark-core": "Casemark Core",
+	casedev: "Case.dev",
 	cerebras: "Cerebras",
 	"cloudflare-ai-gateway": "Cloudflare AI Gateway",
 	"cloudflare-workers-ai": "Cloudflare Workers AI",

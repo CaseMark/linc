@@ -40,6 +40,17 @@ describe("OAuthSelectorComponent", () => {
 		expect(isApiKeyLoginProvider("custom-api", oauthProviderIds, builtInProviderIds)).toBe(true);
 	});
 
+	it("hides blocked providers from API key login choices without removing their models", () => {
+		const oauthProviderIds = new Set<string>();
+		const builtInProviderIds = new Set(["deepseek", "zai", "moonshotai", "kimi-coding"]);
+
+		expect(isApiKeyLoginProvider("deepseek", oauthProviderIds, builtInProviderIds)).toBe(false);
+		expect(isApiKeyLoginProvider("zai", oauthProviderIds, builtInProviderIds)).toBe(false);
+		expect(isApiKeyLoginProvider("moonshotai", oauthProviderIds, builtInProviderIds)).toBe(false);
+		expect(isApiKeyLoginProvider("kimi-coding", oauthProviderIds, builtInProviderIds)).toBe(false);
+		expect(isApiKeyLoginProvider("openai", oauthProviderIds, new Set(["openai"]))).toBe(true);
+	});
+
 	it("shows stored OAuth auth distinctly in the API key selector", () => {
 		const authStorage = AuthStorage.inMemory({
 			anthropic: {

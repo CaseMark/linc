@@ -1,5 +1,5 @@
 {
-	"name": "pi-monorepo",
+	"name": "linc-monorepo",
 	"private": true,
 	"type": "module",
 	"workspaces": [
@@ -28,6 +28,8 @@
 		"prepublishOnly": "npm run clean && npm run build && npm run check",
 		"publish": "npm run prepublishOnly && node scripts/publish.mjs",
 		"publish:dry": "npm run prepublishOnly && node scripts/publish.mjs --dry-run",
+		"dark-linc": "PI_CONFIG_VARIANT=dark-linc node packages/coding-agent/dist/cli.js",
+		"link:linc": "npm link --workspace @casemark/linc",
 		"release:local": "node scripts/local-release.mjs",
 		"shrinkwrap:coding-agent": "node scripts/generate-coding-agent-shrinkwrap.mjs",
 		"release:patch": "node scripts/release.mjs patch",

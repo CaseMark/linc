@@ -86,6 +86,15 @@ import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasProjectTrustInputs, ProjectTrustStore } from "../../core/trust-manager.ts";
+import {
+	CASEDEV_AUTH_PROVIDER_IDS,
+	CASEDEV_PROVIDER_ID,
+	CASEDEV_PROVIDER_NAME,
+	CASEMARK_CORE_PROVIDER_ID,
+	CASEMARK_CORE_PROVIDER_NAME,
+	loginCaseDevApiKey,
+} from "../../linc/casedev-auth.ts";
+import { isLincBlockedLoginProvider } from "../../linc/provider-policy.ts";
 import { getChangelogPath, getNewEntries, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -119,6 +128,7 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
+import { ThemeSelectorComponent } from "./components/theme-selector.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
@@ -232,6 +242,9 @@ export function isApiKeyLoginProvider(
 	oauthProviderIds: ReadonlySet<string>,
 	builtInProviderIds: ReadonlySet<string> = BUILT_IN_MODEL_PROVIDERS,
 ): boolean {
+	if (isLincBlockedLoginProvider(providerId)) {
+		return false;
+	}
 	if (BUILT_IN_PROVIDER_DISPLAY_NAMES[providerId]) {
 		return true;
 	}
@@ -663,7 +676,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				`Linc can explain its own features and look up its docs. Ask it how to use or extend Linc.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -873,7 +886,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Linc works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -2500,6 +2513,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/theme") {
+				this.showThemeSelector();
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/scoped-models") {
 				this.editor.setText("");
 				await this.showModelsSelector();
@@ -3616,7 +3634,7 @@ export class InteractiveMode {
 			// Split by space to support editor arguments (e.g., "code --wait")
 			const [editor, ...editorArgs] = editorCmd.split(" ");
 
-			process.stdout.write(`Launching external editor: ${editorCmd}\nPi will resume when the editor exits.\n`);
+			process.stdout.write(`Launching external editor: ${editorCmd}\nLinc will resume when the editor exits.\n`);
 
 			// Do not use spawnSync here. On Windows, synchronous child_process calls can keep
 			// Node/libuv's console input read active after ui.stop() pauses stdin, racing
@@ -4079,6 +4097,41 @@ export class InteractiveMode {
 				},
 			);
 			return { component: selector, focus: selector.getSettingsList() };
+		});
+	}
+
+	private showThemeSelector(): void {
+		const currentTheme = this.settingsManager.getTheme() || "dark";
+		this.showSelector((done) => {
+			const selector = new ThemeSelectorComponent(
+				currentTheme,
+				(themeName) => {
+					const result = setTheme(themeName, true);
+					if (result.success) {
+						this.settingsManager.setTheme(themeName);
+						this.ui.invalidate();
+					} else {
+						this.showError(`Failed to load theme "${themeName}": ${result.error}\nFell back to dark theme.`);
+					}
+					done();
+				},
+				() => {
+					const result = setTheme(currentTheme, true);
+					if (result.success) {
+						this.ui.invalidate();
+						this.ui.requestRender();
+					}
+					done();
+				},
+				(themeName) => {
+					const result = setTheme(themeName, true);
+					if (result.success) {
+						this.ui.invalidate();
+						this.ui.requestRender();
+					}
+				},
+			);
+			return { component: selector, focus: selector.getSelectList() };
 		});
 	}
 
@@ -4570,7 +4623,9 @@ export class InteractiveMode {
 
 	private getLoginProviderOptions(authType?: "oauth" | "api_key"): AuthSelectorProvider[] {
 		const authStorage = this.session.modelRegistry.authStorage;
-		const oauthProviders = authStorage.getOAuthProviders();
+		const oauthProviders = authStorage
+			.getOAuthProviders()
+			.filter((provider) => !isLincBlockedLoginProvider(provider.id));
 		const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
 		const options: AuthSelectorProvider[] = oauthProviders.map((provider) => ({
 			id: provider.id,
@@ -4614,6 +4669,54 @@ export class InteractiveMode {
 	}
 
 	private showLoginAuthTypeSelector(): void {
+		const caseDevLabel = "Use Case.dev";
+		const otherLabel = "Other";
+		this.showSelector((done) => {
+			const selector = new ExtensionSelectorComponent(
+				"Select authentication:",
+				[caseDevLabel, otherLabel],
+				(option) => {
+					done();
+					if (option === caseDevLabel) {
+						this.showCaseDevAuthTypeSelector();
+					} else {
+						this.showOtherLoginAuthTypeSelector();
+					}
+				},
+				() => {
+					done();
+					this.ui.requestRender();
+				},
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private showCaseDevAuthTypeSelector(): void {
+		const apiKeyLabel = "Case.dev API key";
+		const coreLabel = "Casemark Core";
+		this.showSelector((done) => {
+			const selector = new ExtensionSelectorComponent(
+				"Use Case.dev with:",
+				[apiKeyLabel, coreLabel],
+				(option) => {
+					done();
+					if (option === apiKeyLabel) {
+						void this.showCaseDevApiKeyLoginDialog();
+					} else {
+						void this.showCasemarkCoreLoginDialog();
+					}
+				},
+				() => {
+					done();
+					this.showLoginAuthTypeSelector();
+				},
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private showOtherLoginAuthTypeSelector(): void {
 		const subscriptionLabel = "Use a subscription";
 		const apiKeyLabel = "Use an API key";
 		this.showSelector((done) => {
@@ -4627,7 +4730,7 @@ export class InteractiveMode {
 				},
 				() => {
 					done();
-					this.ui.requestRender();
+					this.showLoginAuthTypeSelector();
 				},
 			);
 			return { component: selector, focus: selector };
@@ -4772,6 +4875,106 @@ export class InteractiveMode {
 				this.showError(selectionError);
 			} else {
 				void this.maybeWarnAboutAnthropicSubscriptionAuth();
+			}
+		}
+	}
+
+	private async saveCaseDevApiKey(apiKey: string, previousModel: Model<any> | undefined): Promise<void> {
+		for (const providerId of CASEDEV_AUTH_PROVIDER_IDS) {
+			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey });
+		}
+
+		await this.completeProviderAuthentication(
+			CASEMARK_CORE_PROVIDER_ID,
+			CASEMARK_CORE_PROVIDER_NAME,
+			"api_key",
+			previousModel,
+		);
+	}
+
+	private async showCaseDevApiKeyLoginDialog(): Promise<void> {
+		const previousModel = this.session.model;
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			CASEDEV_PROVIDER_ID,
+			(_success, _message) => {
+				// Completion handled below
+			},
+			CASEDEV_PROVIDER_NAME,
+			"Case.dev API key",
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const apiKey = (await dialog.showPrompt("Enter Case.dev API key:")).trim();
+			if (!apiKey) {
+				throw new Error("API key cannot be empty.");
+			}
+
+			restoreEditor();
+			await this.saveCaseDevApiKey(apiKey, previousModel);
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to save ${CASEDEV_PROVIDER_NAME} API key: ${errorMsg}`);
+			}
+		}
+	}
+
+	private async showCasemarkCoreLoginDialog(): Promise<void> {
+		const previousModel = this.session.model;
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			CASEMARK_CORE_PROVIDER_ID,
+			(_success, _message) => {
+				// Completion handled below
+			},
+			CASEMARK_CORE_PROVIDER_NAME,
+			"Login to Casemark Core",
+		);
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			const apiKey = await loginCaseDevApiKey({
+				onDeviceCode: (info) => {
+					dialog.showDeviceCode(info);
+				},
+				onProgress: (message) => {
+					dialog.showProgress(message);
+				},
+				signal: dialog.signal,
+			});
+
+			restoreEditor();
+			await this.saveCaseDevApiKey(apiKey, previousModel);
+		} catch (error: unknown) {
+			restoreEditor();
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (errorMsg !== "Login cancelled") {
+				this.showError(`Failed to login to ${CASEMARK_CORE_PROVIDER_NAME}: ${errorMsg}`);
 			}
 		}
 	}

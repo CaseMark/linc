@@ -449,6 +449,13 @@ interface PackageJson {
 	piConfig?: {
 		name?: string;
 		configDir?: string;
+		variants?: Record<
+			string,
+			{
+				name?: string;
+				configDir?: string;
+			}
+		>;
 	};
 }
 
@@ -461,15 +468,22 @@ try {
 }
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
+const entrypointName = process.argv[1] ? basename(process.argv[1]) : undefined;
+const piConfigVariantName = process.env.PI_CONFIG_VARIANT || entrypointName;
+const piConfigVariant = piConfigVariantName ? pkg.piConfig?.variants?.[piConfigVariantName] : undefined;
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
+export const APP_NAME: string = piConfigVariant?.name || piConfigName || "pi";
 export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+export const CONFIG_DIR_NAME: string = piConfigVariant?.configDir || pkg.piConfig?.configDir || ".pi";
 export const VERSION: string = pkg.version || "0.0.0";
 
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
-export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
-export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
+const ENV_PREFIX =
+	APP_NAME.toUpperCase()
+		.replace(/[^A-Z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "") || "PI";
+export const ENV_AGENT_DIR = `${ENV_PREFIX}_CODING_AGENT_DIR`;
+export const ENV_SESSION_DIR = `${ENV_PREFIX}_CODING_AGENT_SESSION_DIR`;
 
 export function expandTildePath(path: string): string {
 	return normalizePath(path);

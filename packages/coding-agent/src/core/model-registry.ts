@@ -25,6 +25,7 @@ import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { getAgentDir } from "../config.ts";
+import { CASEMARK_CORE_MODELS, DEFAULT_CASEDEV_MODELS, fetchCaseDevModels } from "../linc/casedev-models.ts";
 import { warnDeprecation } from "../utils/deprecation.ts";
 import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
@@ -408,6 +409,7 @@ export class ModelRegistry {
 	private providerRequestConfigs: Map<string, ProviderRequestConfig> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
+	private caseDevModels: Model<Api>[] = DEFAULT_CASEDEV_MODELS;
 	private loadError: string | undefined = undefined;
 	readonly authStorage: AuthStorage;
 	private modelsJsonPath: string | undefined;
@@ -446,6 +448,31 @@ export class ModelRegistry {
 	}
 
 	/**
+	 * Refresh Case.dev-hosted models from the live Case.dev model catalog.
+	 *
+	 * The registry stays usable if the network is unavailable: callers receive
+	 * a warning string and the packaged Case.dev defaults remain in place.
+	 */
+	async refreshCaseDevModels(fetchFn: typeof fetch = fetch): Promise<string | undefined> {
+		if (process.env.PI_OFFLINE === "1") {
+			return undefined;
+		}
+
+		try {
+			const models = await fetchCaseDevModels(fetchFn);
+			if (models.length === 0) {
+				return "Case.dev model catalog returned no language models; using packaged Case.dev models.";
+			}
+			this.caseDevModels = models;
+			this.refresh();
+			return undefined;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return `Failed to fetch Case.dev models: ${message}. Using packaged Case.dev models.`;
+		}
+	}
+
+	/**
 	 * Get any error from loading models.json (undefined if no error).
 	 */
 	getError(): string | undefined {
@@ -466,7 +493,11 @@ export class ModelRegistry {
 			// Keep built-in models even if custom models failed to load
 		}
 
-		const builtInModels = this.loadBuiltInModels(overrides, modelOverrides);
+		const builtInModels = [
+			...CASEMARK_CORE_MODELS,
+			...this.caseDevModels,
+			...this.loadBuiltInModels(overrides, modelOverrides),
+		];
 		let combined = this.mergeCustomModels(builtInModels, customModels);
 
 		// Let OAuth providers modify their models (e.g., update baseUrl)

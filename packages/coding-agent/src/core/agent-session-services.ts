@@ -136,6 +136,7 @@ export async function createAgentSessionServices(
 	const authStorage = options.authStorage ?? AuthStorage.create(join(agentDir, "auth.json"));
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
 	const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+	const caseDevModelsError = options.modelRegistry ? undefined : await modelRegistry.refreshCaseDevModels();
 	const resourceLoader = new DefaultResourceLoader({
 		...(options.resourceLoaderOptions ?? {}),
 		cwd,
@@ -144,7 +145,9 @@ export async function createAgentSessionServices(
 	});
 	await resourceLoader.reload();
 
-	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
+	const diagnostics: AgentSessionRuntimeDiagnostic[] = caseDevModelsError
+		? [{ type: "warning", message: caseDevModelsError }]
+		: [];
 	const extensionsResult = resourceLoader.getExtensions();
 	for (const { name, config, extensionPath } of extensionsResult.runtime.pendingProviderRegistrations) {
 		try {
