@@ -44,8 +44,10 @@ export interface MatterMdEntryData {
 	decision: MatterMdInitializationDecision;
 }
 
+export type MatterMdSourcePrecedence = "workspace-first" | "vault-first";
+
 export interface MatterMdMaterializeOptions {
-	preferAttachedVault?: boolean;
+	sourcePrecedence?: MatterMdSourcePrecedence;
 }
 
 interface CaseDevVaultObjectRecord {
@@ -240,8 +242,9 @@ export async function materializeMatterMd(
 ): Promise<MatterMdState | undefined> {
 	const path = getMatterMdPath(ctx);
 	const vault = getAttachedVault(ctx.sessionManager);
+	const sourcePrecedence = options?.sourcePrecedence ?? "workspace-first";
 
-	if (vault && options?.preferAttachedVault) {
+	if (vault && sourcePrecedence === "vault-first") {
 		const vaultContent = await downloadMatterMdFromVault(ctx, vault);
 		if (!vaultContent) {
 			setMatterMdStatus(ctx, undefined);
