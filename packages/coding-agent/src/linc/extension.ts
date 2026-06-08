@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionCommandContext, ExtensionContext, ExtensionFactory } from "../core/extensions/types.ts";
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
 import {
@@ -14,6 +17,8 @@ import { createMatterMdTools } from "./matter-md-tools.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE, type LincVaultRef } from "./vault-attachment.ts";
 
 const LINC_VAULT_STATUS_KEY = "linc.vault";
+const LINC_LINC_DIR = dirname(fileURLToPath(import.meta.url));
+const MATTER_INIT_SKILL_PATH = join(LINC_LINC_DIR, "skills", "matter-init", "SKILL.md");
 
 interface CaseDevVaultRecord {
 	id: string;
@@ -92,6 +97,31 @@ function buildVaultSystemPrompt(vault: LincVaultRef): string {
 function normalizeOptionalAnswer(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : undefined;
+}
+
+async function loadMatterInitSkill(): Promise<string> {
+	return readFile(MATTER_INIT_SKILL_PATH, "utf-8");
+}
+
+async function buildMatterInitPrompt(ctx: ExtensionCommandContext, notes: string): Promise<string> {
+	const vault = getAttachedVault(ctx.sessionManager);
+	const matter = await readMatterMd(ctx);
+	const skill = await loadMatterInitSkill();
+	return [
+		"# Linc Matter Initialization",
+		"",
+		"Run the bundled Linc matter initialization skill below.",
+		"",
+		vault ? `Attached vault: ${formatVaultRef(vault)}` : "No Case.dev vault is attached.",
+		matter ? `Current MATTER.md path: ${matter.path}` : "No MATTER.md is currently loaded.",
+		notes ? `User notes: ${notes}` : undefined,
+		"",
+		"```markdown",
+		skill.trim(),
+		"```",
+	]
+		.filter((line): line is string => line !== undefined)
+		.join("\n");
 }
 
 export function createLincExtension(): ExtensionFactory {
@@ -248,6 +278,23 @@ export function createLincExtension(): ExtensionFactory {
 				return ["show", "clear", "attach"]
 					.filter((value) => value.startsWith(prefix))
 					.map((value) => ({ label: value, value }));
+			},
+		});
+
+		pi.registerCommand("init", {
+			description: "Start Linc's guided legal matter initialization",
+			async handler(args, ctx) {
+				if (!ctx.hasUI) {
+					throw new Error("/init requires an interactive session.");
+				}
+
+				const vault = getAttachedVault(ctx.sessionManager);
+				if (!vault) {
+					ctx.ui.notify("Attach a Case.dev vault before running /init", "warning");
+					return;
+				}
+
+				pi.sendUserMessage(await buildMatterInitPrompt(ctx, args.trim()));
 			},
 		});
 	};
