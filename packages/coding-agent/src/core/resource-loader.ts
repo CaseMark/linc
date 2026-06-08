@@ -1,23 +1,23 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
-import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.js";
-import type { ResourceDiagnostic } from "./diagnostics.js";
+import { CONFIG_DIR_NAME } from "../config.ts";
+import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
+import type { ResourceDiagnostic } from "./diagnostics.ts";
 
-export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.js";
+export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
-import { createEventBus, type EventBus } from "./event-bus.js";
-import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.js";
-import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.js";
-import { DefaultPackageManager, type PathMetadata } from "./package-manager.js";
-import type { PromptTemplate } from "./prompt-templates.js";
-import { loadPromptTemplates } from "./prompt-templates.js";
-import { SettingsManager } from "./settings-manager.js";
-import type { Skill } from "./skills.js";
-import { loadSkills } from "./skills.js";
-import { createSourceInfo, type SourceInfo } from "./source-info.js";
+import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
+import { createEventBus, type EventBus } from "./event-bus.ts";
+import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.ts";
+import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.ts";
+import { DefaultPackageManager, type PathMetadata } from "./package-manager.ts";
+import type { PromptTemplate } from "./prompt-templates.ts";
+import { loadPromptTemplates } from "./prompt-templates.ts";
+import { SettingsManager } from "./settings-manager.ts";
+import type { Skill } from "./skills.ts";
+import { loadSkills } from "./skills.ts";
+import { createSourceInfo, type SourceInfo } from "./source-info.ts";
 
 export interface ResourceExtensionPaths {
 	skillPaths?: Array<{ path: string; metadata: PathMetadata }>;
@@ -55,7 +55,7 @@ function resolvePromptInput(input: string | undefined, description: string): str
 }
 
 function loadContextFileFromDir(dir: string): { path: string; content: string } | null {
-	const candidates = ["AGENTS.md", "CLAUDE.md"];
+	const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
 	for (const filename of candidates) {
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
@@ -72,11 +72,13 @@ function loadContextFileFromDir(dir: string): { path: string; content: string } 
 	return null;
 }
 
-function loadProjectContextFiles(
-	options: { cwd?: string; agentDir?: string } = {},
-): Array<{ path: string; content: string }> {
-	const resolvedCwd = options.cwd ?? process.cwd();
-	const resolvedAgentDir = options.agentDir ?? getAgentDir();
+export function loadProjectContextFiles(options: {
+	cwd: string;
+	agentDir: string;
+	projectTrusted?: boolean;
+}): Array<{ path: string; content: string }> {
+	const resolvedCwd = resolvePath(options.cwd);
+	const resolvedAgentDir = resolvePath(options.agentDir);
 
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
@@ -87,33 +89,35 @@ function loadProjectContextFiles(
 		seenPaths.add(globalContext.path);
 	}
 
-	const ancestorContextFiles: Array<{ path: string; content: string }> = [];
+	if (options.projectTrusted !== false) {
+		const ancestorContextFiles: Array<{ path: string; content: string }> = [];
 
-	let currentDir = resolvedCwd;
-	const root = resolve("/");
+		let currentDir = resolvedCwd;
+		const root = resolve("/");
 
-	while (true) {
-		const contextFile = loadContextFileFromDir(currentDir);
-		if (contextFile && !seenPaths.has(contextFile.path)) {
-			ancestorContextFiles.unshift(contextFile);
-			seenPaths.add(contextFile.path);
+		while (true) {
+			const contextFile = loadContextFileFromDir(currentDir);
+			if (contextFile && !seenPaths.has(contextFile.path)) {
+				ancestorContextFiles.unshift(contextFile);
+				seenPaths.add(contextFile.path);
+			}
+
+			if (currentDir === root) break;
+
+			const parentDir = resolve(currentDir, "..");
+			if (parentDir === currentDir) break;
+			currentDir = parentDir;
 		}
 
-		if (currentDir === root) break;
-
-		const parentDir = resolve(currentDir, "..");
-		if (parentDir === currentDir) break;
-		currentDir = parentDir;
+		contextFiles.push(...ancestorContextFiles);
 	}
-
-	contextFiles.push(...ancestorContextFiles);
 
 	return contextFiles;
 }
 
 export interface DefaultResourceLoaderOptions {
-	cwd?: string;
-	agentDir?: string;
+	cwd: string;
+	agentDir: string;
 	settingsManager?: SettingsManager;
 	eventBus?: EventBus;
 	additionalExtensionPaths?: string[];
@@ -125,8 +129,9 @@ export interface DefaultResourceLoaderOptions {
 	noSkills?: boolean;
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
+	noContextFiles?: boolean;
 	systemPrompt?: string;
-	appendSystemPrompt?: string;
+	appendSystemPrompt?: string[];
 	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
 	skillsOverride?: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => {
 		skills: Skill[];
@@ -162,8 +167,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
 	private noThemes: boolean;
+	private noContextFiles: boolean;
 	private systemPromptSource?: string;
-	private appendSystemPromptSource?: string;
+	private appendSystemPromptSource?: string[];
 	private extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
 	private skillsOverride?: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => {
 		skills: Skill[];
@@ -201,8 +207,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private lastThemePaths: string[];
 
 	constructor(options: DefaultResourceLoaderOptions) {
-		this.cwd = options.cwd ?? process.cwd();
-		this.agentDir = options.agentDir ?? getAgentDir();
+		this.cwd = resolvePath(options.cwd);
+		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager ?? SettingsManager.create(this.cwd, this.agentDir);
 		this.eventBus = options.eventBus ?? createEventBus();
 		this.packageManager = new DefaultPackageManager({
@@ -219,6 +225,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
 		this.noThemes = options.noThemes ?? false;
+		this.noContextFiles = options.noContextFiles ?? false;
 		this.systemPromptSource = options.systemPrompt;
 		this.appendSystemPromptSource = options.appendSystemPrompt;
 		this.extensionsOverride = options.extensionsOverride;
@@ -315,6 +322,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	async reload(): Promise<void> {
+		await this.settingsManager.reload();
 		const resolvedPaths = await this.packageManager.resolve();
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
@@ -402,31 +410,73 @@ export class DefaultResourceLoader implements ResourceLoader {
 			extensionsResult.errors.push({ path: conflict.path, error: conflict.message });
 		}
 
+		for (const p of this.additionalExtensionPaths) {
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved)) {
+					extensionsResult.errors.push({ path: resolved, error: `Extension path does not exist: ${resolved}` });
+				}
+			}
+		}
 		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
 		this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
 
 		const skillPaths = this.noSkills
 			? this.mergePaths(cliEnabledSkills, this.additionalSkillPaths)
-			: this.mergePaths([...enabledSkills, ...cliEnabledSkills], this.additionalSkillPaths);
+			: this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
 
 		this.lastSkillPaths = skillPaths;
 		this.updateSkillsFromPaths(skillPaths, metadataByPath);
+		for (const p of this.additionalSkillPaths) {
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved) && !this.skillDiagnostics.some((d) => d.path === resolved)) {
+					this.skillDiagnostics.push({ type: "error", message: "Skill path does not exist", path: resolved });
+				}
+			}
+		}
 
 		const promptPaths = this.noPromptTemplates
 			? this.mergePaths(cliEnabledPrompts, this.additionalPromptTemplatePaths)
-			: this.mergePaths([...enabledPrompts, ...cliEnabledPrompts], this.additionalPromptTemplatePaths);
+			: this.mergePaths([...cliEnabledPrompts, ...enabledPrompts], this.additionalPromptTemplatePaths);
 
 		this.lastPromptPaths = promptPaths;
 		this.updatePromptsFromPaths(promptPaths, metadataByPath);
+		for (const p of this.additionalPromptTemplatePaths) {
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved) && !this.promptDiagnostics.some((d) => d.path === resolved)) {
+					this.promptDiagnostics.push({
+						type: "error",
+						message: "Prompt template path does not exist",
+						path: resolved,
+					});
+				}
+			}
+		}
 
 		const themePaths = this.noThemes
 			? this.mergePaths(cliEnabledThemes, this.additionalThemePaths)
-			: this.mergePaths([...enabledThemes, ...cliEnabledThemes], this.additionalThemePaths);
+			: this.mergePaths([...cliEnabledThemes, ...enabledThemes], this.additionalThemePaths);
 
 		this.lastThemePaths = themePaths;
 		this.updateThemesFromPaths(themePaths, metadataByPath);
+		for (const p of this.additionalThemePaths) {
+			const resolved = this.resolveResourcePath(p);
+			if (!existsSync(resolved) && !this.themeDiagnostics.some((d) => d.path === resolved)) {
+				this.themeDiagnostics.push({ type: "error", message: "Theme path does not exist", path: resolved });
+			}
+		}
 
-		const agentsFiles = { agentsFiles: loadProjectContextFiles({ cwd: this.cwd, agentDir: this.agentDir }) };
+		const agentsFiles = {
+			agentsFiles: this.noContextFiles
+				? []
+				: loadProjectContextFiles({
+						cwd: this.cwd,
+						agentDir: this.agentDir,
+						projectTrusted: this.settingsManager.isProjectTrusted(),
+					}),
+		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
 		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
 
@@ -436,9 +486,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		);
 		this.systemPrompt = this.systemPromptOverride ? this.systemPromptOverride(baseSystemPrompt) : baseSystemPrompt;
 
-		const appendSource = this.appendSystemPromptSource ?? this.discoverAppendSystemPromptFile();
-		const resolvedAppend = resolvePromptInput(appendSource, "append system prompt");
-		const baseAppend = resolvedAppend ? [resolvedAppend] : [];
+		const appendSources =
+			this.appendSystemPromptSource ??
+			(this.discoverAppendSystemPromptFile() ? [this.discoverAppendSystemPromptFile()!] : []);
+		const baseAppend = appendSources
+			.map((s) => resolvePromptInput(s, "append system prompt"))
+			.filter((s): s is string => s !== undefined);
 		this.appendSystemPrompt = this.appendSystemPromptOverride
 			? this.appendSystemPromptOverride(baseAppend)
 			: baseAppend;
@@ -447,10 +500,15 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private normalizeExtensionPaths(
 		entries: Array<{ path: string; metadata: PathMetadata }>,
 	): Array<{ path: string; metadata: PathMetadata }> {
-		return entries.map((entry) => ({
-			path: this.resolveResourcePath(entry.path),
-			metadata: entry.metadata,
-		}));
+		return entries.map((entry) => {
+			const metadata = entry.metadata.baseDir
+				? { ...entry.metadata, baseDir: this.resolveResourcePath(entry.metadata.baseDir) }
+				: entry.metadata;
+			return {
+				path: this.resolveResourcePath(entry.path),
+				metadata,
+			};
+		});
 	}
 
 	private updateSkillsFromPaths(skillPaths: string[], metadataByPath?: Map<string, PathMetadata>): void {
@@ -633,8 +691,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		for (const p of [...primary, ...additional]) {
 			const resolved = this.resolveResourcePath(p);
-			if (seen.has(resolved)) continue;
-			seen.add(resolved);
+			const canonicalPath = canonicalizePath(resolved);
+			if (seen.has(canonicalPath)) continue;
+			seen.add(canonicalPath);
 			merged.push(resolved);
 		}
 
@@ -642,16 +701,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private resolveResourcePath(p: string): string {
-		const trimmed = p.trim();
-		let expanded = trimmed;
-		if (trimmed === "~") {
-			expanded = homedir();
-		} else if (trimmed.startsWith("~/")) {
-			expanded = join(homedir(), trimmed.slice(2));
-		} else if (trimmed.startsWith("~")) {
-			expanded = join(homedir(), trimmed.slice(1));
-		}
-		return resolve(this.cwd, expanded);
+		return resolvePath(p, this.cwd, { trim: true });
 	}
 
 	private loadThemes(
@@ -672,7 +722,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		for (const p of paths) {
-			const resolved = resolve(this.cwd, p);
+			const resolved = this.resolveResourcePath(p);
 			if (!existsSync(resolved)) {
 				diagnostics.push({ type: "warning", message: "theme path does not exist", path: resolved });
 				continue;
@@ -811,7 +861,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	private discoverSystemPromptFile(): string | undefined {
 		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "SYSTEM.md");
-		if (existsSync(projectPath)) {
+		if (this.settingsManager.isProjectTrusted() && existsSync(projectPath)) {
 			return projectPath;
 		}
 
@@ -825,7 +875,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	private discoverAppendSystemPromptFile(): string | undefined {
 		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "APPEND_SYSTEM.md");
-		if (existsSync(projectPath)) {
+		if (this.settingsManager.isProjectTrusted() && existsSync(projectPath)) {
 			return projectPath;
 		}
 

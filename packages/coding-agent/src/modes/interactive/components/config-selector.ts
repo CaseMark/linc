@@ -2,6 +2,7 @@
  * TUI component for managing package resources (enable/disable)
  */
 
+import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import {
 	type Component,
@@ -13,13 +14,13 @@ import {
 	Spacer,
 	truncateToWidth,
 	visibleWidth,
-} from "@casemark/linc-tui";
-import { CONFIG_DIR_NAME } from "../../../config.js";
-import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.js";
-import type { PackageSource, SettingsManager } from "../../../core/settings-manager.js";
-import { theme } from "../theme/theme.js";
-import { DynamicBorder } from "./dynamic-border.js";
-import { rawKeyHint } from "./keybinding-hints.js";
+} from "@earendil-works/pi-tui";
+import { CONFIG_DIR_NAME } from "../../../config.ts";
+import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.ts";
+import type { PackageSource, SettingsManager } from "../../../core/settings-manager.ts";
+import { theme } from "../theme/theme.ts";
+import { DynamicBorder } from "./dynamic-border.ts";
+import { rawKeyHint } from "./keybinding-hints.ts";
 
 type ResourceType = "extensions" | "skills" | "prompts" | "themes";
 
@@ -55,12 +56,34 @@ interface ResourceGroup {
 	subgroups: ResourceSubgroup[];
 }
 
+function formatBaseDir(baseDir: string): string {
+	const homeDir = homedir();
+	let displayPath: string;
+
+	if (baseDir === homeDir) {
+		displayPath = "~";
+	} else if (baseDir.startsWith(homeDir)) {
+		// Replace home prefix with ~, normalize separators for display
+		const rest = baseDir.slice(homeDir.length);
+		displayPath = `~${rest.replace(/\\/g, "/")}`;
+	} else {
+		displayPath = baseDir.replace(/\\/g, "/");
+	}
+
+	return displayPath.endsWith("/") ? displayPath : `${displayPath}/`;
+}
+
 function getGroupLabel(metadata: PathMetadata): string {
 	if (metadata.origin === "package") {
 		return `${metadata.source} (${metadata.scope})`;
 	}
 	// Top-level resources
 	if (metadata.source === "auto") {
+		if (metadata.baseDir) {
+			return metadata.scope === "user"
+				? `User (${formatBaseDir(metadata.baseDir)})`
+				: `Project (${formatBaseDir(metadata.baseDir)})`;
+		}
 		return metadata.scope === "user" ? "User (~/.pi/agent/)" : "Project (.pi/)";
 	}
 	return metadata.scope === "user" ? "User settings" : "Project settings";
@@ -72,7 +95,7 @@ function buildGroups(resolved: ResolvedPaths): ResourceGroup[] {
 	const addToGroup = (resources: ResolvedResource[], resourceType: ResourceType) => {
 		for (const res of resources) {
 			const { path, enabled, metadata } = res;
-			const groupKey = `${metadata.origin}:${metadata.scope}:${metadata.source}`;
+			const groupKey = `${metadata.origin}:${metadata.scope}:${metadata.source}:${metadata.baseDir ?? ""}`;
 
 			if (!groupMap.has(groupKey)) {
 				groupMap.set(groupKey, {
@@ -178,7 +201,7 @@ class ResourceList implements Component, Focusable {
 	private filteredItems: FlatEntry[] = [];
 	private selectedIndex = 0;
 	private searchInput: Input;
-	private maxVisible = 15;
+	private maxVisible: number;
 	private settingsManager: SettingsManager;
 	private cwd: string;
 	private agentDir: string;
@@ -196,12 +219,21 @@ class ResourceList implements Component, Focusable {
 		this.searchInput.focused = value;
 	}
 
-	constructor(groups: ResourceGroup[], settingsManager: SettingsManager, cwd: string, agentDir: string) {
+	constructor(
+		groups: ResourceGroup[],
+		settingsManager: SettingsManager,
+		cwd: string,
+		agentDir: string,
+		terminalHeight?: number,
+	) {
 		this.groups = groups;
 		this.settingsManager = settingsManager;
 		this.cwd = cwd;
 		this.agentDir = agentDir;
 		this.searchInput = new Input();
+		// 8 lines of chrome: top spacer + top border + spacer + header (2 lines) + spacer + bottom spacer + bottom border
+		const chrome = 8;
+		this.maxVisible = Math.max(5, (terminalHeight ?? 24) - chrome);
 		this.buildFlatList();
 		this.filteredItems = [...this.flatItems];
 	}
@@ -348,7 +380,10 @@ class ResourceList implements Component, Focusable {
 
 		// Scroll indicator
 		if (startIndex > 0 || endIndex < this.filteredItems.length) {
-			lines.push(theme.fg("dim", `  (${this.selectedIndex + 1}/${this.filteredItems.length})`));
+			const itemCount = this.filteredItems.filter((e) => e.type === "item").length;
+			const currentItemIndex =
+				this.filteredItems.slice(0, this.selectedIndex).filter((e) => e.type === "item").length + 1;
+			lines.push(theme.fg("dim", `  (${currentItemIndex}/${itemCount})`));
 		}
 
 		return lines;
@@ -532,7 +567,7 @@ class ResourceList implements Component, Focusable {
 
 	private getResourcePattern(item: ResourceItem): string {
 		const scope = item.metadata.scope as "user" | "project";
-		const baseDir = this.getTopLevelBaseDir(scope);
+		const baseDir = item.metadata.baseDir ?? this.getTopLevelBaseDir(scope);
 		return relative(baseDir, item.path);
 	}
 
@@ -562,6 +597,7 @@ export class ConfigSelectorComponent extends Container implements Focusable {
 		onClose: () => void,
 		onExit: () => void,
 		requestRender: () => void,
+		terminalHeight?: number,
 	) {
 		super();
 
@@ -575,7 +611,7 @@ export class ConfigSelectorComponent extends Container implements Focusable {
 		this.addChild(new Spacer(1));
 
 		// Resource list
-		this.resourceList = new ResourceList(groups, settingsManager, cwd, agentDir);
+		this.resourceList = new ResourceList(groups, settingsManager, cwd, agentDir, terminalHeight);
 		this.resourceList.onCancel = onClose;
 		this.resourceList.onExit = onExit;
 		this.resourceList.onToggle = () => requestRender();

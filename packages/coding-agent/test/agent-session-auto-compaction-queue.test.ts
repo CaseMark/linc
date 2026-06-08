@@ -1,15 +1,15 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@casemark/linc-agent-core";
-import { type AssistantMessage, getModel } from "@casemark/linc-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { type AssistantMessage, getModel } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentSession } from "../src/core/agent-session.js";
-import { AuthStorage } from "../src/core/auth-storage.js";
-import { ModelRegistry } from "../src/core/model-registry.js";
-import { SessionManager } from "../src/core/session-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
-import { createTestResourceLoader } from "./utilities.js";
+import { AgentSession } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 vi.mock("../src/core/compaction/index.js", () => ({
 	calculateContextTokens: (usage: {
@@ -76,7 +76,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		authStorage.setRuntimeApiKey("anthropic", "test-key");
-		const modelRegistry = new ModelRegistry(authStorage, tempDir);
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
 
 		session = new AgentSession({
 			agent,
@@ -113,14 +113,13 @@ describe("AgentSession auto-compaction queue resume", () => {
 
 		const runAutoCompaction = (
 			session as unknown as {
-				_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<void>;
+				_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
 			}
 		)._runAutoCompaction.bind(session);
 
-		await runAutoCompaction("threshold", false);
-		await vi.advanceTimersByTimeAsync(100);
+		await expect(runAutoCompaction("threshold", false)).resolves.toBe(true);
 
-		expect(continueSpy).toHaveBeenCalledTimes(1);
+		expect(continueSpy).not.toHaveBeenCalled();
 	});
 
 	it("should not compact repeatedly after overflow recovery already attempted", async () => {
@@ -153,10 +152,10 @@ describe("AgentSession auto-compaction queue resume", () => {
 			)
 			.mockResolvedValue();
 
-		const events: Array<{ type: string; errorMessage?: string }> = [];
+		const events: Array<{ type: string; reason: string; errorMessage?: string }> = [];
 		session.subscribe((event) => {
-			if (event.type === "auto_compaction_end") {
-				events.push({ type: event.type, errorMessage: event.errorMessage });
+			if (event.type === "compaction_end") {
+				events.push({ type: event.type, reason: event.reason, errorMessage: event.errorMessage });
 			}
 		});
 
@@ -171,7 +170,8 @@ describe("AgentSession auto-compaction queue resume", () => {
 
 		expect(runAutoCompactionSpy).toHaveBeenCalledTimes(1);
 		expect(events).toContainEqual({
-			type: "auto_compaction_end",
+			type: "compaction_end",
+			reason: "overflow",
 			errorMessage:
 				"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
 		});
@@ -277,12 +277,12 @@ describe("AgentSession auto-compaction queue resume", () => {
 		};
 
 		// Put both messages into agent state so estimateContextTokens can find the successful one
-		session.agent.replaceMessages([
+		session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() - 1000 },
 			successfulAssistant,
 			{ role: "user", content: [{ type: "text", text: "another prompt" }], timestamp: Date.now() + 500 },
 			errorAssistant,
-		]);
+		];
 
 		const runAutoCompactionSpy = vi
 			.spyOn(
@@ -327,10 +327,10 @@ describe("AgentSession auto-compaction queue resume", () => {
 			timestamp: Date.now(),
 		};
 
-		session.agent.replaceMessages([
+		session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() - 1000 },
 			errorAssistant,
-		]);
+		];
 
 		const runAutoCompactionSpy = vi
 			.spyOn(
@@ -406,12 +406,12 @@ describe("AgentSession auto-compaction queue resume", () => {
 		};
 
 		// Agent state has the kept assistant (pre-compaction) and the error (post-compaction)
-		session.agent.replaceMessages([
+		session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "kept user msg" }], timestamp: preCompactionTimestamp - 1000 },
 			keptAssistant,
 			{ role: "user", content: [{ type: "text", text: "new prompt" }], timestamp: Date.now() - 500 },
 			errorAssistant,
-		]);
+		];
 
 		const runAutoCompactionSpy = vi
 			.spyOn(

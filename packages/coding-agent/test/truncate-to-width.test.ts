@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@casemark/linc-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 
 /**

@@ -2,18 +2,51 @@
  * Model resolution, scoping, and initial selection
  */
 
-import type { ThinkingLevel } from "@casemark/linc-agent-core";
-import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@casemark/linc-ai";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { type Api, type KnownProvider, type Model, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import { minimatch } from "minimatch";
-import { isValidThinkingLevel } from "../cli/args.js";
-import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
-import type { ModelRegistry } from "./model-registry.js";
+import { isValidThinkingLevel } from "../cli/args.ts";
+import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import type { ModelRegistry } from "./model-registry.ts";
 
 /** Default model IDs for each known provider */
-/** Default model for case.dev — all models route through a single provider */
-export const defaultModelPerProvider: Record<string, string> = {
-	casedev: "anthropic/claude-sonnet-4-5-20250514",
+export const defaultModelPerProvider: Record<KnownProvider, string> = {
+	"amazon-bedrock": "us.anthropic.claude-opus-4-6-v1",
+	"ant-ling": "Ring-2.6-1T",
+	anthropic: "claude-opus-4-8",
+	openai: "gpt-5.4",
+	"azure-openai-responses": "gpt-5.4",
+	"openai-codex": "gpt-5.5",
+	nvidia: "nvidia/nemotron-3-super-120b-a12b",
+	deepseek: "deepseek-v4-pro",
+	google: "gemini-3.1-pro-preview",
+	"google-vertex": "gemini-3.1-pro-preview",
+	"github-copilot": "gpt-5.4",
+	openrouter: "moonshotai/kimi-k2.6",
+	"vercel-ai-gateway": "zai/glm-5.1",
+	xai: "grok-4.20-0309-reasoning",
+	groq: "openai/gpt-oss-120b",
+	cerebras: "zai-glm-4.7",
+	zai: "glm-5.1",
+	"zai-coding-cn": "glm-5.1",
+	mistral: "devstral-medium-latest",
+	minimax: "MiniMax-M2.7",
+	"minimax-cn": "MiniMax-M2.7",
+	moonshotai: "kimi-k2.6",
+	"moonshotai-cn": "kimi-k2.6",
+	huggingface: "moonshotai/Kimi-K2.6",
+	fireworks: "accounts/fireworks/models/kimi-k2p6",
+	together: "moonshotai/Kimi-K2.6",
+	opencode: "kimi-k2.6",
+	"opencode-go": "kimi-k2.6",
+	"kimi-coding": "kimi-for-coding",
+	"cloudflare-workers-ai": "@cf/moonshotai/kimi-k2.6",
+	"cloudflare-ai-gateway": "workers-ai/@cf/moonshotai/kimi-k2.6",
+	xiaomi: "mimo-v2.5-pro",
+	"xiaomi-token-plan-cn": "mimo-v2.5-pro",
+	"xiaomi-token-plan-ams": "mimo-v2.5-pro",
+	"xiaomi-token-plan-sgp": "mimo-v2.5-pro",
 };
 
 export interface ScopedModel {
@@ -544,10 +577,10 @@ export async function restoreModelFromSession(
 ): Promise<{ model: Model<Api> | undefined; fallbackMessage: string | undefined }> {
 	const restoredModel = modelRegistry.find(savedProvider, savedModelId);
 
-	// Check if restored model exists and has a valid API key
-	const hasApiKey = restoredModel ? !!(await modelRegistry.getApiKey(restoredModel)) : false;
+	// Check if restored model exists and still has auth configured
+	const hasConfiguredAuth = restoredModel ? modelRegistry.hasConfiguredAuth(restoredModel) : false;
 
-	if (restoredModel && hasApiKey) {
+	if (restoredModel && hasConfiguredAuth) {
 		if (shouldPrintMessages) {
 			console.log(chalk.dim(`Restored model: ${savedProvider}/${savedModelId}`));
 		}
@@ -555,7 +588,7 @@ export async function restoreModelFromSession(
 	}
 
 	// Model not found or no API key - fall back
-	const reason = !restoredModel ? "model no longer exists" : "no API key available";
+	const reason = !restoredModel ? "model no longer exists" : "no auth configured";
 
 	if (shouldPrintMessages) {
 		console.error(chalk.yellow(`Warning: Could not restore model ${savedProvider}/${savedModelId} (${reason}).`));

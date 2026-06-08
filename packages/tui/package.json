@@ -1,18 +1,19 @@
 {
-	"name": "@casemark/linc-tui",
-	"version": "0.2.0",
+	"name": "@earendil-works/pi-tui",
+	"version": "0.78.1",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
 	"main": "dist/index.js",
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json",
-		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"test": "node --test --import tsx test/*.test.ts",
+		"test": "node --test test/*.test.ts",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"files": [
 		"dist/**/*",
+		"native/win32/prebuilds/**/*.node",
+		"native/darwin/prebuilds/**/*.node",
 		"README.md"
 	],
 	"keywords": [
@@ -24,29 +25,23 @@
 		"typescript",
 		"cli"
 	],
-	"author": "CaseMark",
+	"author": "Mario Zechner",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/CaseMark/linc.git",
+		"url": "git+https://github.com/earendil-works/pi.git",
 		"directory": "packages/tui"
 	},
 	"engines": {
-		"node": ">=20.0.0"
+		"node": ">=22.19.0"
 	},
 	"types": "./dist/index.d.ts",
 	"dependencies": {
-		"@types/mime-types": "^2.1.4",
-		"chalk": "^5.5.0",
-		"get-east-asian-width": "^1.3.0",
-		"marked": "^15.0.12",
-		"mime-types": "^3.0.1"
-	},
-	"optionalDependencies": {
-		"koffi": "^2.9.0"
+		"get-east-asian-width": "1.6.0",
+		"marked": "15.0.12"
 	},
 	"devDependencies": {
-		"@xterm/headless": "^5.5.0",
-		"@xterm/xterm": "^5.5.0"
+		"@xterm/headless": "5.5.0",
+		"chalk": "5.6.2"
 	}
 }

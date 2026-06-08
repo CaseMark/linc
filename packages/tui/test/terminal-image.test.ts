@@ -4,7 +4,53 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { isImageLine } from "../src/terminal-image.js";
+import { Image } from "../src/components/image.ts";
+import {
+	deleteAllKittyImages,
+	deleteKittyImage,
+	detectCapabilities,
+	encodeKitty,
+	hyperlink,
+	isImageLine,
+	renderImage,
+	resetCapabilitiesCache,
+	setCapabilities,
+	setCellDimensions,
+} from "../src/terminal-image.ts";
+
+const ENV_KEYS = [
+	"TERM",
+	"TERM_PROGRAM",
+	"TERMINAL_EMULATOR",
+	"COLORTERM",
+	"TMUX",
+	"KITTY_WINDOW_ID",
+	"GHOSTTY_RESOURCES_DIR",
+	"WEZTERM_PANE",
+	"ITERM_SESSION_ID",
+	"WT_SESSION",
+	"CMUX_WORKSPACE_ID",
+] as const;
+
+function withEnv(overrides: Record<string, string | undefined>, fn: () => void): void {
+	const saved: Record<string, string | undefined> = {};
+	for (const key of ENV_KEYS) {
+		saved[key] = process.env[key];
+		delete process.env[key];
+	}
+	try {
+		for (const [k, v] of Object.entries(overrides)) {
+			if (v === undefined) delete process.env[k];
+			else process.env[k] = v;
+		}
+		fn();
+	} finally {
+		for (const key of ENV_KEYS) {
+			if (saved[key] === undefined) delete process.env[key];
+			else process.env[key] = saved[key];
+		}
+	}
+}
 
 describe("isImageLine", () => {
 	describe("iTerm2 image protocol", () => {
@@ -149,5 +195,254 @@ describe("isImageLine", () => {
 			const filePathLine = "/path/to/File_1337_backup/image.jpg";
 			assert.strictEqual(isImageLine(filePathLine), false);
 		});
+	});
+});
+
+describe("detectCapabilities", () => {
+	it("defaults to hyperlinks: false for unknown terminals", () => {
+		withEnv({}, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("enables hyperlinks under tmux when the client forwards them", () => {
+		withEnv({ TMUX: "/tmp/tmux-1000/default,1234,0", TERM_PROGRAM: "ghostty" }, () => {
+			const caps = detectCapabilities(() => true);
+			assert.strictEqual(caps.hyperlinks, true);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("disables hyperlinks under tmux when the client does not forward them", () => {
+		withEnv({ TMUX: "/tmp/tmux-1000/default,1234,0", TERM_PROGRAM: "ghostty" }, () => {
+			const caps = detectCapabilities(() => false);
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("checks tmux capability when TERM starts with 'tmux'", () => {
+		withEnv({ TERM: "tmux-256color", TERM_PROGRAM: "iterm.app" }, () => {
+			const caps = detectCapabilities(() => true);
+			assert.strictEqual(caps.hyperlinks, true);
+			assert.strictEqual(caps.images, null);
+
+			const caps2 = detectCapabilities(() => false);
+			assert.strictEqual(caps2.hyperlinks, false);
+		});
+	});
+
+	it("forces hyperlinks: false when TERM starts with 'screen'", () => {
+		withEnv({ TERM: "screen-256color" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("enables hyperlinks for Ghostty", () => {
+		withEnv({ TERM_PROGRAM: "ghostty" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("does not disable Ghostty images solely because cmux is present", () => {
+		withEnv({ TERM_PROGRAM: "ghostty", CMUX_WORKSPACE_ID: "workspace" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.images, "kitty");
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables hyperlinks for Kitty", () => {
+		withEnv({ KITTY_WINDOW_ID: "1" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables hyperlinks for WezTerm", () => {
+		withEnv({ WEZTERM_PANE: "0" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables hyperlinks for iTerm2", () => {
+		withEnv({ TERM_PROGRAM: "iterm.app" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables hyperlinks for VSCode", () => {
+		withEnv({ TERM_PROGRAM: "vscode" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.hyperlinks, true);
+		});
+	});
+
+	it("enables truecolor and hyperlinks for Windows Terminal outside multiplexers", () => {
+		withEnv({ WT_SESSION: "session", TERM: "xterm-256color" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.trueColor, true);
+			assert.strictEqual(caps.hyperlinks, true);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("enables truecolor without hyperlinks for JetBrains terminal", () => {
+		withEnv({ TERMINAL_EMULATOR: "JetBrains-JediTerm", TERM: "xterm-256color" }, () => {
+			const caps = detectCapabilities();
+			assert.strictEqual(caps.trueColor, true);
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("does not inherit Windows Terminal truecolor through tmux", () => {
+		withEnv({ WT_SESSION: "session", TMUX: "/tmp/tmux-1000/default,1234,0", TERM: "tmux-256color" }, () => {
+			const caps = detectCapabilities(() => false);
+			assert.strictEqual(caps.trueColor, false);
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+
+	it("trusts explicit truecolor hints through tmux", () => {
+		withEnv({ COLORTERM: "truecolor", TMUX: "/tmp/tmux-1000/default,1234,0", TERM: "tmux-256color" }, () => {
+			const caps = detectCapabilities(() => false);
+			assert.strictEqual(caps.trueColor, true);
+			assert.strictEqual(caps.hyperlinks, false);
+			assert.strictEqual(caps.images, null);
+		});
+	});
+});
+
+describe("Kitty image cursor movement", () => {
+	it("can request no terminal-side cursor movement", () => {
+		const sequence = encodeKitty("AAAA", { columns: 2, rows: 2, moveCursor: false });
+		assert.ok(sequence.startsWith("\x1b_Ga=T,f=100,q=2,C=1,c=2,r=2;"));
+	});
+
+	it("suppresses Kitty replies for delete commands", () => {
+		assert.strictEqual(deleteKittyImage(42), "\x1b_Ga=d,d=I,i=42,q=2\x1b\\");
+		assert.strictEqual(deleteAllKittyImages(), "\x1b_Ga=d,d=A,q=2\x1b\\");
+	});
+
+	it("preserves renderImage's default terminal-side cursor movement", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const result = renderImage("AAAA", { widthPx: 20, heightPx: 20 }, { maxWidthCells: 2 });
+			assert.ok(result);
+			assert.ok(!result.sequence.includes(",C=1,"));
+			assert.strictEqual(result.rows, 2);
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("can opt renderImage into no terminal-side cursor movement", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const result = renderImage("AAAA", { widthPx: 20, heightPx: 20 }, { maxWidthCells: 2, moveCursor: false });
+			assert.ok(result);
+			assert.ok(result.sequence.includes(",C=1,"));
+			assert.strictEqual(result.rows, 2);
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("honors maxHeightCells by reducing rendered width", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const result = renderImage("AAAA", { widthPx: 10, heightPx: 100 }, { maxWidthCells: 10, maxHeightCells: 5 });
+			assert.ok(result);
+			assert.strictEqual(result.rows, 5);
+			assert.ok(result.sequence.includes(",c=1,r=5"));
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("caps Image component height to a square pixel box by default", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 20 });
+		try {
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 10 },
+				{ widthPx: 10, heightPx: 100 },
+			);
+			const lines = image.render(12);
+			assert.strictEqual(lines.length, 5);
+			assert.ok(lines[0].includes(",c=1,r=5"));
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("places image sequence on first line with empty padding rows", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 2 },
+				{ widthPx: 20, heightPx: 20 },
+			);
+			const lines = image.render(4);
+			const imageId = image.getImageId();
+			assert.strictEqual(typeof imageId, "number");
+			assert.ok(lines[0].startsWith("\x1b_G"));
+			assert.ok(lines[0].includes(",C=1,"));
+			assert.ok(lines[0].includes(`,i=${imageId}`));
+			assert.ok(lines[0].endsWith("\x1b\\"));
+			assert.deepStrictEqual(lines.slice(1, lines.length), [""]);
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+});
+
+describe("hyperlink", () => {
+	it("wraps text in OSC 8 open and close sequences", () => {
+		const result = hyperlink("click me", "https://example.com");
+		assert.strictEqual(result, "\x1b]8;;https://example.com\x1b\\click me\x1b]8;;\x1b\\");
+	});
+
+	it("preserves ANSI styling inside the hyperlink", () => {
+		const styled = "\x1b[4m\x1b[34mclick me\x1b[0m";
+		const result = hyperlink(styled, "https://example.com");
+		assert.ok(result.startsWith("\x1b]8;;https://example.com\x1b\\"));
+		assert.ok(result.includes(styled));
+		assert.ok(result.endsWith("\x1b]8;;\x1b\\"));
+	});
+
+	it("works with empty text", () => {
+		const result = hyperlink("", "https://example.com");
+		assert.strictEqual(result, "\x1b]8;;https://example.com\x1b\\\x1b]8;;\x1b\\");
+	});
+
+	it("works with file:// URIs", () => {
+		const result = hyperlink("README.md", "file:///home/user/README.md");
+		assert.ok(result.includes("file:///home/user/README.md"));
+		assert.ok(result.includes("README.md"));
 	});
 });

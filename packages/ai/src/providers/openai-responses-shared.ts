@@ -12,7 +12,7 @@ import type {
 	ResponseReasoningItem,
 	ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
-import { calculateCost } from "../models.js";
+import { calculateCost } from "../models.ts";
 import type {
 	Api,
 	AssistantMessage,
@@ -26,12 +26,12 @@ import type {
 	Tool,
 	ToolCall,
 	Usage,
-} from "../types.js";
-import type { AssistantMessageEventStream } from "../utils/event-stream.js";
-import { shortHash } from "../utils/hash.js";
-import { parseStreamingJson } from "../utils/json-parse.js";
-import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-import { transformMessages } from "./transform-messages.js";
+} from "../types.ts";
+import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { shortHash } from "../utils/hash.ts";
+import { parseStreamingJson } from "../utils/json-parse.ts";
+import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
+import { transformMessages } from "./transform-messages.ts";
 
 // =============================================================================
 // Utilities
@@ -65,6 +65,10 @@ function parseTextSignature(
 
 export interface OpenAIResponsesStreamOptions {
 	serviceTier?: ResponseCreateParamsStreaming["service_tier"];
+	resolveServiceTier?: (
+		responseServiceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+		requestServiceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
+	) => ResponseCreateParamsStreaming["service_tier"] | undefined;
 	applyServiceTierPricing?: (
 		usage: Usage,
 		serviceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
@@ -120,7 +124,8 @@ export function convertResponsesMessages<TApi extends Api>(
 
 	const includeSystemPrompt = options?.includeSystemPrompt ?? true;
 	if (includeSystemPrompt && context.systemPrompt) {
-		const role = model.reasoning ? "developer" : "system";
+		const compat = model.compat as { supportsDeveloperRole?: boolean } | undefined;
+		const role = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
 		messages.push({
 			role,
 			content: sanitizeSurrogates(context.systemPrompt),
@@ -149,13 +154,10 @@ export function convertResponsesMessages<TApi extends Api>(
 						image_url: `data:${item.mimeType};base64,${item.data}`,
 					} satisfies ResponseInputImage;
 				});
-				const filteredContent = !model.input.includes("image")
-					? content.filter((c) => c.type !== "input_image")
-					: content;
-				if (filteredContent.length === 0) continue;
+				if (content.length === 0) continue;
 				messages.push({
 					role: "user",
-					content: filteredContent,
+					content,
 				});
 			}
 		} else if (msg.role === "assistant") {
@@ -165,6 +167,7 @@ export function convertResponsesMessages<TApi extends Api>(
 				assistantMsg.model !== model.id &&
 				assistantMsg.provider === model.provider &&
 				assistantMsg.api === model.api;
+			let textBlockIndex = 0;
 
 			for (const block of msg.content) {
 				if (block.type === "thinking") {
@@ -175,10 +178,13 @@ export function convertResponsesMessages<TApi extends Api>(
 				} else if (block.type === "text") {
 					const textBlock = block as TextContent;
 					const parsedSignature = parseTextSignature(textBlock.textSignature);
+					const fallbackMessageId =
+						textBlockIndex === 0 ? `msg_pi_${msgIndex}` : `msg_pi_${msgIndex}_${textBlockIndex}`;
+					textBlockIndex++;
 					// OpenAI requires id to be max 64 characters
 					let msgId = parsedSignature?.id;
 					if (!msgId) {
-						msgId = `msg_${msgIndex}`;
+						msgId = fallbackMessageId;
 					} else if (msgId.length > 64) {
 						msgId = `msg_${shortHash(msgId)}`;
 					}
@@ -353,6 +359,16 @@ export async function processResponsesStream<TApi extends Api>(
 					});
 				}
 			}
+		} else if (event.type === "response.reasoning_text.delta") {
+			if (currentItem?.type === "reasoning" && currentBlock?.type === "thinking") {
+				currentBlock.thinking += event.delta;
+				stream.push({
+					type: "thinking_delta",
+					contentIndex: blockIndex(),
+					delta: event.delta,
+					partial: output,
+				});
+			}
 		} else if (event.type === "response.content_part.added") {
 			if (currentItem?.type === "message") {
 				currentItem.content = currentItem.content || [];
@@ -408,14 +424,29 @@ export async function processResponsesStream<TApi extends Api>(
 			}
 		} else if (event.type === "response.function_call_arguments.done") {
 			if (currentItem?.type === "function_call" && currentBlock?.type === "toolCall") {
+				const previousPartialJson = currentBlock.partialJson;
 				currentBlock.partialJson = event.arguments;
 				currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
+
+				if (event.arguments.startsWith(previousPartialJson)) {
+					const delta = event.arguments.slice(previousPartialJson.length);
+					if (delta.length > 0) {
+						stream.push({
+							type: "toolcall_delta",
+							contentIndex: blockIndex(),
+							delta,
+							partial: output,
+						});
+					}
+				}
 			}
 		} else if (event.type === "response.output_item.done") {
 			const item = event.item;
 
 			if (item.type === "reasoning" && currentBlock?.type === "thinking") {
-				currentBlock.thinking = item.summary?.map((s) => s.text).join("\n\n") || "";
+				const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
+				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
+				currentBlock.thinking = summaryText || contentText || currentBlock.thinking;
 				currentBlock.thinkingSignature = JSON.stringify(item);
 				stream.push({
 					type: "thinking_end",
@@ -439,12 +470,22 @@ export async function processResponsesStream<TApi extends Api>(
 					currentBlock?.type === "toolCall" && currentBlock.partialJson
 						? parseStreamingJson(currentBlock.partialJson)
 						: parseStreamingJson(item.arguments || "{}");
-				const toolCall: ToolCall = {
-					type: "toolCall",
-					id: `${item.call_id}|${item.id}`,
-					name: item.name,
-					arguments: args,
-				};
+
+				let toolCall: ToolCall;
+				if (currentBlock?.type === "toolCall") {
+					// Finalize in-place and strip the scratch buffer so replay only
+					// carries parsed arguments.
+					currentBlock.arguments = args;
+					delete (currentBlock as { partialJson?: string }).partialJson;
+					toolCall = currentBlock;
+				} else {
+					toolCall = {
+						type: "toolCall",
+						id: `${item.call_id}|${item.id}`,
+						name: item.name,
+						arguments: args,
+					};
+				}
 
 				currentBlock = null;
 				stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
@@ -468,7 +509,9 @@ export async function processResponsesStream<TApi extends Api>(
 			}
 			calculateCost(model, output.usage);
 			if (options?.applyServiceTierPricing) {
-				const serviceTier = response?.service_tier ?? options.serviceTier;
+				const serviceTier = options.resolveServiceTier
+					? options.resolveServiceTier(response?.service_tier, options.serviceTier)
+					: (response?.service_tier ?? options.serviceTier);
 				options.applyServiceTierPricing(output.usage, serviceTier);
 			}
 			// Map status to stop reason

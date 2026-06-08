@@ -1,5 +1,5 @@
-import { Container, Markdown, type MarkdownTheme, Spacer } from "@casemark/linc-tui";
-import { getMarkdownTheme, theme } from "../theme/theme.js";
+import { Box, Container, Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -9,15 +9,24 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
  * Component that renders a user message
  */
 export class UserMessageComponent extends Container {
+	private contentBox: Box;
+
 	constructor(text: string, markdownTheme: MarkdownTheme = getMarkdownTheme()) {
 		super();
-		this.addChild(new Spacer(1));
-		this.addChild(
-			new Markdown(text, 1, 1, markdownTheme, {
-				bgColor: (text: string) => theme.bg("userMessageBg", text),
-				color: (text: string) => theme.fg("userMessageText", text),
-			}),
+		this.contentBox = new Box(1, 1, (content: string) => theme.bg("userMessageBg", content));
+		this.contentBox.addChild(
+			new Markdown(
+				text,
+				0,
+				0,
+				markdownTheme,
+				{
+					color: (content: string) => theme.fg("userMessageText", content),
+				},
+				{ preserveOrderedListMarkers: true },
+			),
 		);
+		this.addChild(this.contentBox);
 	}
 
 	override render(width: number): string[] {
@@ -27,7 +36,7 @@ export class UserMessageComponent extends Container {
 		}
 
 		lines[0] = OSC133_ZONE_START + lines[0];
-		lines[lines.length - 1] = lines[lines.length - 1] + OSC133_ZONE_END + OSC133_ZONE_FINAL;
+		lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
 		return lines;
 	}
 }

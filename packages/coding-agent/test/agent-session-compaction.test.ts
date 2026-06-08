@@ -10,16 +10,16 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@casemark/linc-agent-core";
-import { getModel } from "@casemark/linc-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { getModel } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.js";
-import { AuthStorage } from "../src/core/auth-storage.js";
-import { ModelRegistry } from "../src/core/model-registry.js";
-import { SessionManager } from "../src/core/session-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
-import { codingTools } from "../src/core/tools/index.js";
-import { API_KEY, createTestResourceLoader } from "./utilities.js";
+import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createCodingTools } from "../src/index.ts";
+import { API_KEY, createTestResourceLoader } from "./utilities.ts";
 
 describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 	let session: AgentSession;
@@ -52,7 +52,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 			initialState: {
 				model,
 				systemPrompt: "You are a helpful assistant. Be concise.",
-				tools: codingTools,
+				tools: createCodingTools(process.cwd()),
 			},
 		});
 
@@ -61,7 +61,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		// Use minimal keepRecentTokens so small test conversations have something to summarize
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = new ModelRegistry(authStorage);
+		const modelRegistry = ModelRegistry.create(authStorage);
 
 		session = new AgentSession({
 			agent,
@@ -181,7 +181,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		expect(compactionEntries.length).toBe(1);
 	}, 120000);
 
-	it("should emit correct events during auto-compaction", async () => {
+	it("should emit compaction events during manual compaction", async () => {
 		createSession();
 
 		// Build some history
@@ -191,12 +191,15 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		// Manually trigger compaction and check events
 		await session.compact();
 
-		// Check that no auto_compaction events were emitted for manual compaction
-		const autoCompactionEvents = events.filter(
-			(e) => e.type === "auto_compaction_start" || e.type === "auto_compaction_end",
-		);
-		// Manual compaction doesn't emit auto_compaction events
-		expect(autoCompactionEvents.length).toBe(0);
+		const compactionEvents = events.filter((e) => e.type === "compaction_start" || e.type === "compaction_end");
+		expect(compactionEvents).toHaveLength(2);
+		expect(compactionEvents[0]).toEqual({ type: "compaction_start", reason: "manual" });
+		expect(compactionEvents[1]).toMatchObject({
+			type: "compaction_end",
+			reason: "manual",
+			aborted: false,
+			willRetry: false,
+		});
 
 		// Regular events should have been emitted
 		const messageEndEvents = events.filter((e) => e.type === "message_end");

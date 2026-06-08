@@ -1,6 +1,8 @@
 # SDK Examples
 
-Programmatic usage of pi-coding-agent via `createAgentSession()`.
+Programmatic usage of pi-coding-agent via `createAgentSession()` and `createAgentSessionRuntime()`.
+
+The runtime example shows how to build a recreate function that closes over process-global fixed inputs and recreates cwd-bound services and sessions as the active session cwd changes.
 
 ## Examples
 
@@ -10,7 +12,7 @@ Programmatic usage of pi-coding-agent via `createAgentSession()`.
 | `02-custom-model.ts` | Select model and thinking level |
 | `03-custom-prompt.ts` | Replace or modify system prompt |
 | `04-skills.ts` | Discover, filter, or replace skills |
-| `05-tools.ts` | Built-in tools, custom tools |
+| `05-tools.ts` | Built-in tool allowlists |
 | `06-extensions.ts` | Logging, blocking, result modification |
 | `07-context-files.ts` | AGENTS.md context files |
 | `08-slash-commands.ts` | File-based slash commands |
@@ -18,6 +20,7 @@ Programmatic usage of pi-coding-agent via `createAgentSession()`.
 | `10-settings.ts` | Override compaction, retry, terminal settings |
 | `11-sessions.ts` | In-memory, persistent, continue, list sessions |
 | `12-full-control.ts` | Replace everything, no discovery |
+| `13-session-runtime.ts` | Manage runtime-backed session replacement |
 
 ## Running
 
@@ -29,7 +32,7 @@ npx tsx examples/sdk/01-minimal.ts
 ## Quick Reference
 
 ```typescript
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
@@ -37,14 +40,11 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-  codingTools,
-  readOnlyTools,
-  readTool, bashTool, editTool, writeTool,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 // Auth and models setup
 const authStorage = AuthStorage.create();
-const modelRegistry = new ModelRegistry(authStorage);
+const modelRegistry = ModelRegistry.create(authStorage);
 
 // Minimal
 const { session } = await createAgentSession({ authStorage, modelRegistry });
@@ -61,7 +61,7 @@ await loader.reload();
 const { session } = await createAgentSession({ resourceLoader: loader, authStorage, modelRegistry });
 
 // Read-only
-const { session } = await createAgentSession({ tools: readOnlyTools, authStorage, modelRegistry });
+const { session } = await createAgentSession({ tools: ["read", "grep", "find", "ls"], authStorage, modelRegistry });
 
 // In-memory
 const { session } = await createAgentSession({
@@ -73,7 +73,7 @@ const { session } = await createAgentSession({
 // Full control
 const customAuth = AuthStorage.create("/my/app/auth.json");
 customAuth.setRuntimeApiKey("anthropic", process.env.MY_KEY!);
-const customRegistry = new ModelRegistry(customAuth);
+const customRegistry = ModelRegistry.create(customAuth);
 
 const resourceLoader = new DefaultResourceLoader({
   systemPromptOverride: () => "You are helpful.",
@@ -89,8 +89,8 @@ const { session } = await createAgentSession({
   authStorage: customAuth,
   modelRegistry: customRegistry,
   resourceLoader,
-  tools: [readTool, bashTool],
-  customTools: [{ tool: myTool }],
+  tools: ["read", "bash", "my_tool"],
+  customTools: [myTool],
   sessionManager: SessionManager.inMemory(),
   settingsManager: SettingsManager.inMemory(),
 });
@@ -109,12 +109,12 @@ await session.prompt("Hello");
 | Option | Default | Description |
 |--------|---------|-------------|
 | `authStorage` | `AuthStorage.create()` | Credential storage |
-| `modelRegistry` | `new ModelRegistry(authStorage)` | Model registry |
+| `modelRegistry` | `ModelRegistry.create(authStorage)` | Model registry |
 | `cwd` | `process.cwd()` | Working directory |
 | `agentDir` | `~/.pi/agent` | Config directory |
 | `model` | From settings/first available | Model to use |
 | `thinkingLevel` | From settings/"off" | off, low, medium, high |
-| `tools` | `codingTools` | Built-in tools |
+| `tools` | `["read", "bash", "edit", "write"]` built-ins | Allowlist tool names across built-in, extension, and custom tools |
 | `customTools` | `[]` | Additional tool definitions |
 | `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes |
 | `sessionManager` | `SessionManager.create(cwd)` | Persistence |

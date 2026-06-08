@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseArgs } from "../src/cli/args.js";
+import { parseArgs } from "../src/cli/args.ts";
 
 describe("parseArgs", () => {
 	describe("--version flag", () => {
@@ -42,6 +42,21 @@ describe("parseArgs", () => {
 		test("parses -p shorthand", () => {
 			const result = parseArgs(["-p"]);
 			expect(result.print).toBe(true);
+		});
+
+		test("parses prompt after -p even when it starts with YAML frontmatter", () => {
+			const prompt = "---\ntitle: hello\n---\nSay hi.";
+			const result = parseArgs(["-p", prompt]);
+			expect(result.print).toBe(true);
+			expect(result.messages).toEqual([prompt]);
+			expect(result.unknownFlags.size).toBe(0);
+		});
+
+		test("does not consume options after -p as prompts", () => {
+			const result = parseArgs(["-p", "--provider", "openai", "Say hi."]);
+			expect(result.print).toBe(true);
+			expect(result.provider).toBe("openai");
+			expect(result.messages).toEqual(["Say hi."]);
 		});
 	});
 
@@ -92,7 +107,12 @@ describe("parseArgs", () => {
 
 		test("parses --append-system-prompt", () => {
 			const result = parseArgs(["--append-system-prompt", "Additional context"]);
-			expect(result.appendSystemPrompt).toBe("Additional context");
+			expect(result.appendSystemPrompt).toEqual(["Additional context"]);
+		});
+
+		test("parses multiple --append-system-prompt flags", () => {
+			const result = parseArgs(["--append-system-prompt", "Context A", "--append-system-prompt", "Context B"]);
+			expect(result.appendSystemPrompt).toEqual(["Context A", "Context B"]);
 		});
 
 		test("parses --mode", () => {
@@ -108,6 +128,11 @@ describe("parseArgs", () => {
 		test("parses --session", () => {
 			const result = parseArgs(["--session", "/path/to/session.jsonl"]);
 			expect(result.session).toBe("/path/to/session.jsonl");
+		});
+
+		test("parses --session-id", () => {
+			const result = parseArgs(["--session-id", "orchestrated-session"]);
+			expect(result.sessionId).toBe("orchestrated-session");
 		});
 
 		test("parses --fork", () => {
@@ -129,6 +154,36 @@ describe("parseArgs", () => {
 		test("parses --models as comma-separated list", () => {
 			const result = parseArgs(["--models", "gpt-4o,claude-sonnet,gemini-pro"]);
 			expect(result.models).toEqual(["gpt-4o", "claude-sonnet", "gemini-pro"]);
+		});
+	});
+
+	describe("--name flag", () => {
+		test("parses --name flag with value", () => {
+			const result = parseArgs(["--name", "my-session"]);
+			expect(result.name).toBe("my-session");
+		});
+
+		test("parses -n shorthand", () => {
+			const result = parseArgs(["-n", "quick-session"]);
+			expect(result.name).toBe("quick-session");
+		});
+
+		test("preserves empty values for main validation", () => {
+			const result = parseArgs(["--name", ""]);
+			expect(result.name).toBe("");
+		});
+
+		test("reports missing value", () => {
+			const result = parseArgs(["--name"]);
+			expect(result.diagnostics).toEqual([{ type: "error", message: "--name requires a value" }]);
+		});
+
+		test("works alongside other flags", () => {
+			const result = parseArgs(["--name", "named-run", "--print", "--model", "gpt-4o", "hello"]);
+			expect(result.name).toBe("named-run");
+			expect(result.print).toBe(true);
+			expect(result.model).toBe("gpt-4o");
+			expect(result.messages).toEqual(["hello"]);
 		});
 	});
 
@@ -226,6 +281,40 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("--no-context-files flag", () => {
+		test("parses --no-context-files flag", () => {
+			const result = parseArgs(["--no-context-files"]);
+			expect(result.noContextFiles).toBe(true);
+		});
+
+		test("parses -nc shorthand", () => {
+			const result = parseArgs(["-nc"]);
+			expect(result.noContextFiles).toBe(true);
+		});
+	});
+
+	describe("project approval flags", () => {
+		test("parses --approve", () => {
+			const result = parseArgs(["--approve"]);
+			expect(result.projectTrustOverride).toBe(true);
+		});
+
+		test("parses -a shorthand", () => {
+			const result = parseArgs(["-a"]);
+			expect(result.projectTrustOverride).toBe(true);
+		});
+
+		test("parses --no-approve", () => {
+			const result = parseArgs(["--no-approve"]);
+			expect(result.projectTrustOverride).toBe(false);
+		});
+
+		test("parses -na shorthand", () => {
+			const result = parseArgs(["-na"]);
+			expect(result.projectTrustOverride).toBe(false);
+		});
+	});
+
 	describe("--verbose flag", () => {
 		test("parses --verbose flag", () => {
 			const result = parseArgs(["--verbose"]);
@@ -240,15 +329,56 @@ describe("parseArgs", () => {
 		});
 	});
 
-	describe("--no-tools flag", () => {
+	describe("tool flags", () => {
 		test("parses --no-tools flag", () => {
 			const result = parseArgs(["--no-tools"]);
 			expect(result.noTools).toBe(true);
 		});
 
+		test("parses -nt shorthand", () => {
+			const result = parseArgs(["-nt"]);
+			expect(result.noTools).toBe(true);
+		});
+
+		test("parses --no-builtin-tools flag", () => {
+			const result = parseArgs(["--no-builtin-tools"]);
+			expect(result.noBuiltinTools).toBe(true);
+		});
+
+		test("parses -nbt shorthand", () => {
+			const result = parseArgs(["-nbt"]);
+			expect(result.noBuiltinTools).toBe(true);
+		});
+
+		test("parses --tools flag", () => {
+			const result = parseArgs(["--tools", "read,bash"]);
+			expect(result.tools).toEqual(["read", "bash"]);
+		});
+
+		test("parses -t shorthand", () => {
+			const result = parseArgs(["-t", "read,bash"]);
+			expect(result.tools).toEqual(["read", "bash"]);
+		});
+
+		test("parses --exclude-tools flag", () => {
+			const result = parseArgs(["--exclude-tools", "read,bash"]);
+			expect(result.excludeTools).toEqual(["read", "bash"]);
+		});
+
+		test("parses -xt shorthand", () => {
+			const result = parseArgs(["-xt", "read,bash"]);
+			expect(result.excludeTools).toEqual(["read", "bash"]);
+		});
+
 		test("parses --no-tools with explicit --tools flags", () => {
 			const result = parseArgs(["--no-tools", "--tools", "read,bash"]);
 			expect(result.noTools).toBe(true);
+			expect(result.tools).toEqual(["read", "bash"]);
+		});
+
+		test("parses --no-builtin-tools with explicit --tools flags", () => {
+			const result = parseArgs(["--no-builtin-tools", "--tools", "read,bash"]);
+			expect(result.noBuiltinTools).toBe(true);
 			expect(result.tools).toEqual(["read", "bash"]);
 		});
 	});
@@ -270,9 +400,20 @@ describe("parseArgs", () => {
 			expect(result.messages).toEqual(["explain this"]);
 		});
 
-		test("ignores unknown flags starting with -", () => {
+		test("captures unknown long flags with string values", () => {
 			const result = parseArgs(["--unknown-flag", "message"]);
-			expect(result.messages).toEqual(["message"]);
+			expect(result.messages).toEqual([]);
+			expect(result.unknownFlags.get("unknown-flag")).toBe("message");
+		});
+
+		test("captures unknown boolean long flags", () => {
+			const result = parseArgs(["--unknown-flag"]);
+			expect(result.unknownFlags.get("unknown-flag")).toBe(true);
+		});
+
+		test("captures unknown long flags with equals syntax", () => {
+			const result = parseArgs(["--unknown-flag=value"]);
+			expect(result.unknownFlags.get("unknown-flag")).toBe("value");
 		});
 	});
 

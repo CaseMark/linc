@@ -1,7 +1,9 @@
 // Core session management
 
+export { type Args, parseArgs } from "./cli/args.ts";
+
 // Config paths
-export { getAgentDir, VERSION } from "./config.js";
+export { getAgentDir, getDocsPath, getExamplesPath, getPackageDir, getReadmePath, VERSION } from "./config.ts";
 export {
 	AgentSession,
 	type AgentSessionConfig,
@@ -12,17 +14,18 @@ export {
 	type PromptOptions,
 	parseSkillBlock,
 	type SessionStats,
-} from "./core/agent-session.js";
+} from "./core/agent-session.ts";
 // Auth and model registry
 export {
 	type ApiKeyCredential,
 	type AuthCredential,
+	type AuthStatus,
 	AuthStorage,
 	type AuthStorageBackend,
 	FileAuthStorageBackend,
 	InMemoryAuthStorageBackend,
 	type OAuthCredential,
-} from "./core/auth-storage.js";
+} from "./core/auth-storage.ts";
 // Compaction
 export {
 	type BranchPreparation,
@@ -45,8 +48,8 @@ export {
 	prepareBranchEntries,
 	serializeConversation,
 	shouldCompact,
-} from "./core/compaction/index.js";
-export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.js";
+} from "./core/compaction/index.ts";
+export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {
 	AgentEndEvent,
@@ -54,10 +57,13 @@ export type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	AppKeybinding,
+	AutocompleteProviderFactory,
 	BashToolCallEvent,
 	BeforeAgentStartEvent,
+	BeforeAgentStartEventResult,
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
+	BuildSystemPromptOptions,
 	CompactOptions,
 	ContextEvent,
 	ContextUsage,
@@ -103,10 +109,8 @@ export type {
 	SessionBeforeSwitchEvent,
 	SessionBeforeTreeEvent,
 	SessionCompactEvent,
-	SessionForkEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
-	SessionSwitchEvent,
 	SessionTreeEvent,
 	SlashCommandInfo,
 	SlashCommandSource,
@@ -115,6 +119,7 @@ export type {
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolDefinition,
+	ToolExecutionMode,
 	ToolInfo,
 	ToolRenderResultOptions,
 	ToolResultEvent,
@@ -123,10 +128,12 @@ export type {
 	UserBashEvent,
 	UserBashEventResult,
 	WidgetPlacement,
+	WorkingIndicatorOptions,
 	WriteToolCallEvent,
-} from "./core/extensions/index.js";
+} from "./core/extensions/index.ts";
 export {
 	createExtensionRuntime,
+	defineTool,
 	discoverAndLoadExtensions,
 	ExtensionRunner,
 	isBashToolResult,
@@ -139,11 +146,11 @@ export {
 	isWriteToolResult,
 	wrapRegisteredTool,
 	wrapRegisteredTools,
-} from "./core/extensions/index.js";
+} from "./core/extensions/index.ts";
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
-export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.js";
-export { convertToLlm } from "./core/messages.js";
-export { ModelRegistry } from "./core/model-registry.js";
+export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
+export { convertToLlm } from "./core/messages.ts";
+export { ModelRegistry } from "./core/model-registry.ts";
 export type {
 	PackageManager,
 	PathMetadata,
@@ -151,16 +158,26 @@ export type {
 	ProgressEvent,
 	ResolvedPaths,
 	ResolvedResource,
-} from "./core/package-manager.js";
-export { DefaultPackageManager } from "./core/package-manager.js";
-export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.js";
-export { DefaultResourceLoader } from "./core/resource-loader.js";
+} from "./core/package-manager.ts";
+export { DefaultPackageManager } from "./core/package-manager.ts";
+export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
+export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
 // SDK for programmatic usage
 export {
+	AgentSessionRuntime,
+	type AgentSessionRuntimeDiagnostic,
+	type AgentSessionServices,
+	type CreateAgentSessionFromServicesOptions,
 	type CreateAgentSessionOptions,
 	type CreateAgentSessionResult,
+	type CreateAgentSessionRuntimeFactory,
+	type CreateAgentSessionRuntimeResult,
+	type CreateAgentSessionServicesOptions,
 	// Factory
 	createAgentSession,
+	createAgentSessionFromServices,
+	createAgentSessionRuntime,
+	createAgentSessionServices,
 	createBashTool,
 	// Tool factories (for custom cwd)
 	createCodingTools,
@@ -172,9 +189,7 @@ export {
 	createReadTool,
 	createWriteTool,
 	type PromptTemplate,
-	// Pre-built tools (use process.cwd())
-	readOnlyTools,
-} from "./core/sdk.js";
+} from "./core/sdk.ts";
 export {
 	type BranchSummaryEntry,
 	buildSessionContext,
@@ -197,14 +212,15 @@ export {
 	SessionManager,
 	type SessionMessageEntry,
 	type ThinkingLevelChangeEntry,
-} from "./core/session-manager.js";
+} from "./core/session-manager.ts";
 export {
 	type CompactionSettings,
 	type ImageSettings,
 	type PackageSource,
 	type RetrySettings,
 	SettingsManager,
-} from "./core/settings-manager.js";
+	type SettingsManagerCreateOptions,
+} from "./core/settings-manager.ts";
 // Skills
 export {
 	formatSkillsForPrompt,
@@ -214,8 +230,8 @@ export {
 	loadSkillsFromDir,
 	type Skill,
 	type SkillFrontmatter,
-} from "./core/skills.js";
-export { createSyntheticSourceInfo } from "./core/source-info.js";
+} from "./core/skills.ts";
+export { createSyntheticSourceInfo } from "./core/source-info.ts";
 // Tools
 export {
 	type BashOperations,
@@ -224,9 +240,6 @@ export {
 	type BashToolDetails,
 	type BashToolInput,
 	type BashToolOptions,
-	bashTool,
-	bashToolDefinition,
-	codingTools,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
@@ -241,33 +254,23 @@ export {
 	type EditToolDetails,
 	type EditToolInput,
 	type EditToolOptions,
-	editTool,
-	editToolDefinition,
 	type FindOperations,
 	type FindToolDetails,
 	type FindToolInput,
 	type FindToolOptions,
-	findTool,
-	findToolDefinition,
 	formatSize,
 	type GrepOperations,
 	type GrepToolDetails,
 	type GrepToolInput,
 	type GrepToolOptions,
-	grepTool,
-	grepToolDefinition,
 	type LsOperations,
 	type LsToolDetails,
 	type LsToolInput,
 	type LsToolOptions,
-	lsTool,
-	lsToolDefinition,
 	type ReadOperations,
 	type ReadToolDetails,
 	type ReadToolInput,
 	type ReadToolOptions,
-	readTool,
-	readToolDefinition,
 	type ToolsOptions,
 	type TruncationOptions,
 	type TruncationResult,
@@ -278,23 +281,27 @@ export {
 	type WriteToolInput,
 	type WriteToolOptions,
 	withFileMutationQueue,
-	writeTool,
-	writeToolDefinition,
-} from "./core/tools/index.js";
+} from "./core/tools/index.ts";
+export { hasProjectTrustInputs, type ProjectTrustDecision, ProjectTrustStore } from "./core/trust-manager.ts";
 // Main entry point
-export { main } from "./main.js";
+export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
 export {
-	type GatewayHandle,
-	type GatewayOptions,
 	InteractiveMode,
 	type InteractiveModeOptions,
+	type ModelInfo,
 	type PrintModeOptions,
-	runGatewayMode,
+	RpcClient,
+	type RpcClientOptions,
+	type RpcCommand,
+	type RpcEventListener,
+	type RpcExtensionUIRequest,
+	type RpcExtensionUIResponse,
+	type RpcResponse,
+	type RpcSessionState,
 	runPrintMode,
 	runRpcMode,
-	startGateway,
-} from "./modes/index.js";
+} from "./modes/index.ts";
 // UI components for extensions
 export {
 	ArminComponent,
@@ -333,7 +340,7 @@ export {
 	UserMessageComponent,
 	UserMessageSelectorComponent,
 	type VisualTruncateResult,
-} from "./modes/interactive/components/index.js";
+} from "./modes/interactive/components/index.ts";
 // Theme utilities for custom tools and extensions
 export {
 	getLanguageFromPath,
@@ -344,9 +351,11 @@ export {
 	initTheme,
 	Theme,
 	type ThemeColor,
-} from "./modes/interactive/theme/theme.js";
+} from "./modes/interactive/theme/theme.ts";
 // Clipboard utilities
-export { copyToClipboard } from "./utils/clipboard.js";
-export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.js";
+export { copyToClipboard } from "./utils/clipboard.ts";
+export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.ts";
+export { convertToPng } from "./utils/image-convert.ts";
+export { formatDimensionNote, type ResizedImage, resizeImage } from "./utils/image-resize.ts";
 // Shell utilities
-export { getShellConfig } from "./utils/shell.js";
+export { getShellConfig } from "./utils/shell.ts";

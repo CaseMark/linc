@@ -1,6 +1,6 @@
 {
-	"name": "@casemark/linc-ai",
-	"version": "0.2.0",
+	"name": "@earendil-works/pi-ai",
+	"version": "0.78.1",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -21,10 +21,6 @@
 		"./google": {
 			"types": "./dist/providers/google.d.ts",
 			"import": "./dist/providers/google.js"
-		},
-		"./google-gemini-cli": {
-			"types": "./dist/providers/google-gemini-cli.d.ts",
-			"import": "./dist/providers/google-gemini-cli.js"
 		},
 		"./google-vertex": {
 			"types": "./dist/providers/google-vertex.d.ts",
@@ -56,7 +52,7 @@
 		}
 	},
 	"bin": {
-		"linc-ai": "dist/cli.js"
+		"pi-ai": "./dist/cli.js"
 	},
 	"files": [
 		"dist",
@@ -64,27 +60,23 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"generate-models": "npx tsx scripts/generate-models.ts",
-		"build": "tsgo -p tsconfig.build.json",
-		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"dev:tsc": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
+		"generate-models": "node scripts/generate-models.ts",
+		"generate-image-models": "node scripts/generate-image-models.ts",
+		"build": "npm run generate-models && npm run generate-image-models && tsgo -p tsconfig.build.json",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.73.0",
-		"@aws-sdk/client-bedrock-runtime": "^3.983.0",
-		"@google/genai": "^1.40.0",
-		"@mistralai/mistralai": "1.14.1",
-		"@sinclair/typebox": "^0.34.41",
-		"ajv": "^8.17.1",
-		"ajv-formats": "^3.0.1",
-		"chalk": "^5.6.2",
+		"@anthropic-ai/sdk": "0.91.1",
+		"@aws-sdk/client-bedrock-runtime": "3.1048.0",
+		"@smithy/node-http-handler": "4.7.3",
+		"@google/genai": "1.52.0",
+		"@mistralai/mistralai": "2.2.1",
+		"http-proxy-agent": "7.0.2",
+		"https-proxy-agent": "7.0.6",
 		"openai": "6.26.0",
-		"partial-json": "^0.1.7",
-		"proxy-agent": "^6.5.0",
-		"undici": "^7.19.1",
-		"zod-to-json-schema": "^3.24.6"
+		"partial-json": "0.1.7",
+		"typebox": "1.1.38"
 	},
 	"keywords": [
 		"ai",
@@ -96,19 +88,19 @@
 		"unified",
 		"api"
 	],
-	"author": "CaseMark",
+	"author": "Mario Zechner",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/CaseMark/linc.git",
+		"url": "git+https://github.com/earendil-works/pi.git",
 		"directory": "packages/ai"
 	},
 	"engines": {
-		"node": ">=20.0.0"
+		"node": ">=22.19.0"
 	},
 	"devDependencies": {
-		"@types/node": "^24.3.0",
-		"canvas": "^3.2.0",
-		"vitest": "^3.2.4"
+		"@types/node": "24.12.4",
+		"canvas": "3.2.3",
+		"vitest": "3.2.4"
 	}
 }

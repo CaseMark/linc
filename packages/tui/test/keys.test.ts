@@ -4,7 +4,14 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { matchesKey, parseKey, setKittyProtocolActive } from "../src/keys.js";
+import {
+	decodeKittyPrintable,
+	decodePrintableKey,
+	Key,
+	matchesKey,
+	parseKey,
+	setKittyProtocolActive,
+} from "../src/keys.ts";
 
 function withEnv(name: string, value: string | undefined, fn: () => void): void {
 	const previous = process.env[name];
@@ -16,6 +23,19 @@ function withEnv(name: string, value: string | undefined, fn: () => void): void 
 		if (previous === undefined) delete process.env[name];
 		else process.env[name] = previous;
 	}
+}
+
+function withEnvVars(vars: Record<string, string | undefined>, fn: () => void): void {
+	const entries = Object.entries(vars);
+	const run = (index: number): void => {
+		if (index >= entries.length) {
+			fn();
+			return;
+		}
+		const [name, value] = entries[index]!;
+		withEnv(name, value, () => run(index + 1));
+	};
+	run(0);
 }
 
 describe("matchesKey", () => {
@@ -66,6 +86,21 @@ describe("matchesKey", () => {
 			setKittyProtocolActive(false);
 		});
 
+		it("should match super-modified Kitty bindings, including combined modifiers", () => {
+			setKittyProtocolActive(true);
+			assert.strictEqual(matchesKey("\x1b[107;9u", "super+k"), true);
+			assert.strictEqual(matchesKey("\x1b[13;9u", "super+enter"), true);
+			assert.strictEqual(matchesKey("\x1b[107;13u", Key.ctrlSuper("k")), true);
+			assert.strictEqual(matchesKey("\x1b[107;13u", "ctrl+super+k"), true);
+			assert.strictEqual(matchesKey("\x1b[107;14u", "ctrl+shift+super+k"), true);
+			assert.strictEqual(matchesKey("\x1b[107;13u", "super+k"), false);
+			assert.strictEqual(parseKey("\x1b[107;9u"), "super+k");
+			assert.strictEqual(parseKey("\x1b[13;9u"), "super+enter");
+			assert.strictEqual(parseKey("\x1b[107;13u"), "ctrl+super+k");
+			assert.strictEqual(parseKey("\x1b[107;14u"), "shift+ctrl+super+k");
+			setKittyProtocolActive(false);
+		});
+
 		it("should match digit bindings via Kitty CSI-u", () => {
 			setKittyProtocolActive(true);
 			assert.strictEqual(matchesKey("\x1b[49u", "1"), true);
@@ -73,6 +108,29 @@ describe("matchesKey", () => {
 			assert.strictEqual(matchesKey("\x1b[49;5u", "ctrl+2"), false);
 			assert.strictEqual(parseKey("\x1b[49u"), "1");
 			assert.strictEqual(parseKey("\x1b[49;5u"), "ctrl+1");
+			setKittyProtocolActive(false);
+		});
+
+		it("should normalize Kitty keypad functional keys to logical digits, symbols, and navigation", () => {
+			setKittyProtocolActive(true);
+			assert.strictEqual(matchesKey("\x1b[57400u", "1"), true);
+			assert.strictEqual(matchesKey("\x1b[57410u", "/"), true);
+			assert.strictEqual(matchesKey("\x1b[57417u", "left"), true);
+			assert.strictEqual(matchesKey("\x1b[57426u", "delete"), true);
+			assert.strictEqual(parseKey("\x1b[57399u"), "0");
+			assert.strictEqual(parseKey("\x1b[57409u"), ".");
+			assert.strictEqual(parseKey("\x1b[57413u"), "+");
+			assert.strictEqual(parseKey("\x1b[57416u"), ",");
+			assert.strictEqual(parseKey("\x1b[57417u"), "left");
+			assert.strictEqual(parseKey("\x1b[57418u"), "right");
+			assert.strictEqual(parseKey("\x1b[57419u"), "up");
+			assert.strictEqual(parseKey("\x1b[57420u"), "down");
+			assert.strictEqual(parseKey("\x1b[57421u"), "pageUp");
+			assert.strictEqual(parseKey("\x1b[57422u"), "pageDown");
+			assert.strictEqual(parseKey("\x1b[57423u"), "home");
+			assert.strictEqual(parseKey("\x1b[57424u"), "end");
+			assert.strictEqual(parseKey("\x1b[57425u"), "insert");
+			assert.strictEqual(parseKey("\x1b[57426u"), "delete");
 			setKittyProtocolActive(false);
 		});
 
@@ -216,6 +274,26 @@ describe("matchesKey", () => {
 			assert.strictEqual(parseKey("\x1b[27;5;49~"), "ctrl+1");
 			assert.strictEqual(parseKey("\x1b[27;2;49~"), "shift+1");
 		});
+
+		it("should match xterm modifyOtherKeys shifted uppercase letters", () => {
+			setKittyProtocolActive(false);
+			assert.strictEqual(matchesKey("\x1b[27;2;69~", "shift+e"), true);
+			assert.strictEqual(matchesKey("\x1b[27;6;69~", "ctrl+shift+e"), true);
+			assert.strictEqual(parseKey("\x1b[27;2;69~"), "shift+e");
+			assert.strictEqual(parseKey("\x1b[27;6;69~"), "shift+ctrl+e");
+		});
+
+		it("should match Ctrl+Alt+letter via CSI-u when kitty inactive", () => {
+			setKittyProtocolActive(false);
+			assert.strictEqual(matchesKey("\x1b[104;7u", "ctrl+alt+h"), true);
+			assert.strictEqual(parseKey("\x1b[104;7u"), "ctrl+alt+h");
+		});
+
+		it("should match Ctrl+Alt+letter via xterm modifyOtherKeys", () => {
+			setKittyProtocolActive(false);
+			assert.strictEqual(matchesKey("\x1b[27;7;104~", "ctrl+alt+h"), true);
+			assert.strictEqual(parseKey("\x1b[27;7;104~"), "ctrl+alt+h");
+		});
 	});
 
 	describe("Legacy key matching", () => {
@@ -301,14 +379,40 @@ describe("matchesKey", () => {
 			});
 		});
 
-		it("should treat raw 0x08 as ctrl+backspace in Windows Terminal", () => {
+		it("should treat raw 0x08 as ctrl+backspace in local Windows Terminal", () => {
 			setKittyProtocolActive(false);
-			withEnv("WT_SESSION", "test-session", () => {
-				assert.strictEqual(matchesKey("\x08", "ctrl+backspace"), true);
-				assert.strictEqual(matchesKey("\x08", "backspace"), false);
-				assert.strictEqual(parseKey("\x08"), "ctrl+backspace");
-				assert.strictEqual(matchesKey("\x08", "ctrl+h"), true);
-			});
+			withEnvVars(
+				{
+					WT_SESSION: "test-session",
+					SSH_CONNECTION: undefined,
+					SSH_CLIENT: undefined,
+					SSH_TTY: undefined,
+				},
+				() => {
+					assert.strictEqual(matchesKey("\x08", "ctrl+backspace"), true);
+					assert.strictEqual(matchesKey("\x08", "backspace"), false);
+					assert.strictEqual(parseKey("\x08"), "ctrl+backspace");
+					assert.strictEqual(matchesKey("\x08", "ctrl+h"), true);
+				},
+			);
+		});
+
+		it("should treat raw 0x08 as plain backspace in Windows Terminal over SSH", () => {
+			setKittyProtocolActive(false);
+			withEnvVars(
+				{
+					WT_SESSION: "test-session",
+					SSH_CONNECTION: "1 2 3 4",
+					SSH_CLIENT: "1 2 3",
+					SSH_TTY: "/dev/pts/1",
+				},
+				() => {
+					assert.strictEqual(matchesKey("\x08", "ctrl+backspace"), false);
+					assert.strictEqual(matchesKey("\x08", "backspace"), true);
+					assert.strictEqual(parseKey("\x08"), "backspace");
+					assert.strictEqual(matchesKey("\x08", "ctrl+h"), true);
+				},
+			);
 		});
 
 		it("should parse legacy alt-prefixed sequences when kitty inactive", () => {
@@ -389,6 +493,31 @@ describe("matchesKey", () => {
 	});
 });
 
+describe("decodeKittyPrintable", () => {
+	it("should decode Kitty keypad functional keys to printable characters", () => {
+		assert.strictEqual(decodeKittyPrintable("\x1b[57399u"), "0");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57400u"), "1");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57409u"), ".");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57410u"), "/");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57411u"), "*");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57412u"), "-");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57413u"), "+");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57415u"), "=");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57416u"), ",");
+		assert.strictEqual(decodeKittyPrintable("\x1b[57417u"), undefined);
+	});
+});
+
+describe("decodePrintableKey", () => {
+	it("should decode printable xterm modifyOtherKeys sequences", () => {
+		assert.strictEqual(decodePrintableKey("\x1b[27;2;69~"), "E");
+		assert.strictEqual(decodePrintableKey("\x1b[27;2;196~"), "Ä");
+		assert.strictEqual(decodePrintableKey("\x1b[27;2;32~"), " ");
+		assert.strictEqual(decodePrintableKey("\x1b[27;2;13~"), undefined);
+		assert.strictEqual(decodePrintableKey("\x1b[27;6;69~"), undefined);
+	});
+});
+
 describe("parseKey", () => {
 	describe("Kitty protocol with alternate keys", () => {
 		it("should return Latin key name when base layout key is present", () => {
@@ -422,9 +551,16 @@ describe("parseKey", () => {
 			setKittyProtocolActive(false);
 		});
 
+		it("should parse shifted uppercase CSI-u letters as shift+letter", () => {
+			setKittyProtocolActive(true);
+			assert.strictEqual(matchesKey("\x1b[69;2u", "shift+e"), true);
+			assert.strictEqual(parseKey("\x1b[69;2u"), "shift+e");
+			setKittyProtocolActive(false);
+		});
+
 		it("should ignore Kitty CSI-u with unsupported modifiers", () => {
 			setKittyProtocolActive(true);
-			assert.strictEqual(parseKey("\x1b[99;9u"), undefined);
+			assert.strictEqual(parseKey("\x1b[99;17u"), undefined);
 			setKittyProtocolActive(false);
 		});
 	});

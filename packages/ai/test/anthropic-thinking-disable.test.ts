@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { getModelOrThrow as getModel } from "../src/models.js";
-import { streamSimple } from "../src/stream.js";
-import type { Context, Model } from "../src/types.js";
+import { getModel } from "../src/models.ts";
+import { streamSimple } from "../src/stream.ts";
+import type { Context, Model, SimpleStreamOptions } from "../src/types.ts";
 
 interface AnthropicThinkingPayload {
-	thinking?: { type: string; budget_tokens?: number };
+	thinking?: { type: string; budget_tokens?: number; display?: string };
 	output_config?: { effort?: string };
+}
+
+class PayloadCaptured extends Error {
+	constructor() {
+		super("payload captured");
+		this.name = "PayloadCaptured";
+	}
 }
 
 function makePayloadCaptureContext(): Context {
@@ -14,7 +21,10 @@ function makePayloadCaptureContext(): Context {
 	};
 }
 
-async function capturePayload(model: Model<"anthropic-messages">): Promise<AnthropicThinkingPayload> {
+async function capturePayload(
+	model: Model<"anthropic-messages">,
+	options?: SimpleStreamOptions,
+): Promise<AnthropicThinkingPayload> {
 	let capturedPayload: AnthropicThinkingPayload | undefined;
 	const payloadCaptureModel: Model<"anthropic-messages"> = {
 		...model,
@@ -22,10 +32,11 @@ async function capturePayload(model: Model<"anthropic-messages">): Promise<Anthr
 	};
 
 	const s = streamSimple(payloadCaptureModel, makePayloadCaptureContext(), {
+		...options,
 		apiKey: "fake-key",
 		onPayload: (payload) => {
 			capturedPayload = payload as AnthropicThinkingPayload;
-			return payload;
+			throw new PayloadCaptured();
 		},
 	});
 
@@ -101,23 +112,44 @@ async function runWithoutReasoning(model: Model<"anthropic-messages">): Promise<
 
 describe("Anthropic thinking disable payload", () => {
 	it("sends thinking.type=disabled for budget-based reasoning models when thinking is off", async () => {
-		const payload = await capturePayload(getModel<"anthropic-messages">("anthropic", "claude-sonnet-4-5"));
+		const payload = await capturePayload(getModel("anthropic", "claude-sonnet-4-5"));
 
 		expect(payload.thinking).toEqual({ type: "disabled" });
 		expect(payload.output_config).toBeUndefined();
 	});
 
 	it("sends thinking.type=disabled for adaptive reasoning models when thinking is off", async () => {
-		const payload = await capturePayload(getModel<"anthropic-messages">("anthropic", "claude-opus-4-6"));
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-6"));
 
 		expect(payload.thinking).toEqual({ type: "disabled" });
 		expect(payload.output_config).toBeUndefined();
+	});
+
+	it("sends thinking.type=disabled for Claude Opus 4.8 when thinking is off", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"));
+
+		expect(payload.thinking).toEqual({ type: "disabled" });
+		expect(payload.output_config).toBeUndefined();
+	});
+
+	it("uses adaptive thinking for Claude Opus 4.8 when reasoning is enabled", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), { reasoning: "high" });
+
+		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.output_config).toEqual({ effort: "high" });
+	});
+
+	it("maps xhigh reasoning to effort=xhigh for Claude Opus 4.8", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), { reasoning: "xhigh" });
+
+		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.output_config).toEqual({ effort: "xhigh" });
 	});
 });
 
 describe.skipIf(!process.env.ANTHROPIC_API_KEY)("Anthropic thinking disable E2E", () => {
 	it("disables thinking for Claude reasoning models", { retry: 2, timeout: 30000 }, async () => {
-		const result = await runWithoutReasoning(getModel<"anthropic-messages">("anthropic", "claude-sonnet-4-5"));
+		const result = await runWithoutReasoning(getModel("anthropic", "claude-sonnet-4-5"));
 
 		expect(result.thinkingEventCount).toBe(0);
 		expect(result.thinkingCharCount).toBe(0);
