@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-06-08
+
 ### Fixed
 
 - Fixed OpenAI Responses custom providers to honor `compat.supportsDeveloperRole: false` for reasoning models ([#5456](https://github.com/earendil-works/pi/issues/5456)).
