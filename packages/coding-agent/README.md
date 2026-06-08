@@ -65,6 +65,7 @@ Linc can attach a Case.dev vault to a session.
 /vault attach <vault-id>
 /vault show
 /vault clear
+/vault unlink
 ```
 
 Attachment is session state. Once attached, the vault stays attached until `/vault clear`.
@@ -86,6 +87,14 @@ When a vault is attached, Linc checks the vault for `MATTER.md`. If present, it 
 
 Workspace edits to root `MATTER.md` are synced back to the attached vault.
 
+Human-facing commands:
+
+```text
+/matter
+/matter edit
+/matter sync
+```
+
 Native matter tools:
 
 - `casedev_matter_read`
@@ -104,6 +113,10 @@ Use `MATTER.md` for durable matter state: representation, goals, jurisdiction, s
 | `/vault` | Select or attach a Case.dev vault |
 | `/vault show` | Show attached vault |
 | `/vault clear` | Unlink the attached vault |
+| `/vault unlink` | Unlink the attached vault |
+| `/matter` | Show active MATTER.md state |
+| `/matter edit` | Edit MATTER.md and sync it to the attached vault |
+| `/matter sync` | Sync MATTER.md to the attached vault |
 | `/init` | Start guided matter initialization |
 | `/resume` | Pick from previous sessions |
 | `/new` | Start a new session |

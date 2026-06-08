@@ -20,6 +20,8 @@ import {
 	readMatterMd,
 	setMatterMdStatus,
 	syncMatterMdToolResult,
+	syncMatterMdToVault,
+	writeMatterMdContent,
 } from "./matter-md.ts";
 import { createMatterMdTools } from "./matter-md-tools.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE, type LincVaultRef } from "./vault-attachment.ts";
@@ -152,6 +154,49 @@ export function createLincExtension(): ExtensionFactory {
 			ctx.ui.notify("Cleared attached vault", "info");
 		};
 
+		const showMatterMd = async (ctx: ExtensionCommandContext) => {
+			const matter = await readMatterMd(ctx);
+			if (!matter) {
+				const vault = getAttachedVault(ctx.sessionManager);
+				ctx.ui.notify(
+					vault ? "No MATTER.md is loaded. Run /init or /matter edit to create one." : "No vault is attached.",
+					"warning",
+				);
+				return;
+			}
+			ctx.ui.notify(
+				matter.vault
+					? `MATTER.md: ${matter.path} · vault: ${formatVaultRef(matter.vault)}`
+					: `MATTER.md: ${matter.path}`,
+				"info",
+			);
+		};
+
+		const editMatterMd = async (ctx: ExtensionCommandContext) => {
+			if (!ctx.hasUI) {
+				throw new Error("/matter edit requires an interactive session.");
+			}
+			if (!getAttachedVault(ctx.sessionManager)) {
+				ctx.ui.notify("Attach a Case.dev vault before editing MATTER.md", "warning");
+				return;
+			}
+			const matter = await ensureMatterMd(ctx, { sourcePrecedence: "workspace-first", promptForMissing: true });
+			if (!matter) {
+				ctx.ui.notify("No MATTER.md is available. Run /init to create one.", "warning");
+				return;
+			}
+
+			const content = await ctx.ui.editor("Edit MATTER.md", matter.content);
+			if (content === undefined || content === matter.content) return;
+			await writeMatterMdContent(ctx, content);
+			ctx.ui.notify("Saved MATTER.md and synced it to the attached Case.dev vault", "info");
+		};
+
+		const syncMatterMd = async (ctx: ExtensionCommandContext) => {
+			await syncMatterMdToVault(ctx);
+			ctx.ui.notify("Synced MATTER.md to the attached Case.dev vault", "info");
+		};
+
 		pi.on("session_start", async (_event, ctx) => {
 			setVaultStatus(ctx);
 			await ensureMatterMd(ctx, {
@@ -193,7 +238,7 @@ export function createLincExtension(): ExtensionFactory {
 					return;
 				}
 
-				if (trimmed === "clear") {
+				if (trimmed === "clear" || trimmed === "detach" || trimmed === "unlink") {
 					clearVault(ctx);
 					return;
 				}
@@ -211,7 +256,7 @@ export function createLincExtension(): ExtensionFactory {
 				}
 
 				if (!ctx.hasUI) {
-					throw new Error("Usage: /vault attach <vault-id>, /vault show, or /vault clear");
+					throw new Error("Usage: /vault attach <vault-id>, /vault show, /vault clear, or /vault unlink");
 				}
 
 				const vaults = await loadCaseDevVaults(ctx);
@@ -228,7 +273,36 @@ export function createLincExtension(): ExtensionFactory {
 			},
 			getArgumentCompletions(argumentPrefix) {
 				const prefix = argumentPrefix.trim();
-				return ["show", "clear", "attach"]
+				return ["show", "clear", "detach", "unlink", "attach"]
+					.filter((value) => value.startsWith(prefix))
+					.map((value) => ({ label: value, value }));
+			},
+		});
+
+		pi.registerCommand("matter", {
+			description: "Show, edit, or sync the active MATTER.md",
+			async handler(args, ctx) {
+				const trimmed = args.trim();
+				if (trimmed === "" || trimmed === "show") {
+					await showMatterMd(ctx);
+					return;
+				}
+
+				if (trimmed === "edit") {
+					await editMatterMd(ctx);
+					return;
+				}
+
+				if (trimmed === "sync") {
+					await syncMatterMd(ctx);
+					return;
+				}
+
+				throw new Error("Usage: /matter, /matter edit, or /matter sync");
+			},
+			getArgumentCompletions(argumentPrefix) {
+				const prefix = argumentPrefix.trim();
+				return ["show", "edit", "sync"]
 					.filter((value) => value.startsWith(prefix))
 					.map((value) => ({ label: value, value }));
 			},

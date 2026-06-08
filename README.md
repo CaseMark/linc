@@ -68,7 +68,10 @@ Inside the TUI:
 - `/vault` opens the vault selector.
 - `/vault attach <vault-id>` attaches a Case.dev vault to the session.
 - `/vault show` shows the attached vault.
-- `/vault clear` unlinks the vault.
+- `/vault clear` or `/vault unlink` unlinks the vault.
+- `/matter` shows the active matter file and vault.
+- `/matter edit` opens `MATTER.md` in Linc's editor and syncs changes back to the vault.
+- `/matter sync` manually syncs workspace `MATTER.md` back to the vault.
 - `/init` starts guided legal matter initialization for the attached vault.
 
 An attached vault is persisted in the session until `/vault clear`.
