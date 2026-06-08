@@ -41,6 +41,7 @@ import { assertValidSessionId, SessionManager } from "./core/session-manager.ts"
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasProjectTrustInputs, ProjectTrustStore } from "./core/trust-manager.ts";
+import { createCaseDevVaultTools } from "./linc/casedev-vault-tools.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { ExtensionSelectorComponent } from "./modes/interactive/components/extension-selector.ts";
@@ -429,6 +430,7 @@ function buildSessionOptions(
 	if (parsed.excludeTools) {
 		options.excludeTools = [...parsed.excludeTools];
 	}
+	options.customTools = createCaseDevVaultTools();
 
 	return { options, cliThinkingFromModel, diagnostics };
 }
