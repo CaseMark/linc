@@ -11,6 +11,7 @@ import {
 	type MatterMdInitializationAnswers,
 	materializeMatterMd,
 	readMatterMd,
+	setMatterMdStatus,
 	syncMatterMdToolResult,
 } from "./matter-md.ts";
 import { createMatterMdTools } from "./matter-md-tools.ts";
@@ -168,8 +169,11 @@ export function createLincExtension(): ExtensionFactory {
 			};
 		};
 
-		const ensureMatterMd = async (ctx: ExtensionContext, options?: { promptForMissing: boolean }) => {
-			const matter = await materializeMatterMd(ctx);
+		const ensureMatterMd = async (
+			ctx: ExtensionContext,
+			options?: { preferAttachedVault?: boolean; promptForMissing: boolean },
+		) => {
+			const matter = await materializeMatterMd(ctx, { preferAttachedVault: options?.preferAttachedVault });
 			if (matter) return matter;
 
 			const vault = getAttachedVault(ctx.sessionManager);
@@ -192,19 +196,23 @@ export function createLincExtension(): ExtensionFactory {
 		const attachVault = async (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, { vault });
 			setVaultStatus(ctx, vault);
-			await ensureMatterMd(ctx, { promptForMissing: true });
+			await ensureMatterMd(ctx, { preferAttachedVault: true, promptForMissing: true });
 			ctx.ui.notify(`Attached vault: ${formatVaultRef(vault)}`, "info");
 		};
 
 		const clearVault = (ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, {});
 			setVaultStatus(ctx, undefined);
+			setMatterMdStatus(ctx, undefined);
 			ctx.ui.notify("Cleared attached vault", "info");
 		};
 
 		pi.on("session_start", async (_event, ctx) => {
 			setVaultStatus(ctx);
-			await ensureMatterMd(ctx, { promptForMissing: true });
+			await ensureMatterMd(ctx, {
+				preferAttachedVault: getAttachedVault(ctx.sessionManager) !== undefined,
+				promptForMissing: true,
+			});
 		});
 
 		pi.on("session_compact", async (_event, ctx) => {
@@ -217,12 +225,12 @@ export function createLincExtension(): ExtensionFactory {
 
 		pi.on("before_agent_start", async (event, ctx) => {
 			const vault = getAttachedVault(ctx.sessionManager);
+			if (!vault) return undefined;
 			const matter = await readMatterMd(ctx);
-			if (!vault && !matter) return undefined;
 			return {
 				systemPrompt: [
 					event.systemPrompt,
-					vault ? buildVaultSystemPrompt(vault) : undefined,
+					buildVaultSystemPrompt(vault),
 					matter ? buildMatterMdSystemPrompt(matter) : undefined,
 				]
 					.filter((section): section is string => section !== undefined)

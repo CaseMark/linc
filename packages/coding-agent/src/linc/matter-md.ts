@@ -1,4 +1,5 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import type { ExtensionContext, ToolResultEvent, ToolResultEventResult } from "../core/extensions/types.ts";
 import type { ReadonlySessionManager } from "../core/session-manager.ts";
@@ -41,6 +42,10 @@ export type MatterMdInitializationDecision = "initialized" | "skipped";
 export interface MatterMdEntryData {
 	vaultId: string;
 	decision: MatterMdInitializationDecision;
+}
+
+export interface MatterMdMaterializeOptions {
+	preferAttachedVault?: boolean;
 }
 
 interface CaseDevVaultObjectRecord {
@@ -129,24 +134,28 @@ function findMatterMdObject(output: string): CaseDevVaultObjectRecord | undefine
 	});
 }
 
-async function downloadMatterMdFromVault(ctx: ExtensionContext, vault: LincVaultRef): Promise<boolean> {
+async function downloadMatterMdFromVault(ctx: ExtensionContext, vault: LincVaultRef): Promise<string | undefined> {
 	const listResult = await runCaseDevCli(ctx, ["vault", "object", "list", vault.id], ctx.signal);
 	const matterObject = findMatterMdObject(formatCaseDevCliResult(listResult));
-	if (!matterObject) return false;
+	if (!matterObject) return undefined;
 
-	await runCaseDevCli(
-		ctx,
-		["vault", "download", "--vault", vault.id, "--object", matterObject.id, "--out", ctx.cwd],
-		ctx.signal,
-	);
-
-	if (!(await fileExists(getMatterMdPath(ctx)))) {
-		throw new Error(
-			`Downloaded ${MATTER_MD_FILENAME} from Case.dev vault but it was not written to the workspace root.`,
+	const outDir = await mkdtemp(join(tmpdir(), "linc-matter-md-"));
+	try {
+		await runCaseDevCli(
+			ctx,
+			["vault", "download", "--vault", vault.id, "--object", matterObject.id, "--out", outDir],
+			ctx.signal,
 		);
-	}
 
-	return true;
+		const downloadedPath = join(outDir, MATTER_MD_FILENAME);
+		if (!(await fileExists(downloadedPath))) {
+			throw new Error(`Downloaded ${MATTER_MD_FILENAME} from Case.dev vault but it was not returned by the CLI.`);
+		}
+
+		return readFile(downloadedPath, "utf-8");
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
 }
 
 function escapeYamlString(value: string): string {
@@ -225,9 +234,24 @@ export async function readMatterMd(ctx: ExtensionContext): Promise<MatterMdState
 	};
 }
 
-export async function materializeMatterMd(ctx: ExtensionContext): Promise<MatterMdState | undefined> {
+export async function materializeMatterMd(
+	ctx: ExtensionContext,
+	options?: MatterMdMaterializeOptions,
+): Promise<MatterMdState | undefined> {
 	const path = getMatterMdPath(ctx);
 	const vault = getAttachedVault(ctx.sessionManager);
+
+	if (vault && options?.preferAttachedVault) {
+		const vaultContent = await downloadMatterMdFromVault(ctx, vault);
+		if (!vaultContent) {
+			setMatterMdStatus(ctx, undefined);
+			return undefined;
+		}
+		await writeFile(path, vaultContent, "utf-8");
+		const state = await readMatterMd(ctx);
+		setMatterMdStatus(ctx, state);
+		return state;
+	}
 
 	if (await fileExists(path)) {
 		const state = await readMatterMd(ctx);
@@ -240,7 +264,9 @@ export async function materializeMatterMd(ctx: ExtensionContext): Promise<Matter
 		return undefined;
 	}
 
-	if (!(await downloadMatterMdFromVault(ctx, vault))) return undefined;
+	const vaultContent = await downloadMatterMdFromVault(ctx, vault);
+	if (!vaultContent) return undefined;
+	await writeFile(path, vaultContent, "utf-8");
 
 	const state = await readMatterMd(ctx);
 	setMatterMdStatus(ctx, state);
@@ -300,7 +326,7 @@ export async function syncMatterMdToVault(ctx: ExtensionContext): Promise<string
 }
 
 export function setMatterMdStatus(ctx: ExtensionContext, state: MatterMdState | undefined): void {
-	ctx.ui.setStatus(MATTER_MD_STATUS_KEY, state ? "matter: MATTER.md" : undefined);
+	ctx.ui.setStatus(MATTER_MD_STATUS_KEY, state?.vault ? "matter: MATTER.md" : undefined);
 }
 
 export function buildMatterMdSystemPrompt(state: MatterMdState): string {
