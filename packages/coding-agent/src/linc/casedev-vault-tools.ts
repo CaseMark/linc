@@ -4,6 +4,7 @@ import type { ExtensionContext, ToolDefinition } from "../core/extensions/types.
 import { getTextOutput } from "../core/tools/render-utils.ts";
 import type { Theme } from "../modes/interactive/theme/theme.ts";
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
+import { getAttachedVault } from "./vault-attachment.ts";
 
 interface CaseDevToolDetails {
 	command: string[];
@@ -14,11 +15,11 @@ const vaultListSchema = Type.Object({
 });
 
 const vaultGetSchema = Type.Object({
-	vaultId: Type.String({ description: "Case.dev vault ID." }),
+	vaultId: Type.Optional(Type.String({ description: "Case.dev vault ID. Defaults to the attached vault." })),
 });
 
 const vaultObjectListSchema = Type.Object({
-	vaultId: Type.String({ description: "Case.dev vault ID." }),
+	vaultId: Type.Optional(Type.String({ description: "Case.dev vault ID. Defaults to the attached vault." })),
 });
 
 const vaultSearchSchema = Type.Object({
@@ -43,14 +44,14 @@ const vaultSearchSchema = Type.Object({
 
 const vaultUploadSchema = Type.Object({
 	filePath: Type.String({ description: "Local file path to upload." }),
-	vaultId: Type.String({ description: "Destination vault ID." }),
+	vaultId: Type.Optional(Type.String({ description: "Destination vault ID. Defaults to the attached vault." })),
 	name: Type.Optional(Type.String({ description: "Optional object filename override." })),
 	contentType: Type.Optional(Type.String({ description: "Optional MIME type override." })),
 	ingest: Type.Optional(Type.Boolean({ description: "Whether to ingest/index the upload. Defaults to true." })),
 });
 
 const vaultDownloadSchema = Type.Object({
-	vaultId: Type.String({ description: "Source vault ID." }),
+	vaultId: Type.Optional(Type.String({ description: "Source vault ID. Defaults to the attached vault." })),
 	objectId: Type.Optional(Type.String({ description: "Object ID to download." })),
 	path: Type.Optional(Type.String({ description: "Vault path prefix to download." })),
 	outDir: Type.Optional(Type.String({ description: "Local output directory." })),
@@ -104,6 +105,13 @@ async function executeCaseDevTool(ctx: ExtensionContext, signal: AbortSignal | u
 	return resultContent(args, formatCaseDevCliResult(result));
 }
 
+function resolveVaultId(ctx: ExtensionContext, vaultId: string | undefined): string {
+	if (vaultId) return vaultId;
+	const attachedVault = getAttachedVault(ctx.sessionManager);
+	if (attachedVault) return attachedVault.id;
+	throw new Error("No vaultId provided and no Case.dev vault is attached. Run /vault attach <vault-id>.");
+}
+
 export function createCaseDevVaultTools(): ToolDefinition[] {
 	return [
 		{
@@ -127,7 +135,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "Get Case.dev vault metadata by vault ID.",
 			parameters: vaultGetSchema,
 			async execute(_toolCallId, params: VaultGetInput, signal, _onUpdate, ctx) {
-				return executeCaseDevTool(ctx, signal, ["vault", "get", params.vaultId]);
+				return executeCaseDevTool(ctx, signal, ["vault", "get", resolveVaultId(ctx, params.vaultId)]);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault get", args, theme),
 			renderResult,
@@ -139,7 +147,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "List objects in a Case.dev vault.",
 			parameters: vaultObjectListSchema,
 			async execute(_toolCallId, params: VaultObjectListInput, signal, _onUpdate, ctx) {
-				return executeCaseDevTool(ctx, signal, ["vault", "object", "list", params.vaultId]);
+				return executeCaseDevTool(ctx, signal, ["vault", "object", "list", resolveVaultId(ctx, params.vaultId)]);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault objects", args, theme),
 			renderResult,
@@ -155,7 +163,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			parameters: vaultSearchSchema,
 			async execute(_toolCallId, params: VaultSearchInput, signal, _onUpdate, ctx) {
 				const args = ["search", "vault", params.query];
-				if (params.vaultId) args.push("--vault", params.vaultId);
+				args.push("--vault", resolveVaultId(ctx, params.vaultId));
 				if (params.method) args.push("--method", params.method);
 				if (params.limit !== undefined) args.push("--limit", String(params.limit));
 				for (const objectId of params.objectIds ?? []) {
@@ -173,7 +181,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "Upload a local file into a Case.dev vault.",
 			parameters: vaultUploadSchema,
 			async execute(_toolCallId, params: VaultUploadInput, signal, _onUpdate, ctx) {
-				const args = ["vault", "object", "upload", params.filePath, "--vault", params.vaultId];
+				const args = ["vault", "object", "upload", params.filePath, "--vault", resolveVaultId(ctx, params.vaultId)];
 				if (params.name) args.push("--name", params.name);
 				if (params.contentType) args.push("--content-type", params.contentType);
 				if (params.ingest === false) args.push("--no-ingest");
@@ -192,7 +200,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 				if (!params.objectId && !params.path) {
 					throw new Error("Provide objectId or path.");
 				}
-				const args = ["vault", "download", "--vault", params.vaultId];
+				const args = ["vault", "download", "--vault", resolveVaultId(ctx, params.vaultId)];
 				if (params.objectId) args.push("--object", params.objectId);
 				if (params.path) args.push("--path", params.path);
 				if (params.outDir) args.push("--out", params.outDir);
