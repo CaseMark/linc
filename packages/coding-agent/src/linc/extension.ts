@@ -1,5 +1,12 @@
 import type { ExtensionCommandContext, ExtensionContext, ExtensionFactory } from "../core/extensions/types.ts";
 import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
+import {
+	buildMatterMdSystemPrompt,
+	materializeMatterMd,
+	readMatterMd,
+	syncMatterMdToolResult,
+	syncMatterMdToVault,
+} from "./matter-md.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE, type LincVaultRef } from "./vault-attachment.ts";
 
 const LINC_VAULT_STATUS_KEY = "linc.vault";
@@ -80,9 +87,10 @@ function buildVaultSystemPrompt(vault: LincVaultRef): string {
 
 export function createLincExtension(): ExtensionFactory {
 	return (pi) => {
-		const attachVault = (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
+		const attachVault = async (vault: LincVaultRef, ctx: ExtensionCommandContext) => {
 			pi.appendEntry(LINC_VAULT_ENTRY_TYPE, { vault });
 			setVaultStatus(ctx, vault);
+			await materializeMatterMd(ctx);
 			ctx.ui.notify(`Attached vault: ${formatVaultRef(vault)}`, "info");
 		};
 
@@ -92,15 +100,31 @@ export function createLincExtension(): ExtensionFactory {
 			ctx.ui.notify("Cleared attached vault", "info");
 		};
 
-		pi.on("session_start", (_event, ctx) => {
+		pi.on("session_start", async (_event, ctx) => {
 			setVaultStatus(ctx);
+			await materializeMatterMd(ctx);
 		});
 
-		pi.on("before_agent_start", (event, ctx) => {
+		pi.on("session_compact", async (_event, ctx) => {
+			await materializeMatterMd(ctx);
+		});
+
+		pi.on("tool_result", async (event, ctx) => {
+			return syncMatterMdToolResult(ctx, event);
+		});
+
+		pi.on("before_agent_start", async (event, ctx) => {
 			const vault = getAttachedVault(ctx.sessionManager);
-			if (!vault) return undefined;
+			const matter = await readMatterMd(ctx);
+			if (!vault && !matter) return undefined;
 			return {
-				systemPrompt: `${event.systemPrompt}\n\n${buildVaultSystemPrompt(vault)}`,
+				systemPrompt: [
+					event.systemPrompt,
+					vault ? buildVaultSystemPrompt(vault) : undefined,
+					matter ? buildMatterMdSystemPrompt(matter) : undefined,
+				]
+					.filter((section): section is string => section !== undefined)
+					.join("\n\n"),
 			};
 		});
 
@@ -122,12 +146,12 @@ export function createLincExtension(): ExtensionFactory {
 				if (trimmed.startsWith("attach ")) {
 					const vaultId = trimmed.slice("attach ".length).trim();
 					if (!vaultId) throw new Error("Usage: /vault attach <vault-id>");
-					attachVault(toVaultRef(await loadVault(ctx, vaultId)), ctx);
+					await attachVault(toVaultRef(await loadVault(ctx, vaultId)), ctx);
 					return;
 				}
 
 				if (trimmed.length > 0) {
-					attachVault(toVaultRef(await loadVault(ctx, trimmed)), ctx);
+					await attachVault(toVaultRef(await loadVault(ctx, trimmed)), ctx);
 					return;
 				}
 
@@ -145,11 +169,46 @@ export function createLincExtension(): ExtensionFactory {
 				if (!selected) return;
 				const vault = findVaultByOption(vaults, selected);
 				if (!vault) return;
-				attachVault(toVaultRef(vault), ctx);
+				await attachVault(toVaultRef(vault), ctx);
 			},
 			getArgumentCompletions(argumentPrefix) {
 				const prefix = argumentPrefix.trim();
 				return ["show", "clear", "attach"]
+					.filter((value) => value.startsWith(prefix))
+					.map((value) => ({ label: value, value }));
+			},
+		});
+
+		pi.registerCommand("matter", {
+			description: "Show, initialize, or sync the workspace MATTER.md",
+			async handler(args, ctx) {
+				const trimmed = args.trim();
+				if (trimmed === "" || trimmed === "show") {
+					const matter = await readMatterMd(ctx);
+					ctx.ui.notify(matter ? `Loaded MATTER.md: ${matter.path}` : "No MATTER.md loaded", "info");
+					return;
+				}
+
+				if (trimmed === "init") {
+					const matter = await materializeMatterMd(ctx);
+					ctx.ui.notify(
+						matter ? `Loaded MATTER.md: ${matter.path}` : "Attach a Case.dev vault before initializing MATTER.md",
+						"info",
+					);
+					return;
+				}
+
+				if (trimmed === "sync") {
+					await syncMatterMdToVault(ctx);
+					ctx.ui.notify("Synced MATTER.md to Case.dev vault", "info");
+					return;
+				}
+
+				throw new Error("Usage: /matter, /matter show, /matter init, or /matter sync");
+			},
+			getArgumentCompletions(argumentPrefix) {
+				const prefix = argumentPrefix.trim();
+				return ["show", "init", "sync"]
 					.filter((value) => value.startsWith(prefix))
 					.map((value) => ({ label: value, value }));
 			},
