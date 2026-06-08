@@ -35,6 +35,7 @@ interface TestContextOptions {
 	hasUI?: boolean;
 	notifications?: Array<{ message: string; type: "info" | "warning" | "error" | undefined }>;
 	editor?: (title: string, prefill?: string) => Promise<string | undefined>;
+	reload?: () => Promise<void>;
 }
 
 function createContext({
@@ -44,11 +45,13 @@ function createContext({
 	hasUI = false,
 	notifications = [],
 	editor = async () => undefined,
+	reload = async () => {},
 }: TestContextOptions) {
 	return {
 		cwd,
 		signal: undefined,
 		hasUI,
+		reload,
 		sessionManager: {
 			getEntries: () => entries,
 		},
@@ -266,6 +269,7 @@ describe("Linc matter and vault commands", () => {
 	it("treats /vault unlink as an attached-vault clear action", async () => {
 		const { commands, entries } = loadLincCommands();
 		const vaultCommand = commands.get("vault");
+		const reload = vi.fn(async () => {});
 		expect(vaultCommand).toBeDefined();
 
 		await vaultCommand!.handler(
@@ -273,12 +277,14 @@ describe("Linc matter and vault commands", () => {
 			createContext({
 				cwd,
 				notifications,
+				reload,
 				entries: [attachedVaultEntry({ id: "vault-1", name: "Alpha" })],
 			}),
 		);
 
 		expect(entries).toEqual([{ customType: LINC_VAULT_ENTRY_TYPE, data: {} }]);
 		expect(notifications).toEqual([{ message: "Cleared attached vault", type: "info" }]);
+		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows a useful /matter warning before a vault is attached", async () => {

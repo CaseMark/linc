@@ -33,11 +33,12 @@ const vaultExtension: ExtensionFactory = (pi) => {
 		await ctx.reload();
 	};
 
-	const clearVault = (ctx: ExtensionContext) => {
+	const clearVault = async (ctx: ExtensionCommandContext) => {
 		pi.appendEntry(LINC_VAULT_ENTRY_TYPE, {});
 		setVaultStatus(ctx, undefined);
 		setMatterMdStatus(ctx, undefined);
 		ctx.ui.notify("Cleared attached vault", "info");
+		await ctx.reload();
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -63,7 +64,7 @@ const vaultExtension: ExtensionFactory = (pi) => {
 			}
 
 			if (trimmed === "clear" || trimmed === "detach" || trimmed === "unlink") {
-				clearVault(ctx);
+				await clearVault(ctx);
 				return;
 			}
 
