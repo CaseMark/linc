@@ -9,7 +9,8 @@ import type {
 	RegisteredCommand,
 } from "../src/core/extensions/types.ts";
 import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef } from "../src/linc/casedev-vaults.ts";
-import { createLincExtension } from "../src/linc/extension.ts";
+import matterExtension from "../src/linc/extensions/matter.ts";
+import vaultExtension from "../src/linc/extensions/vault.ts";
 import { materializeMatterMd } from "../src/linc/matter-md.ts";
 import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
 
@@ -84,7 +85,8 @@ function loadLincCommands() {
 		},
 	} as unknown as ExtensionAPI;
 
-	createLincExtension()(pi);
+	vaultExtension(pi);
+	matterExtension(pi);
 	return { commands, entries, userMessages };
 }
 

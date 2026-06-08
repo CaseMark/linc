@@ -439,12 +439,18 @@ export function getBundledInteractiveAssetPath(name: string): string {
 	return join(getInteractiveAssetsDir(), name);
 }
 
-export function getBundledLincExtensionPath(): string {
+export function getBundledLincExtensionPaths(): string[] {
 	const packageDir = getPackageDir();
 	if (existsSync(join(packageDir, "src"))) {
-		return join(packageDir, "src", "linc", "extension.ts");
+		return [
+			join(packageDir, "src", "linc", "extensions", "vault.ts"),
+			join(packageDir, "src", "linc", "extensions", "matter.ts"),
+		];
 	}
-	return join(packageDir, "dist", "linc", "extension.js");
+	return [
+		join(packageDir, "dist", "linc", "extensions", "vault.js"),
+		join(packageDir, "dist", "linc", "extensions", "matter.js"),
+	];
 }
 
 // =============================================================================

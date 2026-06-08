@@ -18,7 +18,7 @@ import {
 	ENV_SESSION_DIR,
 	expandTildePath,
 	getAgentDir,
-	getBundledLincExtensionPath,
+	getBundledLincExtensionPaths,
 	getPackageDir,
 	VERSION,
 } from "./config.ts";
@@ -865,7 +865,7 @@ export async function main(args: string[], options?: MainOptions) {
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				bundledExtensionPaths: [getBundledLincExtensionPath()],
+				bundledExtensionPaths: getBundledLincExtensionPaths(),
 				additionalExtensionPaths: resolvedExtensionPaths,
 				additionalSkillPaths: resolvedSkillPaths,
 				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,

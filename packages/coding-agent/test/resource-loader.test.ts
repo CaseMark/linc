@@ -188,17 +188,27 @@ Project skill`,
 			expect(extensionsResult.extensions[0].path).toBe(join(cwd, CONFIG_DIR_NAME, "extensions", "shared.ts"));
 		});
 
-		it("loads bundled extensions as path-backed builtins even when user extensions are disabled", async () => {
+		it("loads named bundled extensions as path-backed builtins even when user extensions are disabled", async () => {
 			const bundledDir = join(tempDir, "bundled");
 			const userExtDir = join(agentDir, "extensions");
 			mkdirSync(bundledDir, { recursive: true });
 			mkdirSync(userExtDir, { recursive: true });
-			const bundledExtPath = join(bundledDir, "linc.ts");
+			const bundledVaultPath = join(bundledDir, "vault.ts");
+			const bundledMatterPath = join(bundledDir, "matter.ts");
 			writeFileSync(
-				bundledExtPath,
+				bundledVaultPath,
 				`export default function(pi) {
-		pi.registerCommand("bundled-linc", {
-			description: "bundled linc command",
+		pi.registerCommand("bundled-vault", {
+			description: "bundled vault command",
+			handler: async () => {},
+		});
+	}`,
+			);
+			writeFileSync(
+				bundledMatterPath,
+				`export default function(pi) {
+		pi.registerCommand("bundled-matter", {
+			description: "bundled matter command",
 			handler: async () => {},
 		});
 	}`,
@@ -216,21 +226,32 @@ Project skill`,
 			const loader = new DefaultResourceLoader({
 				cwd,
 				agentDir,
-				bundledExtensionPaths: [bundledExtPath],
+				bundledExtensionPaths: [bundledVaultPath, bundledMatterPath],
 				noExtensions: true,
 			});
 			await loader.reload();
 
 			const extensionsResult = loader.getExtensions();
-			expect(extensionsResult.extensions.map((extension) => extension.path)).toEqual([bundledExtPath]);
+			expect(extensionsResult.extensions.map((extension) => extension.path)).toEqual([
+				bundledVaultPath,
+				bundledMatterPath,
+			]);
 			expect(extensionsResult.extensions[0]?.sourceInfo).toEqual({
-				path: bundledExtPath,
+				path: bundledVaultPath,
 				source: "builtin",
 				scope: "temporary",
 				origin: "top-level",
 				baseDir: bundledDir,
 			});
-			expect(extensionsResult.extensions[0]?.commands.get("bundled-linc")?.sourceInfo?.source).toBe("builtin");
+			expect(extensionsResult.extensions[1]?.sourceInfo).toEqual({
+				path: bundledMatterPath,
+				source: "builtin",
+				scope: "temporary",
+				origin: "top-level",
+				baseDir: bundledDir,
+			});
+			expect(extensionsResult.extensions[0]?.commands.get("bundled-vault")?.sourceInfo?.source).toBe("builtin");
+			expect(extensionsResult.extensions[1]?.commands.get("bundled-matter")?.sourceInfo?.source).toBe("builtin");
 		});
 
 		it("should load user extensions before trust and reuse them after trust resolves", async () => {
