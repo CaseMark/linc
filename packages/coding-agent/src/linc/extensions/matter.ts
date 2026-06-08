@@ -17,17 +17,21 @@ const matterExtension: ExtensionFactory = (pi) => {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		const vault = getAttachedVault(ctx.sessionManager);
+		if (!vault) return;
 		await ensureMatterMd(pi, ctx, {
-			sourcePrecedence: getAttachedVault(ctx.sessionManager) ? "vault-first" : "workspace-first",
+			sourcePrecedence: "vault-first",
 			promptForMissing: true,
 		});
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
+		if (!getAttachedVault(ctx.sessionManager)) return;
 		await ensureMatterMd(pi, ctx, { promptForMissing: false });
 	});
 
 	pi.on("resources_discover", async (_event, ctx) => {
+		if (!getAttachedVault(ctx.sessionManager)) return undefined;
 		const matter = await readMatterMd(ctx);
 		return matter ? { contextFilePaths: [matter.path] } : undefined;
 	});
@@ -37,6 +41,7 @@ const matterExtension: ExtensionFactory = (pi) => {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		if (!getAttachedVault(ctx.sessionManager)) return undefined;
 		const matter = await readMatterMd(ctx);
 		if (!matter) return undefined;
 		return {

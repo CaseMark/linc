@@ -302,15 +302,22 @@ describe("Linc matter and vault commands", () => {
 		expect(notifications).toEqual([{ message: "Attach a Case.dev vault before running /autoinit", type: "warning" }]);
 	});
 
-	it("discovers MATTER.md as a session context file", async () => {
+	it("discovers MATTER.md as a session context file only when a vault is attached", async () => {
 		await writeFile(join(cwd, "MATTER.md"), "# Matter\n", "utf-8");
 		const { handlers } = loadLincCommands();
 		const resourceHandlers = handlers.get("resources_discover");
 		expect(resourceHandlers).toBeDefined();
 
+		await expect(
+			resourceHandlers![0]!({ type: "resources_discover", cwd, reason: "startup" }, createContext({ cwd })),
+		).resolves.toBeUndefined();
+
 		const result = await resourceHandlers![0]!(
 			{ type: "resources_discover", cwd, reason: "startup" },
-			createContext({ cwd }),
+			createContext({
+				cwd,
+				entries: [attachedVaultEntry({ id: "vault-1", name: "Alpha" })],
+			}),
 		);
 
 		expect(result).toEqual({ contextFilePaths: [join(cwd, "MATTER.md")] });
