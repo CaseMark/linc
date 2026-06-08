@@ -73,6 +73,7 @@ Inside the TUI:
 - `/matter edit` opens `MATTER.md` in Linc's editor and syncs changes back to the vault.
 - `/matter sync` manually syncs workspace `MATTER.md` back to the vault.
 - `/init` starts guided legal matter initialization for the attached vault.
+- `/autoinit` explores the attached vault and drafts `MATTER.md`, marking unsupported fields as `UNKNOWN`.
 
 An attached vault is persisted in the session until `/vault clear`.
 

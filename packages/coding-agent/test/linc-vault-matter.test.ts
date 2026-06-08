@@ -69,6 +69,7 @@ function attachedVaultEntry(vault: { id: string; name: string; totalObjects?: nu
 function loadLincCommands() {
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const entries: Array<{ customType: string; data?: unknown }> = [];
+	const userMessages: string[] = [];
 	const pi = {
 		registerTool: () => {},
 		registerCommand: (name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
@@ -78,11 +79,13 @@ function loadLincCommands() {
 		appendEntry: (customType: string, data?: unknown) => {
 			entries.push({ customType, data });
 		},
-		sendUserMessage: () => {},
+		sendUserMessage: (content: string | unknown[]) => {
+			if (typeof content === "string") userMessages.push(content);
+		},
 	} as unknown as ExtensionAPI;
 
 	createLincExtension()(pi);
-	return { commands, entries };
+	return { commands, entries, userMessages };
 }
 
 describe("Linc vault attachment state", () => {
@@ -279,6 +282,42 @@ describe("Linc matter and vault commands", () => {
 		await matterCommand!.handler("", createContext({ cwd, notifications }));
 
 		expect(notifications).toEqual([{ message: "No vault is attached.", type: "warning" }]);
+	});
+
+	it("warns when /autoinit runs without an attached vault", async () => {
+		const { commands, userMessages } = loadLincCommands();
+		const autoInitCommand = commands.get("autoinit");
+		expect(autoInitCommand).toBeDefined();
+
+		await autoInitCommand!.handler("", createContext({ cwd, hasUI: true, notifications }));
+
+		expect(userMessages).toEqual([]);
+		expect(notifications).toEqual([{ message: "Attach a Case.dev vault before running /autoinit", type: "warning" }]);
+	});
+
+	it("sends an exploratory matter initialization prompt for /autoinit", async () => {
+		const { commands, userMessages } = loadLincCommands();
+		const autoInitCommand = commands.get("autoinit");
+		expect(autoInitCommand).toBeDefined();
+
+		await autoInitCommand!.handler(
+			"focus on pleadings and deadlines",
+			createContext({
+				cwd,
+				hasUI: true,
+				notifications,
+				entries: [attachedVaultEntry({ id: "vault-1", name: "Alpha", totalObjects: 4 })],
+			}),
+		);
+
+		expect(notifications).toEqual([]);
+		expect(userMessages).toHaveLength(1);
+		expect(userMessages[0]).toContain("# Linc Matter Auto-Initialization");
+		expect(userMessages[0]).toContain("Attached vault: Alpha (vault-1, 4 objects)");
+		expect(userMessages[0]).toContain("User notes: focus on pleadings and deadlines");
+		expect(userMessages[0]).toContain("Inspect the vault with casedev_vault_get");
+		expect(userMessages[0]).toContain("Write UNKNOWN exactly");
+		expect(userMessages[0]).toContain("Do not guess");
 	});
 
 	it("edits MATTER.md and syncs it to the attached vault", async () => {

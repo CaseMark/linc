@@ -93,6 +93,8 @@ Human-facing commands:
 /matter
 /matter edit
 /matter sync
+/init
+/autoinit
 ```
 
 Native matter tools:
@@ -118,6 +120,7 @@ Use `MATTER.md` for durable matter state: representation, goals, jurisdiction, s
 | `/matter edit` | Edit MATTER.md and sync it to the attached vault |
 | `/matter sync` | Sync MATTER.md to the attached vault |
 | `/init` | Start guided matter initialization |
+| `/autoinit` | Explore the attached vault and draft MATTER.md with unknowns marked |
 | `/resume` | Pick from previous sessions |
 | `/new` | Start a new session |
 | `/compact [prompt]` | Compact context |

@@ -72,6 +72,38 @@ async function buildMatterInitPrompt(ctx: ExtensionCommandContext, notes: string
 		.join("\n");
 }
 
+async function buildMatterAutoInitPrompt(ctx: ExtensionCommandContext, notes: string): Promise<string> {
+	const vault = getAttachedVault(ctx.sessionManager);
+	const matter = await readMatterMd(ctx);
+	const skill = await loadMatterInitSkill();
+	return [
+		"# Linc Matter Auto-Initialization",
+		"",
+		"Run an exploratory pass against the attached Case.dev vault and create or improve MATTER.md.",
+		"",
+		vault ? `Attached vault: ${formatVaultRef(vault)}` : "No Case.dev vault is attached.",
+		matter ? `Current MATTER.md path: ${matter.path}` : "No MATTER.md is currently loaded.",
+		notes ? `User notes: ${notes}` : undefined,
+		"",
+		"Instructions:",
+		"- If MATTER.md exists, call casedev_matter_read first and preserve durable facts already present.",
+		"- Inspect the vault with casedev_vault_get, casedev_vault_object_list, and a small set of targeted casedev_vault_search queries.",
+		"- Create or update MATTER.md with casedev_matter_write or casedev_matter_edit.",
+		"- Write UNKNOWN exactly where the vault does not support a durable answer.",
+		"- Do not guess, infer beyond the sources, dump raw evidence, or store scratchpad reasoning.",
+		"- Keep Source Map entries as concise pointers to vault object names or ids.",
+		"- Ask the user only if auth, vault access, or missing source material blocks the exploratory run.",
+		"",
+		"Use the bundled Linc matter initialization skill below as the MATTER.md contract.",
+		"",
+		"```markdown",
+		skill.trim(),
+		"```",
+	]
+		.filter((line): line is string => line !== undefined)
+		.join("\n");
+}
+
 export function createLincExtension(): ExtensionFactory {
 	return (pi) => {
 		for (const tool of createMatterMdTools()) {
@@ -159,7 +191,9 @@ export function createLincExtension(): ExtensionFactory {
 			if (!matter) {
 				const vault = getAttachedVault(ctx.sessionManager);
 				ctx.ui.notify(
-					vault ? "No MATTER.md is loaded. Run /init or /matter edit to create one." : "No vault is attached.",
+					vault
+						? "No MATTER.md is loaded. Run /init, /autoinit, or /matter edit to create one."
+						: "No vault is attached.",
 					"warning",
 				);
 				return;
@@ -182,7 +216,7 @@ export function createLincExtension(): ExtensionFactory {
 			}
 			const matter = await ensureMatterMd(ctx, { sourcePrecedence: "workspace-first", promptForMissing: true });
 			if (!matter) {
-				ctx.ui.notify("No MATTER.md is available. Run /init to create one.", "warning");
+				ctx.ui.notify("No MATTER.md is available. Run /init or /autoinit to create one.", "warning");
 				return;
 			}
 
@@ -322,6 +356,23 @@ export function createLincExtension(): ExtensionFactory {
 				}
 
 				pi.sendUserMessage(await buildMatterInitPrompt(ctx, args.trim()));
+			},
+		});
+
+		pi.registerCommand("autoinit", {
+			description: "Explore the attached Case.dev vault and draft MATTER.md",
+			async handler(args, ctx) {
+				if (!ctx.hasUI) {
+					throw new Error("/autoinit requires an interactive session.");
+				}
+
+				const vault = getAttachedVault(ctx.sessionManager);
+				if (!vault) {
+					ctx.ui.notify("Attach a Case.dev vault before running /autoinit", "warning");
+					return;
+				}
+
+				pi.sendUserMessage(await buildMatterAutoInitPrompt(ctx, args.trim()));
 			},
 		});
 	};

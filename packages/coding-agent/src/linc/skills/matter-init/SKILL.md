@@ -1,11 +1,11 @@
 ---
 name: linc-matter-init
-description: Guide a short legal matter intake and turn durable answers into MATTER.md using Linc's native matter tools.
+description: Guide legal matter intake or auto-initialization and turn durable answers into MATTER.md using Linc's native matter tools.
 ---
 
 # Linc Matter Init
 
-Use this skill when the user runs `/init` or asks to initialize matter context.
+Use this skill when the user runs `/init`, runs `/autoinit`, or asks to initialize matter context.
 
 Your job is to build or improve `MATTER.md`, the durable whiteboard for the attached legal matter. Keep the intake short. Do not ask for every possible fact up front.
 
@@ -16,6 +16,18 @@ Your job is to build or improve `MATTER.md`, the durable whiteboard for the atta
 3. Prefer one compact intake round with 4-6 questions.
 4. If the user gives enough information, update `MATTER.md` with `casedev_matter_write` or `casedev_matter_edit`.
 5. If the user does not give enough information, ask the next narrow question instead of writing filler.
+
+## Auto-Init Mode
+
+When the user runs `/autoinit`, do the exploratory work before asking questions.
+
+1. Call `casedev_matter_read` first if `MATTER.md` may already exist.
+2. Inspect the attached vault with native vault tools such as `casedev_vault_get`, `casedev_vault_object_list`, and targeted `casedev_vault_search` queries.
+3. Build the best durable `MATTER.md` the vault supports.
+4. Write `UNKNOWN` exactly for fields the vault does not support.
+5. Ask the user only when auth, vault access, or missing source material blocks the run.
+
+Do not infer party roles, goals, jurisdiction, claims, defenses, deadlines, or source rules unless the vault actually supports them.
 
 ## Intake Questions
 
