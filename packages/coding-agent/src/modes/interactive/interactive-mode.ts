@@ -908,6 +908,14 @@ export class InteractiveMode {
 		}
 
 		const lastVersion = this.settingsManager.getLastChangelogVersion();
+		if (APP_NAME !== "pi") {
+			if (lastVersion !== VERSION) {
+				this.settingsManager.setLastChangelogVersion(VERSION);
+				this.reportInstallTelemetry(VERSION);
+			}
+			return undefined;
+		}
+
 		const changelogPath = getChangelogPath();
 		const entries = parseChangelog(changelogPath);
 
