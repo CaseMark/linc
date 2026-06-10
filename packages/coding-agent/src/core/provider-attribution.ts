@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { APP_TITLE } from "../config.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import { isInstallTelemetryEnabled } from "./telemetry.ts";
 
@@ -51,7 +52,7 @@ function getDefaultAttributionHeaders(
 
 	if (isNvidiaNimModel(model)) {
 		return {
-			"X-BILLING-INVOKE-ORIGIN": "Linc",
+			"X-BILLING-INVOKE-ORIGIN": APP_TITLE,
 		};
 	}
 

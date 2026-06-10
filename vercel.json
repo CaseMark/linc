@@ -7,7 +7,7 @@
 	"redirects": [
 		{
 			"source": "/",
-			"destination": "/docs/overview",
+			"destination": "/docs/overlay",
 			"permanent": false
 		}
 	]

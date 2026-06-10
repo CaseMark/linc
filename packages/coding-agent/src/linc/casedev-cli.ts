@@ -25,9 +25,12 @@ export async function runCaseDevCli(
 ): Promise<CaseDevCliResult> {
 	const apiKey = await getCaseDevApiKey(ctx);
 	return new Promise((resolve, reject) => {
-		const child = spawnProcess("casedev", ["--json", "--no-color", "--api-key", apiKey, ...args], {
+		const child = spawnProcess("casedev", ["--json", "--no-color", ...args], {
 			cwd: ctx.cwd,
-			env: process.env,
+			env: {
+				...process.env,
+				CASEDEV_API_KEY: apiKey,
+			},
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
 		});
