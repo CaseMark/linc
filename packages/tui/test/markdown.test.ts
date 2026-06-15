@@ -1,11 +1,12 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Chalk } from "chalk";
-import { Markdown } from "../src/components/markdown.js";
-import { type Component, TUI } from "../src/tui.js";
-import { defaultMarkdownTheme } from "./test-themes.js";
-import { VirtualTerminal } from "./virtual-terminal.js";
+import { Markdown } from "../src/components/markdown.ts";
+import { resetCapabilitiesCache, setCapabilities } from "../src/terminal-image.ts";
+import { type Component, TUI } from "../src/tui.ts";
+import { defaultMarkdownTheme } from "./test-themes.ts";
+import { VirtualTerminal } from "./virtual-terminal.ts";
 
 // Force full color in CI so ANSI assertions are deterministic
 const chalk = new Chalk({ level: 3 });
@@ -20,8 +21,22 @@ function getCellItalic(terminal: VirtualTerminal, row: number, col: number): num
 	return cell.isItalic();
 }
 
+function getCellUnderline(terminal: VirtualTerminal, row: number, col: number): number {
+	const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
+	const buffer = xterm.buffer.active;
+	const line = buffer.getLine(buffer.viewportY + row);
+	assert.ok(line, `Missing buffer line at row ${row}`);
+	const cell = line.getCell(col);
+	assert.ok(cell, `Missing cell at row ${row} col ${col}`);
+	return cell.isUnderline();
+}
+
+function stripAnsi(line: string): string {
+	return line.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 describe("Markdown component", () => {
-	describe("Nested lists", () => {
+	describe("Lists", () => {
 		it("should render simple nested list", () => {
 			const markdown = new Markdown(
 				`- Item 1
@@ -43,8 +58,8 @@ describe("Markdown component", () => {
 
 			// Check structure
 			assert.ok(plainLines.some((line) => line.includes("- Item 1")));
-			assert.ok(plainLines.some((line) => line.includes("  - Nested 1.1")));
-			assert.ok(plainLines.some((line) => line.includes("  - Nested 1.2")));
+			assert.ok(plainLines.some((line) => line.includes("    - Nested 1.1")));
+			assert.ok(plainLines.some((line) => line.includes("    - Nested 1.2")));
 			assert.ok(plainLines.some((line) => line.includes("- Item 2")));
 		});
 
@@ -64,9 +79,9 @@ describe("Markdown component", () => {
 
 			// Check proper indentation
 			assert.ok(plainLines.some((line) => line.includes("- Level 1")));
-			assert.ok(plainLines.some((line) => line.includes("  - Level 2")));
-			assert.ok(plainLines.some((line) => line.includes("    - Level 3")));
-			assert.ok(plainLines.some((line) => line.includes("      - Level 4")));
+			assert.ok(plainLines.some((line) => line.includes("    - Level 2")));
+			assert.ok(plainLines.some((line) => line.includes("        - Level 3")));
+			assert.ok(plainLines.some((line) => line.includes("            - Level 4")));
 		});
 
 		it("should render ordered nested list", () => {
@@ -84,9 +99,34 @@ describe("Markdown component", () => {
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 			assert.ok(plainLines.some((line) => line.includes("1. First")));
-			assert.ok(plainLines.some((line) => line.includes("  1. Nested first")));
-			assert.ok(plainLines.some((line) => line.includes("  2. Nested second")));
+			assert.ok(plainLines.some((line) => line.includes("    1. Nested first")));
+			assert.ok(plainLines.some((line) => line.includes("    2. Nested second")));
 			assert.ok(plainLines.some((line) => line.includes("2. Second")));
+		});
+
+		it("should normalize ordered list markers by default", () => {
+			const markdown = new Markdown("1. alpha\n1. beta\n1. gamma", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["1. alpha", "2. beta", "3. gamma"]);
+		});
+
+		it("should preserve source ordered list markers when configured", () => {
+			const markdown = new Markdown(
+				"  4. forth\n  3. third\n\n10) ten\n7) seven",
+				0,
+				0,
+				defaultMarkdownTheme,
+				undefined,
+				{
+					preserveOrderedListMarkers: true,
+				},
+			);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["4. forth", "3. third", "", "10) ten", "7) seven"]);
 		});
 
 		it("should render mixed ordered and unordered nested lists", () => {
@@ -105,8 +145,16 @@ describe("Markdown component", () => {
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 			assert.ok(plainLines.some((line) => line.includes("1. Ordered item")));
-			assert.ok(plainLines.some((line) => line.includes("  - Unordered nested")));
+			assert.ok(plainLines.some((line) => line.includes("    - Unordered nested")));
 			assert.ok(plainLines.some((line) => line.includes("2. Second ordered")));
+		});
+
+		it("should render task list markers", () => {
+			const markdown = new Markdown("- [ ] beep\n- [x] boop", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["- [ ] beep", "- [x] boop"]);
 		});
 
 		it("should maintain numbering when code blocks are not indented (LLM output)", () => {
@@ -144,6 +192,67 @@ describe("Markdown component", () => {
 			assert.ok(numberedLines[0].startsWith("1."), `First item should be "1.", got: ${numberedLines[0]}`);
 			assert.ok(numberedLines[1].startsWith("2."), `Second item should be "2.", got: ${numberedLines[1]}`);
 			assert.ok(numberedLines[2].startsWith("3."), `Third item should be "3.", got: ${numberedLines[2]}`);
+		});
+
+		it("should indent wrapped unordered list lines", () => {
+			const markdown = new Markdown("- alpha beta gamma delta epsilon", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(20).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["- alpha beta gamma", "  delta epsilon"]);
+		});
+
+		it("should indent wrapped ordered list lines", () => {
+			const markdown = new Markdown("1. alpha beta gamma delta epsilon", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(20).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["1. alpha beta gamma", "   delta epsilon"]);
+		});
+
+		it("should indent wrapped ordered list lines with multi-digit markers", () => {
+			const markdown = new Markdown("10. alpha beta gamma delta epsilon", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(21).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["10. alpha beta gamma", "    delta epsilon"]);
+		});
+
+		it("should indent wrapped nested list lines", () => {
+			const markdown = new Markdown(`- parent\n  - alpha beta gamma delta epsilon`, 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(24).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["- parent", "    - alpha beta gamma", "      delta epsilon"]);
+		});
+
+		it("should indent wrapped nested list lines under ordered parents", () => {
+			const markdown = new Markdown(`1. parent\n   - alpha beta gamma delta epsilon`, 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(24).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["1. parent", "    - alpha beta gamma", "      delta epsilon"]);
+		});
+
+		it("should render and wrap blockquotes inside list items", () => {
+			const markdown = new Markdown("- > alpha beta gamma delta epsilon zeta", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(24).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["- │ alpha beta gamma", "  │ delta epsilon zeta"]);
+		});
+
+		it("should render and wrap code blocks inside list items", () => {
+			const markdown = new Markdown(
+				"- ```ts\n  alpha beta gamma delta epsilon zeta\n  ```",
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+
+			const lines = markdown.render(24).map((line) => stripAnsi(line).trimEnd());
+
+			assert.deepStrictEqual(lines, ["- ```ts", "    alpha beta gamma", "  delta epsilon zeta", "  ```"]);
 		});
 	});
 
@@ -315,6 +424,8 @@ describe("Markdown component", () => {
 		});
 
 		it("should wrap long unbroken tokens inside table cells (not only at line start)", () => {
+			// Pin to no-hyperlinks so width checks work on plain text without OSC 8 sequences.
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 			const url = "https://example.com/this/is/a/very/long/url/that/should/wrap";
 			const markdown = new Markdown(
 				`| Value |
@@ -327,6 +438,7 @@ describe("Markdown component", () => {
 
 			const width = 30;
 			const lines = markdown.render(width);
+			resetCapabilitiesCache();
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
 			for (const line of plainLines) {
@@ -493,7 +605,7 @@ describe("Markdown component", () => {
 			assert.ok(plainLines.some((line) => line.includes("Test Document")));
 			// Check list
 			assert.ok(plainLines.some((line) => line.includes("- Item 1")));
-			assert.ok(plainLines.some((line) => line.includes("  - Nested item")));
+			assert.ok(plainLines.some((line) => line.includes("    - Nested item")));
 			// Check table
 			assert.ok(plainLines.some((line) => line.includes("Col1")));
 			assert.ok(plainLines.some((line) => line.includes("│")));
@@ -558,8 +670,11 @@ describe("Markdown component", () => {
 		it("should not leak styles into following lines when rendered in TUI", async () => {
 			class MarkdownWithInput implements Component {
 				public markdownLineCount = 0;
+				private readonly markdown: Markdown;
 
-				constructor(private readonly markdown: Markdown) {}
+				constructor(markdown: Markdown) {
+					this.markdown = markdown;
+				}
 
 				render(width: number): string[] {
 					const lines = this.markdown.render(width);
@@ -582,7 +697,7 @@ describe("Markdown component", () => {
 			const component = new MarkdownWithInput(markdown);
 			tui.addChild(component);
 			tui.start();
-			await terminal.flush();
+			await terminal.waitForRender();
 
 			assert.ok(component.markdownLineCount > 0);
 			const inputRow = component.markdownLineCount;
@@ -1016,6 +1131,26 @@ bar`,
 			assert.ok(precedingChunk.includes("\x1b[4m"), `Should re-apply underline for h1: ${precedingChunk}`);
 		});
 
+		it("should not leak h1 underline into padding when inline code is the last token", async () => {
+			const markdown = new Markdown("# Important distinction from `open()`", 0, 0, defaultMarkdownTheme);
+			const terminal = new VirtualTerminal(80, 4);
+			const tui = new TUI(terminal);
+			tui.addChild(markdown);
+			tui.start();
+			await terminal.waitForRender();
+
+			const renderedLine = markdown.render(80)[0];
+			assert.ok(renderedLine, "Should render heading line");
+			const contentWidth = renderedLine.replace(/\x1b\[[0-9;]*m/g, "").trimEnd().length;
+			assert.ok(contentWidth > 0, "Should have visible heading content");
+
+			for (let col = contentWidth; col < 80; col++) {
+				assert.strictEqual(getCellUnderline(terminal, 0, col), 0, `Expected no underline in padding at col ${col}`);
+			}
+
+			tui.stop();
+		});
+
 		it("should preserve heading styling after bold text", () => {
 			const markdown = new Markdown("## Heading with **bold** and more", 0, 0, defaultMarkdownTheme);
 
@@ -1031,8 +1166,39 @@ bar`,
 		});
 	});
 
+	describe("Strikethrough syntax", () => {
+		it("should render ~~text~~ as strikethrough", () => {
+			const markdown = new Markdown("Use ~~strikethrough~~ here", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joinedOutput = lines.join("\n");
+			const joinedPlain = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "")).join(" ");
+
+			assert.ok(joinedOutput.includes("\x1b[9m"), "Should apply strikethrough styling");
+			assert.ok(joinedPlain.includes("strikethrough"), "Should include struck text content");
+			assert.ok(!joinedPlain.includes("~~strikethrough~~"), "Should not render delimiters as text");
+		});
+
+		it("should keep ~text~ as plain text", () => {
+			const markdown = new Markdown("Use ~strikethrough~ literally", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joinedOutput = lines.join("\n");
+			const joinedPlain = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "")).join(" ");
+
+			assert.ok(joinedPlain.includes("~strikethrough~"), "Single-tilde delimiters should remain visible");
+			assert.ok(!joinedOutput.includes("\x1b[9m"), "Single-tilde text should not use strikethrough styling");
+		});
+	});
+
 	describe("Links", () => {
+		afterEach(() => {
+			resetCapabilitiesCache();
+		});
+
 		it("should not duplicate URL for autolinked emails", () => {
+			// Hyperlinks capability does not affect the mailto: display check.
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 			const markdown = new Markdown("Contact user@example.com for help", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
@@ -1045,6 +1211,7 @@ bar`,
 		});
 
 		it("should not duplicate URL for bare URLs", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 			const markdown = new Markdown("Visit https://example.com for more", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
@@ -1056,28 +1223,78 @@ bar`,
 			assert.strictEqual(urlCount, 1, "URL should appear exactly once");
 		});
 
-		it("should show URL for explicit markdown links with different text", () => {
+		it("should show URL in parentheses when hyperlinks are not supported", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 			const markdown = new Markdown("[click here](https://example.com)", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 			const joinedPlain = plainLines.join(" ");
 
-			// Should show both link text and URL
 			assert.ok(joinedPlain.includes("click here"), "Should contain link text");
 			assert.ok(joinedPlain.includes("(https://example.com)"), "Should show URL in parentheses");
 		});
 
-		it("should show URL for explicit mailto links with different text", () => {
+		it("should show mailto URL in parentheses when hyperlinks are not supported", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 			const markdown = new Markdown("[Email me](mailto:test@example.com)", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 			const joinedPlain = plainLines.join(" ");
 
-			// Should show both link text and mailto URL
 			assert.ok(joinedPlain.includes("Email me"), "Should contain link text");
 			assert.ok(joinedPlain.includes("(mailto:test@example.com)"), "Should show mailto URL in parentheses");
+		});
+
+		it("should emit OSC 8 hyperlink sequence when terminal supports hyperlinks", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
+			const markdown = new Markdown("[click here](https://example.com)", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joined = lines.join("");
+
+			// OSC 8 open: ESC ] 8 ; ; <url> ESC \
+			assert.ok(joined.includes("\x1b]8;;https://example.com\x1b\\"), "Should contain OSC 8 open sequence");
+			// OSC 8 close: ESC ] 8 ; ; ESC \
+			assert.ok(joined.includes("\x1b]8;;\x1b\\"), "Should contain OSC 8 close sequence");
+			// Visible text is present
+			const plainLines = lines.map((line) => line.replace(/\x1b[^a-zA-Z]*[a-zA-Z]|\x1b\].*?\x1b\\/g, ""));
+			assert.ok(plainLines.join("").includes("click here"), "Should contain link text");
+			// URL is NOT printed inline as plain text
+			const rawPlain = lines.map((line) =>
+				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
+			);
+			assert.ok(!rawPlain.join("").includes("(https://example.com)"), "URL should not appear inline in parentheses");
+		});
+
+		it("should use OSC 8 for mailto links when terminal supports hyperlinks", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
+			const markdown = new Markdown("[Email me](mailto:test@example.com)", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joined = lines.join("");
+
+			assert.ok(
+				joined.includes("\x1b]8;;mailto:test@example.com\x1b\\"),
+				"Should contain OSC 8 open with mailto URL",
+			);
+			assert.ok(joined.includes("\x1b]8;;\x1b\\"), "Should contain OSC 8 close sequence");
+		});
+
+		it("should use OSC 8 for bare URLs when terminal supports hyperlinks", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
+			const markdown = new Markdown("Visit https://example.com for more", 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joined = lines.join("");
+
+			assert.ok(joined.includes("\x1b]8;;https://example.com\x1b\\"), "Should contain OSC 8 hyperlink");
+			// URL should not also appear as raw parenthetical text
+			const rawPlain = lines.map((line) =>
+				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
+			);
+			assert.ok(!rawPlain.join("").includes("(https://example.com)"), "URL should not appear twice");
 		});
 	});
 

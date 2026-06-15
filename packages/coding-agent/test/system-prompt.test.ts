@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildSystemPrompt } from "../src/core/system-prompt.js";
+import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
 	describe("empty tools", () => {
@@ -8,6 +8,7 @@ describe("buildSystemPrompt", () => {
 				selectedTools: [],
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).toContain("Available tools:\n(none)");
@@ -18,6 +19,7 @@ describe("buildSystemPrompt", () => {
 				selectedTools: [],
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).toContain("Show file paths clearly");
@@ -35,12 +37,36 @@ describe("buildSystemPrompt", () => {
 				},
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).toContain("- read:");
 			expect(prompt).toContain("- bash:");
 			expect(prompt).toContain("- edit:");
 			expect(prompt).toContain("- write:");
+		});
+
+		test("identifies the harness as Linc", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("operating inside Linc");
+			expect(prompt).not.toContain("operating inside pi");
+		});
+
+		test("instructs models to resolve Linc docs and examples under absolute base paths", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				"- When reading Linc docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory",
+			);
 		});
 	});
 
@@ -53,6 +79,7 @@ describe("buildSystemPrompt", () => {
 				},
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).toContain("- dynamic_tool: Run dynamic test behavior");
@@ -63,6 +90,7 @@ describe("buildSystemPrompt", () => {
 				selectedTools: ["read", "dynamic_tool"],
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).not.toContain("dynamic_tool");
@@ -76,6 +104,7 @@ describe("buildSystemPrompt", () => {
 				promptGuidelines: ["Use dynamic_tool for project summaries."],
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt).toContain("- Use dynamic_tool for project summaries.");
@@ -87,6 +116,7 @@ describe("buildSystemPrompt", () => {
 				promptGuidelines: ["Use dynamic_tool for summaries.", "  Use dynamic_tool for summaries.  ", "   "],
 				contextFiles: [],
 				skills: [],
+				cwd: process.cwd(),
 			});
 
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);

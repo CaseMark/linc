@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.js";
+import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.ts";
 
 describe("fuzzyMatch", () => {
 	it("empty query matches everything with score 0", () => {
@@ -81,6 +81,13 @@ describe("fuzzyFilter", () => {
 
 		// "app" should be first (exact consecutive match at start)
 		assert.strictEqual(result[0], "app");
+	});
+
+	it("prioritizes exact matches over longer prefix matches", () => {
+		const items = ["clone", "cl"];
+		const result = fuzzyFilter(items, "cl", (x: string) => x);
+
+		assert.deepStrictEqual(result, ["cl", "clone"]);
 	});
 
 	it("works with custom getText function", () => {

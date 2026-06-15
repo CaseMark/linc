@@ -1,6 +1,6 @@
 {
-	"remote": "https://github.com/earendil-works/pi.git",
+	"remote": "pi",
+	"repository": "https://github.com/earendil-works/pi.git",
 	"branch": "main",
-	"lastReviewedSha": "7e94d36a44479326a6b2ee4227fc41f10ea978aa",
-	"docsSource": "packages/coding-agent/docs"
+	"lastMergedSha": "130ae577acd76ea2f040f2e357b0f3e730a53883"
 }

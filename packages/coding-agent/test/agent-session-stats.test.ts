@@ -1,12 +1,12 @@
-import { Agent } from "@casemark/linc-agent-core";
-import { type AssistantMessage, getModel, type Usage } from "@casemark/linc-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { AgentSession } from "../src/core/agent-session.js";
-import { AuthStorage } from "../src/core/auth-storage.js";
-import { ModelRegistry } from "../src/core/model-registry.js";
-import { SessionManager } from "../src/core/session-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
-import { createTestResourceLoader } from "./utilities.js";
+import { AgentSession } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 const model = getModel("anthropic", "claude-sonnet-4-5")!;
 
@@ -66,7 +66,7 @@ function createSession() {
 		sessionManager,
 		settingsManager,
 		cwd: process.cwd(),
-		modelRegistry: new ModelRegistry(authStorage, undefined),
+		modelRegistry: ModelRegistry.inMemory(authStorage),
 		resourceLoader: createTestResourceLoader(),
 	});
 
@@ -74,7 +74,7 @@ function createSession() {
 }
 
 function syncAgentMessages(session: AgentSession, sessionManager: SessionManager): void {
-	session.agent.replaceMessages(sessionManager.buildSessionContext().messages);
+	session.agent.state.messages = sessionManager.buildSessionContext().messages;
 }
 
 describe("AgentSession.getSessionStats", () => {

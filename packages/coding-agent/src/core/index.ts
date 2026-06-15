@@ -10,10 +10,25 @@ export {
 	type ModelCycleResult,
 	type PromptOptions,
 	type SessionStats,
-} from "./agent-session.js";
-export { type BashExecutorOptions, type BashResult, executeBash, executeBashWithOperations } from "./bash-executor.js";
-export type { CompactionResult } from "./compaction/index.js";
-export { createEventBus, type EventBus, type EventBusController } from "./event-bus.js";
+} from "./agent-session.ts";
+export {
+	AgentSessionRuntime,
+	type CreateAgentSessionRuntimeFactory,
+	type CreateAgentSessionRuntimeResult,
+	createAgentSessionRuntime,
+} from "./agent-session-runtime.ts";
+export {
+	type AgentSessionRuntimeDiagnostic,
+	type AgentSessionServices,
+	type CreateAgentSessionFromServicesOptions,
+	type CreateAgentSessionServicesOptions,
+	createAgentSessionFromServices,
+	createAgentSessionServices,
+} from "./agent-session-services.ts";
+export { type BashExecutorOptions, type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+export type { CompactionResult } from "./compaction/index.ts";
+export { createEventBus, type EventBus, type EventBusController } from "./event-bus.ts";
+export { areExperimentalFeaturesEnabled } from "./experimental.ts";
 // Extensions system
 export {
 	type AgentEndEvent,
@@ -21,7 +36,10 @@ export {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
 	type BeforeAgentStartEvent,
+	type BeforeAgentStartEventResult,
+	type BuildSystemPromptOptions,
 	type ContextEvent,
+	defineTool,
 	discoverAndLoadExtensions,
 	type ExecOptions,
 	type ExecResult,
@@ -45,10 +63,8 @@ export {
 	type SessionBeforeSwitchEvent,
 	type SessionBeforeTreeEvent,
 	type SessionCompactEvent,
-	type SessionForkEvent,
 	type SessionShutdownEvent,
 	type SessionStartEvent,
-	type SessionSwitchEvent,
 	type SessionTreeEvent,
 	type ToolCallEvent,
 	type ToolCallEventResult,
@@ -57,5 +73,6 @@ export {
 	type ToolResultEvent,
 	type TurnEndEvent,
 	type TurnStartEvent,
-} from "./extensions/index.js";
-export { createSyntheticSourceInfo } from "./source-info.js";
+	type WorkingIndicatorOptions,
+} from "./extensions/index.ts";
+export { createSyntheticSourceInfo } from "./source-info.ts";

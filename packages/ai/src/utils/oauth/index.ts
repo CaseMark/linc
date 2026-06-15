@@ -5,12 +5,11 @@
  * for OAuth-based providers:
  * - Anthropic (Claude Pro/Max)
  * - GitHub Copilot
- * - Google Cloud Code Assist (Gemini CLI)
- * - Antigravity (Gemini 3, Claude, GPT-OSS via Google Cloud)
  */
 
 // Anthropic
-export { anthropicOAuthProvider, loginAnthropic, refreshAnthropicToken } from "./anthropic.js";
+export { anthropicOAuthProvider, loginAnthropic, refreshAnthropicToken } from "./anthropic.ts";
+export * from "./device-code.ts";
 // GitHub Copilot
 export {
 	getGitHubCopilotBaseUrl,
@@ -18,32 +17,31 @@ export {
 	loginGitHubCopilot,
 	normalizeDomain,
 	refreshGitHubCopilotToken,
-} from "./github-copilot.js";
-// Google Antigravity
-export { antigravityOAuthProvider, loginAntigravity, refreshAntigravityToken } from "./google-antigravity.js";
-// Google Gemini CLI
-export { geminiCliOAuthProvider, loginGeminiCli, refreshGoogleCloudToken } from "./google-gemini-cli.js";
+} from "./github-copilot.ts";
 // OpenAI Codex (ChatGPT OAuth)
-export { loginOpenAICodex, openaiCodexOAuthProvider, refreshOpenAICodexToken } from "./openai-codex.js";
+export {
+	loginOpenAICodex,
+	loginOpenAICodexDeviceCode,
+	OPENAI_CODEX_BROWSER_LOGIN_METHOD,
+	OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD,
+	openaiCodexOAuthProvider,
+	refreshOpenAICodexToken,
+} from "./openai-codex.ts";
 
-export * from "./types.js";
+export * from "./types.ts";
 
 // ============================================================================
 // Provider Registry
 // ============================================================================
 
-import { anthropicOAuthProvider } from "./anthropic.js";
-import { githubCopilotOAuthProvider } from "./github-copilot.js";
-import { antigravityOAuthProvider } from "./google-antigravity.js";
-import { geminiCliOAuthProvider } from "./google-gemini-cli.js";
-import { openaiCodexOAuthProvider } from "./openai-codex.js";
-import type { OAuthCredentials, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface } from "./types.js";
+import { anthropicOAuthProvider } from "./anthropic.ts";
+import { githubCopilotOAuthProvider } from "./github-copilot.ts";
+import { openaiCodexOAuthProvider } from "./openai-codex.ts";
+import type { OAuthCredentials, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface } from "./types.ts";
 
 const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
 	anthropicOAuthProvider,
 	githubCopilotOAuthProvider,
-	geminiCliOAuthProvider,
-	antigravityOAuthProvider,
 	openaiCodexOAuthProvider,
 ];
 

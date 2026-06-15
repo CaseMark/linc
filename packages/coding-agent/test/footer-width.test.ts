@@ -1,9 +1,10 @@
-import { visibleWidth } from "@casemark/linc-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { AgentSession } from "../src/core/agent-session.js";
-import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.js";
-import { FooterComponent } from "../src/modes/interactive/components/footer.js";
-import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import type { AgentSession } from "../src/core/agent-session.ts";
+import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
+import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 type AssistantUsage = {
 	input: number;
@@ -48,6 +49,7 @@ function createSession(options: {
 		sessionManager: {
 			getEntries: () => entries,
 			getSessionName: () => options.sessionName,
+			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
 		modelRegistry: {
@@ -71,6 +73,17 @@ function createFooterData(providerCount: number): ReadonlyFooterDataProvider {
 
 	return provider;
 }
+
+describe("formatCwdForFooter", () => {
+	it("does not abbreviate sibling paths that share the home prefix", () => {
+		expect(formatCwdForFooter("/home/user2", "/home/user")).toBe("/home/user2");
+	});
+
+	it("abbreviates the home directory and descendants", () => {
+		expect(formatCwdForFooter("/home/user", "/home/user")).toBe("~");
+		expect(formatCwdForFooter("/home/user/project", "/home/user")).toBe("~/project");
+	});
+});
 
 describe("FooterComponent width handling", () => {
 	beforeAll(() => {
@@ -110,5 +123,22 @@ describe("FooterComponent width handling", () => {
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
+	});
+
+	it("shows the latest cache hit rate when cache usage is present", () => {
+		const session = createSession({
+			sessionName: "",
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 50,
+				cacheWrite: 50,
+				cost: { total: 0.001 },
+			},
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+		expect(statsLine).toContain("CH25.0%");
 	});
 });

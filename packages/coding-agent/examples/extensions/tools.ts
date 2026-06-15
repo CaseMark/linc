@@ -9,9 +9,9 @@
  * 2. Use /tools to open the tool selector
  */
 
-import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@casemark/linc";
-import { getSettingsListTheme } from "@casemark/linc";
-import { Container, type SettingItem, SettingsList } from "@casemark/linc-tui";
+import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 
 // State persisted to session
 interface ToolsState {
@@ -67,6 +67,11 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	pi.registerCommand("tools", {
 		description: "Enable/disable tools",
 		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/tools requires TUI mode", "error");
+				return;
+			}
+
 			// Refresh tool list
 			allTools = pi.getAllTools();
 
@@ -136,11 +141,6 @@ export default function toolsExtension(pi: ExtensionAPI) {
 
 	// Restore state when navigating the session tree
 	pi.on("session_tree", async (_event, ctx) => {
-		restoreFromBranch(ctx);
-	});
-
-	// Restore state after forking
-	pi.on("session_fork", async (_event, ctx) => {
 		restoreFromBranch(ctx);
 	});
 }

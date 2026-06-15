@@ -5,24 +5,24 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@casemark/linc-agent-core";
-import { getModel } from "@casemark/linc-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { getModel } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentSession } from "../src/core/agent-session.js";
-import { AuthStorage } from "../src/core/auth-storage.js";
+import { AgentSession } from "../src/core/agent-session.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
 import {
 	createExtensionRuntime,
 	type Extension,
 	type SessionBeforeCompactEvent,
 	type SessionCompactEvent,
 	type SessionEvent,
-} from "../src/core/extensions/index.js";
-import { ModelRegistry } from "../src/core/model-registry.js";
-import { SessionManager } from "../src/core/session-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
-import { createSyntheticSourceInfo } from "../src/core/source-info.js";
-import { codingTools } from "../src/core/tools/index.js";
-import { createTestResourceLoader } from "./utilities.js";
+} from "../src/core/extensions/index.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
+import { createCodingTools } from "../src/index.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
 
@@ -92,14 +92,14 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 			initialState: {
 				model,
 				systemPrompt: "You are a helpful assistant. Be concise.",
-				tools: codingTools,
+				tools: createCodingTools(process.cwd()),
 			},
 		});
 
 		const sessionManager = SessionManager.create(tempDir);
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = new ModelRegistry(authStorage);
+		const modelRegistry = ModelRegistry.create(authStorage);
 
 		const runtime = createExtensionRuntime();
 		const resourceLoader = {
@@ -380,7 +380,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 		// sessionManager, modelRegistry, and model are now on ctx, not event
 		// Verify they're accessible via session
 		expect(typeof session.sessionManager.getEntries).toBe("function");
-		expect(typeof session.modelRegistry.getApiKey).toBe("function");
+		expect(typeof session.modelRegistry.getApiKeyAndHeaders).toBe("function");
 
 		const entries = session.sessionManager.getEntries();
 		expect(Array.isArray(entries)).toBe(true);

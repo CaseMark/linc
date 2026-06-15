@@ -1,10 +1,21 @@
 {
-	"name": "@casemark/linc-agent-core",
-	"version": "0.2.0",
+	"name": "@earendil-works/pi-agent-core",
+	"version": "0.79.0",
 	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./node": {
+			"types": "./dist/node.d.ts",
+			"import": "./dist/node.js"
+		},
+		"./package.json": "./package.json"
+	},
 	"files": [
 		"dist",
 		"README.md"
@@ -12,12 +23,16 @@
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json",
-		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"test": "vitest --run",
+		"test:harness": "vitest --run --config vitest.harness.config.ts",
+		"coverage:harness": "vitest --run --config vitest.harness.config.ts --coverage",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@casemark/linc-ai": "^0.2.0"
+		"@earendil-works/pi-ai": "^0.79.0",
+		"ignore": "7.0.5",
+		"typebox": "1.1.38",
+		"yaml": "2.9.0"
 	},
 	"keywords": [
 		"ai",
@@ -26,19 +41,20 @@
 		"transport",
 		"state-management"
 	],
-	"author": "CaseMark",
+	"author": "Mario Zechner",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/CaseMark/linc.git",
+		"url": "git+https://github.com/earendil-works/pi.git",
 		"directory": "packages/agent"
 	},
 	"engines": {
-		"node": ">=20.0.0"
+		"node": ">=22.19.0"
 	},
 	"devDependencies": {
-		"@types/node": "^24.3.0",
-		"typescript": "^5.7.3",
-		"vitest": "^3.2.4"
+		"@types/node": "24.12.4",
+		"@vitest/coverage-v8": "3.2.4",
+		"typescript": "5.9.3",
+		"vitest": "3.2.4"
 	}
 }

@@ -5,17 +5,17 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { AgentMessage } from "@casemark/linc-agent-core";
-import type { Model } from "@casemark/linc-ai";
-import { completeSimple } from "@casemark/linc-ai";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
 	createCompactionSummaryMessage,
 	createCustomMessage,
-} from "../messages.js";
-import type { ReadonlySessionManager, SessionEntry } from "../session-manager.js";
-import { estimateTokens } from "./compaction.js";
+} from "../messages.ts";
+import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
+import { estimateTokens } from "./compaction.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -24,7 +24,7 @@ import {
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
 	serializeConversation,
-} from "./utils.js";
+} from "./utils.ts";
 
 // ============================================================================
 // Types
@@ -44,7 +44,7 @@ export interface BranchSummaryDetails {
 	modifiedFiles: string[];
 }
 
-export type { FileOperations } from "./utils.js";
+export type { FileOperations } from "./utils.ts";
 
 export interface BranchPreparation {
 	/** Messages extracted for summarization, in chronological order */
@@ -67,6 +67,8 @@ export interface GenerateBranchSummaryOptions {
 	model: Model<any>;
 	/** API key for the model */
 	apiKey: string;
+	/** Request headers for the model */
+	headers?: Record<string, string>;
 	/** Abort signal for cancellation */
 	signal: AbortSignal;
 	/** Optional custom instructions for summarization */
@@ -75,6 +77,8 @@ export interface GenerateBranchSummaryOptions {
 	replaceInstructions?: boolean;
 	/** Tokens reserved for prompt + LLM response (default 16384) */
 	reserveTokens?: number;
+	/** Optional session stream function. Used to preserve SDK request behavior without mutating agent state. */
+	streamFn?: StreamFn;
 }
 
 // ============================================================================
@@ -282,7 +286,16 @@ export async function generateBranchSummary(
 	entries: SessionEntry[],
 	options: GenerateBranchSummaryOptions,
 ): Promise<BranchSummaryResult> {
-	const { model, apiKey, signal, customInstructions, replaceInstructions, reserveTokens = 16384 } = options;
+	const {
+		model,
+		apiKey,
+		headers,
+		signal,
+		customInstructions,
+		replaceInstructions,
+		reserveTokens = 16384,
+		streamFn,
+	} = options;
 
 	// Token budget = context window minus reserved space for prompt + response
 	const contextWindow = model.contextWindow || 128000;
@@ -318,12 +331,14 @@ export async function generateBranchSummary(
 		},
 	];
 
-	// Call LLM for summarization
-	const response = await completeSimple(
-		model,
-		{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
-		{ apiKey, signal, maxTokens: 2048 },
-	);
+	// Call LLM for summarization. Prefer the session stream function so SDK
+	// request behavior (timeouts, retries, attribution headers) stays consistent
+	// without running through agent state/events.
+	const context = { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages };
+	const requestOptions: SimpleStreamOptions = { apiKey, headers, signal, maxTokens: 2048 };
+	const response = streamFn
+		? await (await streamFn(model, context, requestOptions)).result()
+		: await completeSimple(model, context, requestOptions);
 
 	// Check if aborted or errored
 	if (response.stopReason === "aborted") {

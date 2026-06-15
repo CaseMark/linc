@@ -1,6 +1,6 @@
-import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@casemark/linc-ai";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { Agent } from "../src/index.js";
+import { Agent } from "../src/index.ts";
 
 // Mock stream that mimics AssistantMessageEventStream
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -36,12 +36,15 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
-function requireModel(provider: string, modelId: string) {
-	const model = getModel(provider, modelId);
-	if (!model) {
-		throw new Error(`Model not found: ${provider}/${modelId}`);
-	}
-	return model;
+function createDeferred(): {
+	promise: Promise<void>;
+	resolve: () => void;
+} {
+	let resolve = () => {};
+	const promise = new Promise<void>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return { promise, resolve };
 }
 
 describe("Agent", () => {
@@ -55,13 +58,13 @@ describe("Agent", () => {
 		expect(agent.state.tools).toEqual([]);
 		expect(agent.state.messages).toEqual([]);
 		expect(agent.state.isStreaming).toBe(false);
-		expect(agent.state.streamMessage).toBe(null);
+		expect(agent.state.streamingMessage).toBe(undefined);
 		expect(agent.state.pendingToolCalls).toEqual(new Set());
-		expect(agent.state.error).toBeUndefined();
+		expect(agent.state.errorMessage).toBeUndefined();
 	});
 
 	it("should create an agent instance with custom initial state", () => {
-		const customModel = requireModel("openai", "gpt-4o-mini");
+		const customModel = getModel("openai", "gpt-4o-mini");
 		const agent = new Agent({
 			initialState: {
 				systemPrompt: "You are a helpful assistant.",
@@ -87,51 +90,194 @@ describe("Agent", () => {
 		expect(eventCount).toBe(0);
 
 		// State mutators don't emit events
-		agent.setSystemPrompt("Test prompt");
+		agent.state.systemPrompt = "Test prompt";
 		expect(eventCount).toBe(0);
 		expect(agent.state.systemPrompt).toBe("Test prompt");
 
 		// Unsubscribe should work
 		unsubscribe();
-		agent.setSystemPrompt("Another prompt");
+		agent.state.systemPrompt = "Another prompt";
 		expect(eventCount).toBe(0); // Should not increase
+	});
+
+	it("emits full lifecycle events for thrown run failures", async () => {
+		const agent = new Agent({
+			streamFn: () => {
+				throw new Error("provider exploded");
+			},
+		});
+		const events: string[] = [];
+		agent.subscribe((event) => {
+			events.push(event.type);
+		});
+
+		await agent.prompt("hello");
+
+		expect(events).toEqual([
+			"agent_start",
+			"turn_start",
+			"message_start",
+			"message_end",
+			"message_start",
+			"message_end",
+			"turn_end",
+			"agent_end",
+		]);
+		const lastMessage = agent.state.messages[agent.state.messages.length - 1];
+		expect(lastMessage?.role).toBe("assistant");
+		if (lastMessage?.role !== "assistant") throw new Error("Expected assistant message");
+		expect(lastMessage.stopReason).toBe("error");
+		expect(lastMessage.errorMessage).toBe("provider exploded");
+		expect(agent.state.errorMessage).toBe("provider exploded");
+	});
+
+	it("should await async subscribers before prompt resolves", async () => {
+		const barrier = createDeferred();
+		const agent = new Agent({
+			streamFn: () => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("ok") });
+				});
+				return stream;
+			},
+		});
+
+		let listenerFinished = false;
+		agent.subscribe(async (event) => {
+			if (event.type === "agent_end") {
+				await barrier.promise;
+				listenerFinished = true;
+			}
+		});
+
+		let promptResolved = false;
+		const promptPromise = agent.prompt("hello").then(() => {
+			promptResolved = true;
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(promptResolved).toBe(false);
+		expect(listenerFinished).toBe(false);
+		expect(agent.state.isStreaming).toBe(true);
+
+		barrier.resolve();
+		await promptPromise;
+
+		expect(listenerFinished).toBe(true);
+		expect(promptResolved).toBe(true);
+		expect(agent.state.isStreaming).toBe(false);
+	});
+
+	it("waitForIdle should wait for async subscribers", async () => {
+		const barrier = createDeferred();
+		const agent = new Agent({
+			streamFn: () => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("ok") });
+				});
+				return stream;
+			},
+		});
+
+		agent.subscribe(async (event) => {
+			if (event.type === "message_end" && event.message.role === "assistant") {
+				await barrier.promise;
+			}
+		});
+
+		const promptPromise = agent.prompt("hello");
+		let idleResolved = false;
+		const idlePromise = agent.waitForIdle().then(() => {
+			idleResolved = true;
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(idleResolved).toBe(false);
+		expect(agent.state.isStreaming).toBe(true);
+
+		barrier.resolve();
+		await Promise.all([promptPromise, idlePromise]);
+
+		expect(idleResolved).toBe(true);
+		expect(agent.state.isStreaming).toBe(false);
+	});
+
+	it("should pass the active abort signal to subscribers", async () => {
+		let receivedSignal: AbortSignal | undefined;
+		const agent = new Agent({
+			streamFn: (_model, _context, options) => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					const checkAbort = () => {
+						if (options?.signal?.aborted) {
+							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+						} else {
+							setTimeout(checkAbort, 5);
+						}
+					};
+					checkAbort();
+				});
+				return stream;
+			},
+		});
+
+		agent.subscribe((event, signal) => {
+			if (event.type === "agent_start") {
+				receivedSignal = signal;
+			}
+		});
+
+		const promptPromise = agent.prompt("hello");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(receivedSignal).toBeDefined();
+		expect(receivedSignal?.aborted).toBe(false);
+
+		agent.abort();
+		await promptPromise;
+
+		expect(receivedSignal?.aborted).toBe(true);
 	});
 
 	it("should update state with mutators", () => {
 		const agent = new Agent();
 
 		// Test setSystemPrompt
-		agent.setSystemPrompt("Custom prompt");
+		agent.state.systemPrompt = "Custom prompt";
 		expect(agent.state.systemPrompt).toBe("Custom prompt");
 
 		// Test setModel
-		const newModel = requireModel("google", "gemini-2.5-flash");
-		agent.setModel(newModel);
+		const newModel = getModel("google", "gemini-2.5-flash");
+		agent.state.model = newModel;
 		expect(agent.state.model).toBe(newModel);
 
 		// Test setThinkingLevel
-		agent.setThinkingLevel("high");
+		agent.state.thinkingLevel = "high";
 		expect(agent.state.thinkingLevel).toBe("high");
 
 		// Test setTools
 		const tools = [{ name: "test", description: "test tool" } as any];
-		agent.setTools(tools);
-		expect(agent.state.tools).toBe(tools);
+		agent.state.tools = tools;
+		expect(agent.state.tools).toEqual(tools);
+		expect(agent.state.tools).not.toBe(tools); // Should be a copy
 
 		// Test replaceMessages
 		const messages = [{ role: "user" as const, content: "Hello", timestamp: Date.now() }];
-		agent.replaceMessages(messages);
+		agent.state.messages = messages;
 		expect(agent.state.messages).toEqual(messages);
 		expect(agent.state.messages).not.toBe(messages); // Should be a copy
 
 		// Test appendMessage
 		const newMessage = { role: "assistant" as const, content: [{ type: "text" as const, text: "Hi" }] };
-		agent.appendMessage(newMessage as any);
+		agent.state.messages.push(newMessage as any);
 		expect(agent.state.messages).toHaveLength(2);
 		expect(agent.state.messages[1]).toBe(newMessage);
 
 		// Test clearMessages
-		agent.clearMessages();
+		agent.state.messages = [];
 		expect(agent.state.messages).toEqual([]);
 	});
 
@@ -249,14 +395,14 @@ describe("Agent", () => {
 			},
 		});
 
-		agent.replaceMessages([
+		agent.state.messages = [
 			{
 				role: "user",
 				content: [{ type: "text", text: "Initial" }],
 				timestamp: Date.now() - 10,
 			},
 			createAssistantMessage("Initial response"),
-		]);
+		];
 
 		agent.followUp({
 			role: "user",
@@ -293,14 +439,14 @@ describe("Agent", () => {
 			},
 		});
 
-		agent.replaceMessages([
+		agent.state.messages = [
 			{
 				role: "user",
 				content: [{ type: "text", text: "Initial" }],
 				timestamp: Date.now() - 10,
 			},
 			createAssistantMessage("Initial response"),
-		]);
+		];
 
 		agent.steer({
 			role: "user",

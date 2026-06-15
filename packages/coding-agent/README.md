@@ -1,98 +1,161 @@
 # Linc
 
-> Legal AI terminal agent powered by [case.dev](https://case.dev)
+Linc is a legal AI terminal agent powered by Case.dev.
 
-Linc is a terminal-native AI agent for legal workflows. One install, one API key, access to 195+ language models and the full case.dev platform via natural language.
+It is built on the Pi agent harness, with a deliberately small Linc overlay for legal workflows:
+
+- Case.dev model auth and dynamic model discovery;
+- native Case.dev vault tools;
+- session-level vault attachment;
+- vault-backed `MATTER.md` context;
+- bundled legal skills;
+- Linc themes and branding.
+
+Linc should feel like Pi where Pi is already right, and feel like Case.dev where legal work needs first-class support.
 
 ## Install
 
 ```bash
-npm install -g @casemark/linc
+npm install -g --ignore-scripts @casemark/linc
 ```
 
-Or run directly:
+Configure Case.dev auth:
 
 ```bash
-npx @casemark/linc
-```
-
-## Setup
-
-```bash
-export CASEDEV_API_KEY="your-api-key"
+export CASEDEV_API_KEY=sk_case_...
 linc
 ```
 
-Get your API key at [case.dev](https://case.dev).
+You can also run `/login` inside the TUI and choose Case.dev.
 
-## What Can It Do?
-
-Linc gives you a terminal AI agent with:
-
-- **195+ LLM models** — Claude, GPT, Gemini, and more via case.dev's unified API
-- **File operations** — read, edit, write, grep, find across your codebase
-- **Shell access** — run commands, scripts, and pipelines
-- **Legal workflows** — via the `casedev` CLI: vault management, OCR, transcription, legal research, semantic search
-- **Session management** — persist, resume, branch, and compact conversations
-- **Extensions** — extend with TypeScript plugins, custom tools, themes, skills, and prompt templates
-
-## Usage
+## Modes
 
 ```bash
-# Interactive mode (TUI)
-linc
-
-# Single-shot mode
-linc -p "summarize this contract" @contract.pdf
-
-# Continue previous session
-linc -c
-
-# Resume a specific session
-linc -r
-
-# Use a specific model
-linc --model anthropic/claude-opus-4-6-20250725
-
-# Pipe input
-cat document.txt | linc -p "extract key terms"
+linc                       # Interactive TUI
+linc -p "Summarize this"   # Print mode
+linc --mode json           # JSON event stream
+linc --mode rpc            # RPC mode
 ```
 
-## Architecture
+For local development, use `dark-linc`:
 
-- **LLM provider:** [case.dev /llm/v1](https://docs.case.dev/llms) — OpenAI-compatible, 195+ models
-- **Auth:** Single `CASEDEV_API_KEY` — works for both the LLM endpoint and `casedev` CLI tools
-- **Tools:** `bash` + `casedev` CLI (vault, OCR, voice, legal research, search)
-- **Config:** `~/.linc/agent/` — settings, sessions, themes, extensions
-
-## Extensions
-
-Extend linc with TypeScript:
-
-```typescript
-import { defineExtension } from "@casemark/linc/hooks";
-
-export default defineExtension({
-  name: "my-extension",
-  setup(hooks) {
-    hooks.on("toolCall", async (event) => {
-      // Custom tool handling
-    });
-  },
-});
+```bash
+dark-linc
 ```
 
-See [docs/extensions.md](docs/extensions.md) for the full API.
+`dark-linc` uses `~/.dark-linc` instead of `~/.linc`, so local experiments do not pollute normal Linc sessions or auth.
 
-## Environment Variables
+## Models
 
-| Variable | Description |
-|----------|-------------|
-| `CASEDEV_API_KEY` | API key for case.dev (required) |
-| `LINC_CODING_AGENT_DIR` | Override config directory (default: `~/.linc/agent`) |
-| `LINC_OFFLINE` | Disable network operations at startup |
-| `LINC_PACKAGE_DIR` | Override package directory (for Nix/Guix) |
+Linc fetches Case.dev models dynamically from the Case.dev LLM API at startup. Use `/model` or `Ctrl+L` to select a model.
+
+Useful flags:
+
+```bash
+linc --provider casedev --model casemark/core-large
+linc --list-models casemark
+```
+
+## Vaults
+
+Linc can attach a Case.dev vault to a session.
+
+```text
+/vault
+/vault attach <vault-id>
+/vault show
+/vault clear
+/vault unlink
+```
+
+Attachment is session state. Once attached, the vault stays attached until `/vault clear`.
+
+Native vault tools default to the attached vault when the model does not provide an explicit vault ID:
+
+- `casedev_vault_list`
+- `casedev_vault_get`
+- `casedev_vault_object_list`
+- `casedev_vault_search`
+- `casedev_vault_upload`
+- `casedev_vault_download`
+
+## MATTER.md
+
+`MATTER.md` is durable matter context for legal work.
+
+When a vault is attached, Linc checks the vault for `MATTER.md`. If present, it materializes that file into the workspace and loads it into the agent prompt. If missing, interactive Linc can initialize one.
+
+Workspace edits to root `MATTER.md` are synced back to the attached vault.
+
+Human-facing commands:
+
+```text
+/matter
+/matter edit
+/matter sync
+/init
+/autoinit
+```
+
+Native matter tools:
+
+- `casedev_matter_read`
+- `casedev_matter_write`
+- `casedev_matter_edit`
+
+Use `MATTER.md` for durable matter state: representation, goals, jurisdiction, source rules, open questions, working preferences, and source-map pointers. Do not store raw evidence, credentials, transcript dumps, or scratchpad reasoning in it.
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/login` | Configure Case.dev auth |
+| `/model` | Select a model |
+| `/theme` | Select a theme |
+| `/vault` | Select or attach a Case.dev vault |
+| `/vault show` | Show attached vault |
+| `/vault clear` | Unlink the attached vault |
+| `/vault unlink` | Unlink the attached vault |
+| `/matter` | Show active MATTER.md state |
+| `/matter edit` | Edit MATTER.md and sync it to the attached vault |
+| `/matter sync` | Sync MATTER.md to the attached vault |
+| `/init` | Start guided matter initialization |
+| `/autoinit` | Explore the attached vault and draft MATTER.md with unknowns marked |
+| `/resume` | Pick from previous sessions |
+| `/new` | Start a new session |
+| `/compact [prompt]` | Compact context |
+| `/reload` | Reload resources |
+| `/quit` | Quit |
+
+## Files And State
+
+| Path | Purpose |
+| --- | --- |
+| `~/.linc` | Normal Linc config, sessions, auth, packages |
+| `~/.dark-linc` | Local development config for `dark-linc` |
+| `MATTER.md` | Workspace materialization of attached-vault matter context |
+| `packages/coding-agent/src/linc` | Linc-specific overlay source |
+
+## Development
+
+From the repository root:
+
+```bash
+npm install --ignore-scripts
+npm run check
+npm run dark-linc
+```
+
+Run focused tests from this package root:
+
+```bash
+npx tsx ../../node_modules/vitest/dist/cli.js --run test/linc-vault-matter.test.ts
+```
+
+## Upstream Boundary
+
+Linc is a fork of Pi. Keep Linc-specific behavior in `src/linc` unless a small generic hook belongs in Pi core. This keeps upstream merges tractable and makes the product boundary obvious to new contributors.
 
 ## License
 
-MIT — forked from [pi-mono](https://github.com/badlogic/pi-mono) (MIT)
+MIT

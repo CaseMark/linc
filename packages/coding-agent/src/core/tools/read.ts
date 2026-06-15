@@ -1,18 +1,21 @@
-import type { AgentTool } from "@casemark/linc-agent-core";
-import type { ImageContent, TextContent } from "@casemark/linc-ai";
-import { Text } from "@casemark/linc-tui";
-import { type Static, Type } from "@sinclair/typebox";
+import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
-import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
-import { getLanguageFromPath, highlightCode } from "../../modes/interactive/theme/theme.js";
-import { formatDimensionNote, resizeImage } from "../../utils/image-resize.js";
-import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.js";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.js";
-import { resolveReadPath } from "./path-utils.js";
-import { getTextOutput, invalidArgText, replaceTabs, shortenPath, str } from "./render-utils.js";
-import { wrapToolDefinition } from "./tool-definition-wrapper.js";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.js";
+import { type Static, Type } from "typebox";
+import { getReadmePath } from "../../config.ts";
+import { keyHint, keyText } from "../../modes/interactive/components/keybinding-hints.ts";
+import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/interactive/theme/theme.ts";
+import { formatDimensionNote, resizeImage } from "../../utils/image-resize.ts";
+import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
+import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
+import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
+import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
+import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
@@ -25,6 +28,13 @@ export type ReadToolInput = Static<typeof readSchema>;
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
 }
+
+interface CompactReadClassification {
+	kind: "docs" | "resource" | "skill";
+	label: string;
+}
+
+const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 
 /**
  * Pluggable operations for the read tool.
@@ -52,22 +62,18 @@ export interface ReadToolOptions {
 	operations?: ReadOperations;
 }
 
-function formatReadCall(
-	args: { path?: string; file_path?: string; offset?: number; limit?: number } | undefined,
-	theme: typeof import("../../modes/interactive/theme/theme.js").theme,
-): string {
-	const rawPath = str(args?.file_path ?? args?.path);
-	const path = rawPath !== null ? shortenPath(rawPath) : null;
-	const offset = args?.offset;
-	const limit = args?.limit;
-	const invalidArg = invalidArgText(theme);
-	let pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
-	if (offset !== undefined || limit !== undefined) {
-		const startLine = offset ?? 1;
-		const endLine = limit !== undefined ? startLine + limit - 1 : "";
-		pathDisplay += theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
-	}
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}`;
+type ReadRenderArgs = { path?: string; file_path?: string; offset?: number; limit?: number };
+
+function formatReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): string {
+	if (args?.offset === undefined && args?.limit === undefined) return "";
+	const startLine = args.offset ?? 1;
+	const endLine = args.limit !== undefined ? startLine + args.limit - 1 : "";
+	return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
+}
+
+function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
+	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
+	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${formatReadLineRange(args, theme)}`;
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {
@@ -78,15 +84,98 @@ function trimTrailingEmptyLines(lines: string[]): string[] {
 	return lines.slice(0, end);
 }
 
+function getNonVisionImageNote(model: Model<Api> | undefined): string | undefined {
+	if (!model || model.input.includes("image")) {
+		return undefined;
+	}
+	return "[Current model does not support images. The image will be omitted from this request.]";
+}
+
+function toPosixPath(filePath: string): string {
+	return filePath.split(sep).join("/");
+}
+
+function getPiDocsClassification(absolutePath: string): CompactReadClassification | undefined {
+	const packageRoot = dirname(getReadmePath());
+	const relativePath = relative(resolvePath(packageRoot), resolvePath(absolutePath));
+	if (
+		relativePath === "" ||
+		relativePath === ".." ||
+		relativePath.startsWith(`..${sep}`) ||
+		isAbsolute(relativePath)
+	) {
+		return undefined;
+	}
+
+	const label = toPosixPath(relativePath);
+	if (label === "README.md" || label.startsWith("docs/") || label.startsWith("examples/")) {
+		return { kind: "docs", label };
+	}
+	return undefined;
+}
+
+function getCompactReadClassification(
+	args: ReadRenderArgs | undefined,
+	cwd: string,
+): CompactReadClassification | undefined {
+	const rawPath = str(args?.file_path ?? args?.path);
+	if (!rawPath) return undefined;
+
+	const absolutePath = resolveToCwd(rawPath, cwd);
+	const fileName = basename(absolutePath);
+	if (fileName === "SKILL.md") {
+		return { kind: "skill", label: basename(dirname(absolutePath)) || fileName };
+	}
+
+	const docsClassification = getPiDocsClassification(absolutePath);
+	if (docsClassification) return docsClassification;
+
+	if (COMPACT_RESOURCE_FILE_NAMES.has(fileName)) {
+		return { kind: "resource", label: formatPathRelativeToCwdOrAbsolute(absolutePath, cwd) };
+	}
+
+	return undefined;
+}
+
+function formatCompactReadCall(
+	classification: CompactReadClassification,
+	args: ReadRenderArgs | undefined,
+	theme: Theme,
+): string {
+	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
+	if (classification.kind === "skill") {
+		return (
+			theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+			theme.fg("customMessageText", classification.label) +
+			formatReadLineRange(args, theme) +
+			expandHint
+		);
+	}
+
+	return (
+		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
+		" " +
+		theme.fg("accent", classification.label) +
+		formatReadLineRange(args, theme) +
+		expandHint
+	);
+}
+
 function formatReadResult(
-	args: { path?: string; file_path?: string; offset?: number; limit?: number } | undefined,
+	args: ReadRenderArgs | undefined,
 	result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
 	options: ToolRenderResultOptions,
-	theme: typeof import("../../modes/interactive/theme/theme.js").theme,
+	theme: Theme,
 	showImages: boolean,
+	_cwd: string,
+	isError: boolean,
 ): string {
+	if (!options.expanded && !isError) {
+		return "";
+	}
+
 	const rawPath = str(args?.file_path ?? args?.path);
-	const output = getTextOutput(result as any, showImages);
+	const output = getTextOutput(result, showImages);
 	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
 	const renderedLines = lang ? highlightCode(replaceTabs(output), lang) : output.split("\n");
 	const lines = trimTrailingEmptyLines(renderedLines);
@@ -95,7 +184,7 @@ function formatReadResult(
 	const remaining = lines.length - maxLines;
 	let text = `\n${displayLines.map((line) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line)))).join("\n")}`;
 	if (remaining > 0) {
-		text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")})`;
+		text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
 	}
 
 	const truncation = result.details?.truncation;
@@ -129,9 +218,8 @@ export function createReadToolDefinition(
 			{ path, offset, limit }: { path: string; offset?: number; limit?: number },
 			signal?: AbortSignal,
 			_onUpdate?,
-			_ctx?,
+			ctx?,
 		) {
-			const absolutePath = resolveReadPath(path, cwd);
 			return new Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }>(
 				(resolve, reject) => {
 					if (signal?.aborted) {
@@ -147,39 +235,41 @@ export function createReadToolDefinition(
 
 					(async () => {
 						try {
+							const absolutePath = await resolveReadPathAsync(path, cwd);
+							if (aborted) return;
 							// Check if file exists and is readable.
 							await ops.access(absolutePath);
 							if (aborted) return;
 							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
 							let content: (TextContent | ImageContent)[];
 							let details: ReadToolDetails | undefined;
+							const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 							if (mimeType) {
 								// Read image as binary.
 								const buffer = await ops.readFile(absolutePath);
-								const base64 = buffer.toString("base64");
 								if (autoResizeImages) {
 									// Resize image if needed before sending it back to the model.
-									const resized = await resizeImage({ type: "image", data: base64, mimeType });
+									const resized = await resizeImage(buffer, mimeType);
 									if (!resized) {
-										content = [
-											{
-												type: "text",
-												text: `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`,
-											},
-										];
+										let textNote = `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`;
+										if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+										content = [{ type: "text", text: textNote }];
 									} else {
 										const dimensionNote = formatDimensionNote(resized);
 										let textNote = `Read image file [${resized.mimeType}]`;
 										if (dimensionNote) textNote += `\n${dimensionNote}`;
+										if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 										content = [
 											{ type: "text", text: textNote },
 											{ type: "image", data: resized.data, mimeType: resized.mimeType },
 										];
 									}
 								} else {
+									let textNote = `Read image file [${mimeType}]`;
+									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 									content = [
-										{ type: "text", text: `Read image file [${mimeType}]` },
-										{ type: "image", data: base64, mimeType },
+										{ type: "text", text: textNote },
+										{ type: "image", data: buffer.toString("base64"), mimeType },
 									];
 								}
 							} else {
@@ -249,12 +339,19 @@ export function createReadToolDefinition(
 		},
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatReadCall(args, theme));
+			const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
+			text.setText(
+				classification
+					? formatCompactReadCall(classification, args, theme)
+					: formatReadCall(args, theme, context.cwd),
+			);
 			return text;
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatReadResult(context.args, result as any, options, theme, context.showImages));
+			text.setText(
+				formatReadResult(context.args, result, options, theme, context.showImages, context.cwd, context.isError),
+			);
 			return text;
 		},
 	};
@@ -263,7 +360,3 @@ export function createReadToolDefinition(
 export function createReadTool(cwd: string, options?: ReadToolOptions): AgentTool<typeof readSchema> {
 	return wrapToolDefinition(createReadToolDefinition(cwd, options));
 }
-
-/** Default read tool using process.cwd() for backwards compatibility. */
-export const readToolDefinition = createReadToolDefinition(process.cwd());
-export const readTool = createReadTool(process.cwd());

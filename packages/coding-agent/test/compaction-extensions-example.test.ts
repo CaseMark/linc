@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.js";
+import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.ts";
 
 describe("Documentation example", () => {
 	it("custom compaction example should type-check correctly", () => {
@@ -23,7 +23,7 @@ describe("Documentation example", () => {
 				expect(typeof isSplitTurn).toBe("boolean");
 				expect(typeof tokensBefore).toBe("number");
 				expect(typeof sessionManager.getEntries).toBe("function");
-				expect(typeof modelRegistry.getApiKey).toBe("function");
+				expect(typeof modelRegistry.getApiKeyAndHeaders).toBe("function");
 				expect(typeof firstKeptEntryId).toBe("string");
 				expect(Array.isArray(branchEntries)).toBe(true);
 

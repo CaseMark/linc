@@ -18,7 +18,8 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const docsRoot = join(repoRoot, "docs", "linc");
 const defaultPort = 4317;
-const docOrder = ["overview", "quickstart", "web-ui", "gateway", "configuration", "development"];
+const defaultDocSlug = "overlay";
+const docOrder = [defaultDocSlug, "overview", "quickstart", "web-ui", "gateway", "configuration", "development"];
 
 function parsePort(argv) {
 	const index = argv.indexOf("--port");
@@ -276,7 +277,7 @@ function buildStatic(outputDir) {
 	}
 	writeFileSync(
 		join(targetRoot, "index.html"),
-		'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/docs/overview"><title>Linc Docs</title><a href="/docs/overview">Linc Docs</a>',
+		`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/docs/${defaultDocSlug}"><title>Linc Docs</title><a href="/docs/${defaultDocSlug}">Linc Docs</a>`,
 	);
 	copyDirectory(join(docsRoot, "images"), join(targetRoot, "images"));
 	copyDirectory(join(docsRoot, "fonts"), join(targetRoot, "fonts"));
@@ -297,7 +298,7 @@ const server = createServer((request, response) => {
 		return;
 	}
 	if (url.pathname === "/") {
-		response.writeHead(302, { location: "/docs/overview" });
+		response.writeHead(302, { location: `/docs/${defaultDocSlug}` });
 		response.end();
 		return;
 	}
