@@ -84,6 +84,6 @@ jobs:
             echo "## Release prepared"
             echo
             echo "- Version: v${VERSION}"
-            echo "- The pushed tag starts the Build Binaries workflow."
+            echo "- The pushed tag starts the Build Binaries and npm Publish workflows."
             echo "- npm publishing still requires the npm-publish environment approval."
           } >> "${GITHUB_STEP_SUMMARY}"
