@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
@@ -27,6 +30,15 @@ permissions:
 jobs:
   release:
     name: Prepare release
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' &&
+          !startsWith(github.event.head_commit.message, 'Release v') &&
+          github.event.head_commit.message != 'Add [Unreleased] section for next cycle'
+        )
+      }}
     runs-on: ubuntu-latest
     steps:
       - name: Validate release ref
@@ -65,8 +77,8 @@ jobs:
       - name: Resolve release target
         id: target
         env:
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version || '' }}
+          INPUT_BUMP: ${{ inputs.bump || 'patch' }}
         run: |
           if [ -n "${INPUT_VERSION}" ]; then
             echo "value=${INPUT_VERSION}" >> "${GITHUB_OUTPUT}"

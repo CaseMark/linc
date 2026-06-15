@@ -2,7 +2,24 @@
 
 Linc releases are prepared from GitHub Actions and published by the existing tag workflow.
 
-## Normal Release
+## Automatic Release
+
+Every non-release push to `main` automatically runs the `Release` workflow with a `patch` bump.
+
+1. Merge a release-ready PR to `main`.
+2. Wait for the `Release` workflow to install dependencies, run build/check/test, update versions and changelogs, commit release artifacts, and push the `vX.Y.Z` tag.
+3. Approve the `npm-publish` environment gate in the tag-triggered `npm Publish` workflow.
+4. Verify the package:
+
+```bash
+npm view @casemark/linc@X.Y.Z version
+```
+
+The release workflow ignores the release commits it creates (`Release vX.Y.Z` and `Add [Unreleased] section for next cycle`) so it does not loop after pushing back to `main`.
+
+## Manual Release
+
+Use the manual path when you need an explicit version or a `minor`/`major` bump.
 
 1. Merge the release-ready changes to `main`.
 2. Open the `Release` workflow in GitHub Actions.
