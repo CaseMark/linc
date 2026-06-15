@@ -9,14 +9,18 @@ import { fileURLToPath } from "node:url";
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const repoRoot = dirname(dirname(packageRoot));
 const tsxBin = join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
-const cliPath = join(packageRoot, "src", "cli.ts");
+const distCliPath = join(packageRoot, "dist", "cli.js");
+const sourceCliPath = join(packageRoot, "src", "cli.ts");
 
-if (!existsSync(tsxBin)) {
-	console.error("dark-linc requires repo dependencies. Run npm install from the repo root.");
+const command = existsSync(distCliPath) ? process.execPath : tsxBin;
+const cliPath = existsSync(distCliPath) ? distCliPath : sourceCliPath;
+
+if (!existsSync(command) || !existsSync(cliPath)) {
+	console.error("dark-linc requires a built package or repo dependencies. Run npm install and npm run build.");
 	process.exit(1);
 }
 
-const result = spawnSync(tsxBin, [cliPath, ...process.argv.slice(2)], {
+const result = spawnSync(command, [cliPath, ...process.argv.slice(2)], {
 	cwd: process.cwd(),
 	env: {
 		...process.env,
