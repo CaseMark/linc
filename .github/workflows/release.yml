@@ -87,6 +87,8 @@ jobs:
           fi
 
       - name: Prepare release commits and tag
+        env:
+          npm_config_min_release_age: '0'
         run: node scripts/release.mjs "${{ steps.target.outputs.value }}"
 
       - name: Summary
