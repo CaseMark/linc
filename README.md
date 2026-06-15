@@ -53,6 +53,8 @@ npm run dark-linc
 
 `dark-linc` is the local/internal development variant. It uses a separate config directory (`~/.dark-linc`) so experimental auth, sessions, and settings do not collide with normal `linc`.
 
+Release automation is documented in [`docs/release.md`](docs/release.md).
+
 ## Case.dev Workflows
 
 Linc uses one Case.dev API key for model access and legal workflow tools:

@@ -11,7 +11,7 @@
  * 2. Bump version via npm run version:xxx or set an explicit version
  * 3. Update CHANGELOG.md files: [Unreleased] -> [version] - date
  * 4. Regenerate release artifacts
- * 5. Run checks
+ * 5. Run build, checks, and tests
  * 6. Commit and tag the release
  * 7. Add new [Unreleased] section to changelogs
  * 8. Commit next-cycle changelog updates
@@ -147,6 +147,11 @@ console.log("\n=== Release Script ===\n");
 
 // 1. Check for uncommitted changes
 console.log("Checking for uncommitted changes...");
+const currentBranch = (run("git branch --show-current", { silent: true }) || "").trim();
+if (currentBranch && currentBranch !== "main") {
+	console.error(`Error: releases must be prepared from main. Current branch: ${currentBranch}`);
+	process.exit(1);
+}
 const status = run("git status --porcelain", { silent: true });
 if (status && status.trim()) {
 	console.error("Error: Uncommitted changes detected. Commit or stash first.");
@@ -171,9 +176,11 @@ run("npm --prefix packages/ai run generate-image-models");
 run("npm run shrinkwrap:coding-agent");
 console.log();
 
-// 5. Run checks
-console.log("Running checks...");
+// 5. Run build, checks, and tests
+console.log("Running build, checks, and tests...");
+run("npm run build");
 run("npm run check");
+run("npm test");
 console.log();
 
 // 6. Commit and tag
@@ -196,7 +203,7 @@ console.log();
 
 // 9. Push
 console.log("Pushing to remote...");
-run("git push origin main");
+run("git push origin HEAD:main");
 run(`git push origin v${version}`);
 console.log();
 
