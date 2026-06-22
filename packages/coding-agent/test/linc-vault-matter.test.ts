@@ -10,6 +10,7 @@ import type {
 	ExtensionHandler,
 	RegisteredCommand,
 } from "../src/core/extensions/types.ts";
+import { createCaseDevVaultTools } from "../src/linc/casedev-vault-tools.ts";
 import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef } from "../src/linc/casedev-vaults.ts";
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
@@ -176,6 +177,143 @@ describe("Case.dev vault metadata", () => {
 			totalObjects: 4,
 		});
 		expect(mocks.runCaseDevCli).toHaveBeenCalledWith(ctx, ["vault", "get", "vault-1"], undefined);
+	});
+});
+
+describe("Case.dev vault tools", () => {
+	let originalCaseVaultId: string | undefined;
+	let originalAllowedVaultIds: string | undefined;
+
+	beforeEach(() => {
+		mocks.runCaseDevCli.mockReset();
+		originalCaseVaultId = process.env.CASE_VAULT_ID;
+		originalAllowedVaultIds = process.env.CASE_ALLOWED_VAULT_IDS;
+		delete process.env.CASE_VAULT_ID;
+		delete process.env.CASE_ALLOWED_VAULT_IDS;
+	});
+
+	afterEach(() => {
+		if (originalCaseVaultId === undefined) {
+			delete process.env.CASE_VAULT_ID;
+		} else {
+			process.env.CASE_VAULT_ID = originalCaseVaultId;
+		}
+		if (originalAllowedVaultIds === undefined) {
+			delete process.env.CASE_ALLOWED_VAULT_IDS;
+		} else {
+			process.env.CASE_ALLOWED_VAULT_IDS = originalAllowedVaultIds;
+		}
+	});
+
+	function getTool(name: string) {
+		const tool = createCaseDevVaultTools().find((entry) => entry.name === name);
+		if (!tool) throw new Error(`Missing tool ${name}`);
+		return tool;
+	}
+
+	it("registers C3-compatible vault tool aliases", () => {
+		const names = createCaseDevVaultTools().map((tool) => tool.name);
+
+		expect(names).toContain("vault_list");
+		expect(names).toContain("vault_search");
+		expect(names).toContain("vault_upload");
+		expect(names).toContain("vault_download");
+		expect(names).toContain("casedev_vault_upload");
+	});
+
+	it("uploads storage-only deliverables with CASE_VAULT_ID and verifies object visibility", async () => {
+		process.env.CASE_VAULT_ID = "vault-env";
+		mocks.runCaseDevCli
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ objectId: "obj-deliverable", filename: "Deliverable.docx" }),
+				stderr: "",
+				code: 0,
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ objects: [{ id: "obj-deliverable", name: "Deliverable.docx" }] }),
+				stderr: "",
+				code: 0,
+			});
+
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+		const result = await getTool("vault_upload").execute(
+			"tool-call-1",
+			{
+				filePath: "Deliverable.docx",
+				filename: "Deliverable.docx",
+				contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				storageOnly: true,
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		const firstContent = result.content[0];
+		expect(firstContent?.type).toBe("text");
+		expect(firstContent?.type === "text" ? firstContent.text : "").toContain("obj-deliverable");
+		expect(mocks.runCaseDevCli).toHaveBeenNthCalledWith(
+			1,
+			ctx,
+			[
+				"vault",
+				"object",
+				"upload",
+				"Deliverable.docx",
+				"--vault",
+				"vault-env",
+				"--name",
+				"Deliverable.docx",
+				"--content-type",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				"--no-ingest",
+			],
+			undefined,
+		);
+		expect(mocks.runCaseDevCli).toHaveBeenNthCalledWith(2, ctx, ["vault", "object", "list", "vault-env"], undefined);
+	});
+
+	it("fails upload success when the returned object is not visible in the vault", async () => {
+		process.env.CASE_VAULT_ID = "vault-env";
+		mocks.runCaseDevCli
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ objectId: "obj-missing", filename: "Deliverable.docx" }),
+				stderr: "",
+				code: 0,
+			})
+			.mockResolvedValueOnce({
+				stdout: JSON.stringify({ objects: [] }),
+				stderr: "",
+				code: 0,
+			});
+
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+
+		await expect(
+			getTool("vault_upload").execute(
+				"tool-call-1",
+				{ filePath: "Deliverable.docx", autoIndex: false },
+				undefined,
+				undefined,
+				ctx,
+			),
+		).rejects.toThrow("object is not visible in the vault");
+	});
+
+	it("fails closed when an explicit vault is outside CASE_ALLOWED_VAULT_IDS", async () => {
+		process.env.CASE_ALLOWED_VAULT_IDS = "vault-allowed";
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+
+		await expect(
+			getTool("vault_search").execute(
+				"tool-call-1",
+				{ query: "facts", vaultId: "vault-other" },
+				undefined,
+				undefined,
+				ctx,
+			),
+		).rejects.toThrow("not in CASE_ALLOWED_VAULT_IDS");
+		expect(mocks.runCaseDevCli).not.toHaveBeenCalled();
 	});
 });
 
