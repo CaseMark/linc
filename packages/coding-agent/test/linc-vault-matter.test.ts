@@ -252,6 +252,10 @@ describe("Case.dev vault tools", () => {
 		const firstContent = result.content[0];
 		expect(firstContent?.type).toBe("text");
 		expect(firstContent?.type === "text" ? firstContent.text : "").toContain("obj-deliverable");
+		expect(firstContent?.type === "text" ? JSON.parse(firstContent.text) : {}).toMatchObject({
+			objectId: "obj-deliverable",
+			vaultId: "vault-env",
+		});
 		expect(mocks.runCaseDevCli).toHaveBeenNthCalledWith(
 			1,
 			ctx,

@@ -199,7 +199,8 @@ async function executeVaultUpload(ctx: ExtensionContext, signal: AbortSignal | u
 
 	const uploadResult = await runCaseDevCli(ctx, args, signal);
 	const uploadOutput = formatCaseDevCliResult(uploadResult);
-	const objectId = findObjectId(parseJsonObject(uploadOutput));
+	const uploadPayload = parseJsonObject(uploadOutput);
+	const objectId = findObjectId(uploadPayload);
 	if (!objectId) {
 		throw new Error("Vault upload did not return an object id.");
 	}
@@ -211,7 +212,7 @@ async function executeVaultUpload(ctx: ExtensionContext, signal: AbortSignal | u
 		throw new Error(`Vault upload returned object id ${objectId}, but the object is not visible in the vault.`);
 	}
 
-	return resultContent(args, uploadOutput);
+	return resultContent(args, JSON.stringify({ ...(uploadPayload ?? {}), vaultId }));
 }
 
 export function createCaseDevVaultTools(): ToolDefinition[] {
