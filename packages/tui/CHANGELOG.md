@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.1] - 2026-06-22
+
 ### Added
 
 - Added `AutocompleteProvider.triggerCharacters` so editor autocomplete can naturally trigger on provider-defined token prefixes ([#4703](https://github.com/earendil-works/pi/issues/4703)).

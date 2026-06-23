@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.1] - 2026-06-22
+
 ### Added
 
 - Added `/matter` commands for showing, editing, and syncing active vault-backed `MATTER.md` state.
