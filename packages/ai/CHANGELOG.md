@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.1] - 2026-06-22
+
 ### Fixed
 
 - Fixed z.ai thinking-off requests to send the provider's `thinking: { type: "disabled" }` compatibility parameter ([#5330](https://github.com/earendil-works/pi/issues/5330)).
