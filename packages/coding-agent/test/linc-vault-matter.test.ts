@@ -19,6 +19,11 @@ import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE } from "../src/
 
 const mocks = vi.hoisted(() => ({
 	runCaseDevCli: vi.fn(),
+	listCaseDevVaults: vi.fn(),
+	getCaseDevVault: vi.fn(),
+	listCaseDevVaultObjects: vi.fn(),
+	downloadCaseDevVaultObject: vi.fn(),
+	uploadCaseDevVaultFile: vi.fn(),
 }));
 
 vi.mock("../src/linc/casedev-cli.ts", () => ({
@@ -28,6 +33,18 @@ vi.mock("../src/linc/casedev-cli.ts", () => ({
 	},
 	runCaseDevCli: mocks.runCaseDevCli,
 }));
+
+vi.mock("../src/linc/casedev-vault-api.ts", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../src/linc/casedev-vault-api.ts")>();
+	return {
+		...original,
+		listCaseDevVaults: mocks.listCaseDevVaults,
+		getCaseDevVault: mocks.getCaseDevVault,
+		listCaseDevVaultObjects: mocks.listCaseDevVaultObjects,
+		downloadCaseDevVaultObject: mocks.downloadCaseDevVaultObject,
+		uploadCaseDevVaultFile: mocks.uploadCaseDevVaultFile,
+	};
+});
 
 interface TestContextOptions {
 	cwd: string;
@@ -123,21 +140,15 @@ describe("Linc vault attachment state", () => {
 
 describe("Case.dev vault metadata", () => {
 	beforeEach(() => {
-		mocks.runCaseDevCli.mockReset();
+		mocks.listCaseDevVaults.mockReset();
+		mocks.getCaseDevVault.mockReset();
 	});
 
-	it("loads and formats vault records from the Case.dev CLI contract", async () => {
-		mocks.runCaseDevCli.mockResolvedValueOnce({
-			stdout: JSON.stringify({
-				vaults: [
-					{ id: "vault-1", name: "Alpha", totalObjects: 4 },
-					{ id: "vault-2", name: "Beta" },
-					{ id: "", name: "Ignored" },
-				],
-			}),
-			stderr: "",
-			code: 0,
-		});
+	it("loads and formats vault records from the Case.dev API contract", async () => {
+		mocks.listCaseDevVaults.mockResolvedValueOnce([
+			{ id: "vault-1", name: "Alpha", totalObjects: 4 },
+			{ id: "vault-2", name: "Beta" },
+		]);
 
 		const ctx = createContext({ cwd: "/tmp/linc-test" });
 		const vaults = await loadCaseDevVaults(ctx);
@@ -148,15 +159,11 @@ describe("Case.dev vault metadata", () => {
 		]);
 		expect(formatVaultOption(vaults[0]!)).toBe("Alpha · vault-1 · 4 objects");
 		expect(toLincVaultRef(vaults[0]!)).toEqual({ id: "vault-1", name: "Alpha", totalObjects: 4 });
-		expect(mocks.runCaseDevCli).toHaveBeenCalledWith(ctx, ["vault", "list"], undefined);
+		expect(mocks.listCaseDevVaults).toHaveBeenCalledWith(ctx);
 	});
 
 	it("fails loudly when vault list metadata has the wrong shape", async () => {
-		mocks.runCaseDevCli.mockResolvedValueOnce({
-			stdout: JSON.stringify({ data: [] }),
-			stderr: "",
-			code: 0,
-		});
+		mocks.listCaseDevVaults.mockRejectedValueOnce(new Error("Case.dev returned invalid vault list metadata."));
 
 		await expect(loadCaseDevVaults(createContext({ cwd: "/tmp/linc-test" }))).rejects.toThrow(
 			"Case.dev returned invalid vault list metadata.",
@@ -164,11 +171,7 @@ describe("Case.dev vault metadata", () => {
 	});
 
 	it("loads one vault by id", async () => {
-		mocks.runCaseDevCli.mockResolvedValueOnce({
-			stdout: JSON.stringify({ id: "vault-1", name: "Alpha", totalObjects: 4 }),
-			stderr: "",
-			code: 0,
-		});
+		mocks.getCaseDevVault.mockResolvedValueOnce({ id: "vault-1", name: "Alpha", totalObjects: 4 });
 
 		const ctx = createContext({ cwd: "/tmp/linc-test" });
 		await expect(loadCaseDevVault(ctx, "vault-1")).resolves.toEqual({
@@ -176,7 +179,7 @@ describe("Case.dev vault metadata", () => {
 			name: "Alpha",
 			totalObjects: 4,
 		});
-		expect(mocks.runCaseDevCli).toHaveBeenCalledWith(ctx, ["vault", "get", "vault-1"], undefined);
+		expect(mocks.getCaseDevVault).toHaveBeenCalledWith(ctx, "vault-1");
 	});
 });
 
@@ -186,6 +189,7 @@ describe("Case.dev vault tools", () => {
 
 	beforeEach(() => {
 		mocks.runCaseDevCli.mockReset();
+		mocks.uploadCaseDevVaultFile.mockReset();
 		originalCaseVaultId = process.env.CASE_VAULT_ID;
 		originalAllowedVaultIds = process.env.CASE_ALLOWED_VAULT_IDS;
 		delete process.env.CASE_VAULT_ID;
@@ -221,19 +225,13 @@ describe("Case.dev vault tools", () => {
 		expect(names).toContain("casedev_vault_upload");
 	});
 
-	it("uploads storage-only deliverables with CASE_VAULT_ID and verifies object visibility", async () => {
+	it("uploads storage-only deliverables with CASE_VAULT_ID through REST", async () => {
 		process.env.CASE_VAULT_ID = "vault-env";
-		mocks.runCaseDevCli
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({ objectId: "obj-deliverable", filename: "Deliverable.docx" }),
-				stderr: "",
-				code: 0,
-			})
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({ objects: [{ id: "obj-deliverable", name: "Deliverable.docx" }] }),
-				stderr: "",
-				code: 0,
-			});
+		mocks.uploadCaseDevVaultFile.mockResolvedValueOnce({
+			vaultId: "vault-env",
+			objectId: "obj-deliverable",
+			filename: "Deliverable.docx",
+		});
 
 		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
 		const result = await getTool("vault_upload").execute(
@@ -256,40 +254,19 @@ describe("Case.dev vault tools", () => {
 			objectId: "obj-deliverable",
 			vaultId: "vault-env",
 		});
-		expect(mocks.runCaseDevCli).toHaveBeenNthCalledWith(
-			1,
-			ctx,
-			[
-				"vault",
-				"object",
-				"upload",
-				"Deliverable.docx",
-				"--vault",
-				"vault-env",
-				"--name",
-				"Deliverable.docx",
-				"--content-type",
-				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-				"--no-ingest",
-			],
-			undefined,
-		);
-		expect(mocks.runCaseDevCli).toHaveBeenNthCalledWith(2, ctx, ["vault", "object", "list", "vault-env"], undefined);
+		expect(mocks.uploadCaseDevVaultFile).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/tmp/linc-test" }), {
+			vaultId: "vault-env",
+			filePath: "Deliverable.docx",
+			name: "Deliverable.docx",
+			contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			ingest: false,
+		});
+		expect(mocks.runCaseDevCli).not.toHaveBeenCalled();
 	});
 
-	it("fails upload success when the returned object is not visible in the vault", async () => {
+	it("propagates REST upload failures", async () => {
 		process.env.CASE_VAULT_ID = "vault-env";
-		mocks.runCaseDevCli
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({ objectId: "obj-missing", filename: "Deliverable.docx" }),
-				stderr: "",
-				code: 0,
-			})
-			.mockResolvedValueOnce({
-				stdout: JSON.stringify({ objects: [] }),
-				stderr: "",
-				code: 0,
-			});
+		mocks.uploadCaseDevVaultFile.mockRejectedValueOnce(new Error("Case.dev API POST /vault/vault-env/upload failed"));
 
 		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
 
@@ -301,7 +278,7 @@ describe("Case.dev vault tools", () => {
 				undefined,
 				ctx,
 			),
-		).rejects.toThrow("object is not visible in the vault");
+		).rejects.toThrow("Case.dev API POST /vault/vault-env/upload failed");
 	});
 
 	it("fails closed when an explicit vault is outside CASE_ALLOWED_VAULT_IDS", async () => {
@@ -328,7 +305,9 @@ describe("MATTER.md source precedence", () => {
 	beforeEach(async () => {
 		cwd = await mkdtemp(join(tmpdir(), "linc-matter-test-"));
 		statuses = new Map();
-		mocks.runCaseDevCli.mockReset();
+		mocks.listCaseDevVaultObjects.mockReset();
+		mocks.downloadCaseDevVaultObject.mockReset();
+		mocks.uploadCaseDevVaultFile.mockReset();
 	});
 
 	afterEach(async () => {
@@ -350,26 +329,16 @@ describe("MATTER.md source precedence", () => {
 
 		expect(state?.content).toBe("# Workspace Matter\n");
 		expect(await readFile(join(cwd, "MATTER.md"), "utf-8")).toBe("# Workspace Matter\n");
-		expect(mocks.runCaseDevCli).not.toHaveBeenCalled();
+		expect(mocks.listCaseDevVaultObjects).not.toHaveBeenCalled();
 		expect(statuses.get("linc.matter")).toBe("matter: MATTER.md");
 	});
 
 	it("replaces stale workspace MATTER.md when vault-first is selected", async () => {
 		await writeFile(join(cwd, "MATTER.md"), "# Stale Matter\n", "utf-8");
-		mocks.runCaseDevCli.mockImplementation(async (_ctx: ExtensionContext, args: string[]) => {
-			if (args.join(" ") === "vault object list vault-1") {
-				return {
-					stdout: JSON.stringify({ objects: [{ id: "object-1", name: "MATTER.md" }] }),
-					stderr: "",
-					code: 0,
-				};
-			}
-			if (args[0] === "vault" && args[1] === "download") {
-				const outDir = args[args.indexOf("--out") + 1];
-				await writeFile(join(outDir!, "MATTER.md"), "# Vault Matter\n", "utf-8");
-				return { stdout: JSON.stringify({ ok: true }), stderr: "", code: 0 };
-			}
-			throw new Error(`Unexpected casedev args: ${args.join(" ")}`);
+		mocks.listCaseDevVaultObjects.mockResolvedValueOnce([{ id: "object-1", name: "MATTER.md" }]);
+		mocks.downloadCaseDevVaultObject.mockImplementation(async (_ctx: ExtensionContext, args: { outDir: string }) => {
+			await writeFile(join(args.outDir, "MATTER.md"), "# Vault Matter\n", "utf-8");
+			return { objectId: "object-1", path: join(args.outDir, "MATTER.md"), bytes: 15 };
 		});
 
 		const state = await materializeMatterMd(contextWithAttachedVault(), { sourcePrecedence: "vault-first" });
@@ -377,15 +346,15 @@ describe("MATTER.md source precedence", () => {
 		expect(state?.content).toBe("# Vault Matter\n");
 		expect(await readFile(join(cwd, "MATTER.md"), "utf-8")).toBe("# Vault Matter\n");
 		expect(statuses.get("linc.matter")).toBe("matter: MATTER.md");
-		expect(mocks.runCaseDevCli).toHaveBeenCalledTimes(2);
+		expect(mocks.listCaseDevVaultObjects).toHaveBeenCalledTimes(1);
+		expect(mocks.downloadCaseDevVaultObject).toHaveBeenCalledWith(
+			expect.objectContaining({ cwd }),
+			expect.objectContaining({ vaultId: "vault-1", objectId: "object-1", filename: "MATTER.md" }),
+		);
 	});
 
 	it("returns missing state when vault-first has no vault MATTER.md", async () => {
-		mocks.runCaseDevCli.mockResolvedValueOnce({
-			stdout: JSON.stringify({ objects: [] }),
-			stderr: "",
-			code: 0,
-		});
+		mocks.listCaseDevVaultObjects.mockResolvedValueOnce([]);
 
 		await expect(
 			materializeMatterMd(contextWithAttachedVault(), { sourcePrecedence: "vault-first" }),
@@ -402,6 +371,7 @@ describe("Linc matter and vault commands", () => {
 		cwd = await mkdtemp(join(tmpdir(), "linc-command-test-"));
 		notifications = [];
 		mocks.runCaseDevCli.mockReset();
+		mocks.uploadCaseDevVaultFile.mockReset();
 	});
 
 	afterEach(async () => {
@@ -498,11 +468,7 @@ describe("Linc matter and vault commands", () => {
 
 	it("edits MATTER.md and syncs it to the attached vault", async () => {
 		await writeFile(join(cwd, "MATTER.md"), "# Old Matter\n", "utf-8");
-		mocks.runCaseDevCli.mockResolvedValueOnce({
-			stdout: JSON.stringify({ id: "object-1", name: "MATTER.md" }),
-			stderr: "",
-			code: 0,
-		});
+		mocks.uploadCaseDevVaultFile.mockResolvedValueOnce({ objectId: "object-1", filename: "MATTER.md" });
 
 		const { commands } = loadLincCommands();
 		const matterCommand = commands.get("matter");
@@ -524,23 +490,13 @@ describe("Linc matter and vault commands", () => {
 		);
 
 		expect(await readFile(join(cwd, "MATTER.md"), "utf-8")).toBe("# New Matter\n");
-		expect(mocks.runCaseDevCli).toHaveBeenCalledWith(
-			expect.objectContaining({ cwd }),
-			[
-				"vault",
-				"object",
-				"upload",
-				join(cwd, "MATTER.md"),
-				"--vault",
-				"vault-1",
-				"--name",
-				"MATTER.md",
-				"--content-type",
-				"text/markdown",
-				"--no-ingest",
-			],
-			undefined,
-		);
+		expect(mocks.uploadCaseDevVaultFile).toHaveBeenCalledWith(expect.objectContaining({ cwd }), {
+			vaultId: "vault-1",
+			filePath: join(cwd, "MATTER.md"),
+			name: "MATTER.md",
+			contentType: "text/markdown",
+			ingest: false,
+		});
 		expect(notifications).toEqual([
 			{ message: "Saved MATTER.md and synced it to the attached Case.dev vault", type: "info" },
 		]);
