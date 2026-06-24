@@ -10918,7 +10918,7 @@ export const MODELS = {
 			cost: {
 				input: 0.6,
 				output: 2.5,
-				cacheRead: 0.6,
+				cacheRead: 0,
 				cacheWrite: 0,
 			},
 			contextWindow: 262144,
@@ -12784,11 +12784,11 @@ export const MODELS = {
 			cost: {
 				input: 0.14,
 				output: 1,
-				cacheRead: 0.049999999999999996,
+				cacheRead: 0,
 				cacheWrite: 0,
 			},
 			contextWindow: 262144,
-			maxTokens: 81920,
+			maxTokens: 262144,
 		} satisfies Model<"openai-completions">,
 		"qwen/qwen3.5-397b-a17b": {
 			id: "qwen/qwen3.5-397b-a17b",
@@ -13190,13 +13190,13 @@ export const MODELS = {
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
-				input: 0.14,
+				input: 0.105,
 				output: 0.28,
-				cacheRead: 0.0028,
+				cacheRead: 0,
 				cacheWrite: 0,
 			},
 			contextWindow: 1048576,
-			maxTokens: 131072,
+			maxTokens: 4096,
 		} satisfies Model<"openai-completions">,
 		"xiaomi/mimo-v2.5-pro": {
 			id: "xiaomi/mimo-v2.5-pro",
@@ -13379,11 +13379,11 @@ export const MODELS = {
 			cost: {
 				input: 0.98,
 				output: 3.08,
-				cacheRead: 0.182,
+				cacheRead: 0.49,
 				cacheWrite: 0,
 			},
 			contextWindow: 202752,
-			maxTokens: 4096,
+			maxTokens: 65535,
 		} satisfies Model<"openai-completions">,
 		"z-ai/glm-5.2": {
 			id: "z-ai/glm-5.2",
