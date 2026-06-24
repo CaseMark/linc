@@ -3,7 +3,15 @@ import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../core/extensions/types.ts";
 import { getTextOutput } from "../core/tools/render-utils.ts";
 import type { Theme } from "../modes/interactive/theme/theme.ts";
-import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
+import {
+	type CaseDevVaultObjectRecord,
+	downloadCaseDevVaultObject,
+	getCaseDevVault,
+	listCaseDevVaultObjects,
+	listCaseDevVaults,
+	searchCaseDevVault,
+	uploadCaseDevVaultFile,
+} from "./casedev-vault-api.ts";
 import { getAttachedVault } from "./vault-attachment.ts";
 
 interface CaseDevToolDetails {
@@ -48,6 +56,7 @@ const vaultUploadSchema = Type.Object({
 	name: Type.Optional(Type.String({ description: "Optional object filename override." })),
 	filename: Type.Optional(Type.String({ description: "Optional object filename override." })),
 	contentType: Type.Optional(Type.String({ description: "Optional MIME type override." })),
+	path: Type.Optional(Type.String({ description: "Optional vault folder path, for example /Discovery/Depositions." })),
 	ingest: Type.Optional(Type.Boolean({ description: "Whether to ingest/index the upload. Defaults to true." })),
 	storageOnly: Type.Optional(Type.Boolean({ description: "Store the file without ingesting or indexing it." })),
 	autoIndex: Type.Optional(Type.Boolean({ description: "Set false to skip ingestion/indexing for this upload." })),
@@ -123,9 +132,8 @@ function resultContent(
 	};
 }
 
-async function executeCaseDevTool(ctx: ExtensionContext, signal: AbortSignal | undefined, args: string[]) {
-	const result = await runCaseDevCli(ctx, args, signal);
-	return resultContent(args, formatCaseDevCliResult(result));
+function jsonResult(command: string[], data: unknown) {
+	return resultContent(command, JSON.stringify(data, null, 2));
 }
 
 function resolveVaultId(ctx: ExtensionContext, vaultId: string | undefined): string {
@@ -137,82 +145,65 @@ function resolveVaultId(ctx: ExtensionContext, vaultId: string | undefined): str
 	throw new Error("No vaultId provided, CASE_VAULT_ID is not set, and no Case.dev vault is attached.");
 }
 
-function parseJsonObject(value: string): Record<string, unknown> | undefined {
-	try {
-		const parsed: unknown = JSON.parse(value);
-		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-			? (parsed as Record<string, unknown>)
-			: undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function readString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function findObjectId(value: unknown): string | undefined {
-	if (Array.isArray(value)) {
-		for (const entry of value) {
-			const found = findObjectId(entry);
-			if (found) return found;
-		}
-		return undefined;
-	}
-	if (!value || typeof value !== "object") return undefined;
-	const record = value as Record<string, unknown>;
-	const direct = readString(record.objectId) ?? readString(record.object_id) ?? readString(record.id);
-	if (direct) return direct;
-	for (const entry of Object.values(record)) {
-		const found = findObjectId(entry);
-		if (found) return found;
-	}
-	return undefined;
-}
-
-function outputContainsObjectId(value: unknown, objectId: string): boolean {
-	if (Array.isArray(value)) return value.some((entry) => outputContainsObjectId(entry, objectId));
-	if (!value || typeof value !== "object") return false;
-	const record = value as Record<string, unknown>;
-	if (
-		readString(record.objectId) === objectId ||
-		readString(record.object_id) === objectId ||
-		readString(record.id) === objectId
-	) {
-		return true;
-	}
-	return Object.values(record).some((entry) => outputContainsObjectId(entry, objectId));
-}
-
 function shouldSkipIngest(params: VaultUploadInput): boolean {
 	return params.ingest === false || params.storageOnly === true || params.autoIndex === false;
 }
 
 async function executeVaultUpload(ctx: ExtensionContext, signal: AbortSignal | undefined, params: VaultUploadInput) {
 	const vaultId = resolveVaultId(ctx, params.vaultId);
-	const args = ["vault", "object", "upload", params.filePath, "--vault", vaultId];
 	const filename = params.name ?? params.filename;
-	if (filename) args.push("--name", filename);
-	if (params.contentType) args.push("--content-type", params.contentType);
-	if (shouldSkipIngest(params)) args.push("--no-ingest");
+	const result = await uploadCaseDevVaultFile(
+		{ ...ctx, signal },
+		{
+			vaultId,
+			filePath: params.filePath,
+			...(filename ? { name: filename } : {}),
+			...(params.contentType ? { contentType: params.contentType } : {}),
+			...(params.path ? { path: params.path } : {}),
+			ingest: !shouldSkipIngest(params),
+		},
+	);
+	return jsonResult(["POST", `/vault/${vaultId}/upload`], result);
+}
 
-	const uploadResult = await runCaseDevCli(ctx, args, signal);
-	const uploadOutput = formatCaseDevCliResult(uploadResult);
-	const uploadPayload = parseJsonObject(uploadOutput);
-	const objectId = findObjectId(uploadPayload);
-	if (!objectId) {
-		throw new Error("Vault upload did not return an object id.");
+function normalizeVaultPath(path: string): string {
+	const trimmed = path.trim();
+	if (!trimmed || trimmed === "/") return "/";
+	const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+	return withLeadingSlash.replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+}
+
+function objectMatchesPath(object: CaseDevVaultObjectRecord, requestedPath: string): boolean {
+	const normalized = normalizeVaultPath(requestedPath);
+	const candidates = [object.path, object.filename, object.name]
+		.filter((value): value is string => typeof value === "string" && value.length > 0)
+		.map(normalizeVaultPath);
+	return candidates.some((candidate) => candidate === normalized || candidate.startsWith(`${normalized}/`));
+}
+
+async function downloadVaultPath(ctx: ExtensionContext, vaultId: string, path: string, outDir: string) {
+	const objects = await listCaseDevVaultObjects(ctx, vaultId);
+	const matches = objects.filter((object) => objectMatchesPath(object, path));
+	if (matches.length === 0) {
+		throw new Error(`No vault objects matched path prefix: ${path}`);
 	}
-
-	const verifyArgs = ["vault", "object", "list", vaultId];
-	const verifyResult = await runCaseDevCli(ctx, verifyArgs, signal);
-	const verifyOutput = formatCaseDevCliResult(verifyResult);
-	if (!outputContainsObjectId(parseJsonObject(verifyOutput), objectId)) {
-		throw new Error(`Vault upload returned object id ${objectId}, but the object is not visible in the vault.`);
+	const downloads = [];
+	for (const object of matches) {
+		downloads.push(
+			await downloadCaseDevVaultObject(ctx, {
+				vaultId,
+				objectId: object.id,
+				outDir,
+				filename: object.filename ?? object.name ?? object.id,
+			}),
+		);
 	}
-
-	return resultContent(args, JSON.stringify({ ...(uploadPayload ?? {}), vaultId }));
+	return {
+		vaultId,
+		path,
+		count: downloads.length,
+		downloads,
+	};
 }
 
 export function createCaseDevVaultTools(): ToolDefinition[] {
@@ -224,9 +215,11 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "List Case.dev vaults available to the configured API key.",
 			parameters: vaultListSchema,
 			async execute(_toolCallId, params: VaultListInput, signal, _onUpdate, ctx) {
-				const args = ["vault", "list"];
-				if (params.wide) args.push("--wide");
-				return executeCaseDevTool(ctx, signal, args);
+				const vaults = await listCaseDevVaults({ ...ctx, signal });
+				return jsonResult(params.wide ? ["GET", "/vault", "--wide"] : ["GET", "/vault"], {
+					vaults,
+					total: vaults.length,
+				});
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault list", args, theme),
 			renderResult,
@@ -238,7 +231,9 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "Get Case.dev vault metadata by vault ID.",
 			parameters: vaultGetSchema,
 			async execute(_toolCallId, params: VaultGetInput, signal, _onUpdate, ctx) {
-				return executeCaseDevTool(ctx, signal, ["vault", "get", resolveVaultId(ctx, params.vaultId)]);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const vault = await getCaseDevVault({ ...ctx, signal }, vaultId);
+				return jsonResult(["GET", `/vault/${vaultId}`], vault);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault get", args, theme),
 			renderResult,
@@ -250,7 +245,13 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "List objects in a Case.dev vault.",
 			parameters: vaultObjectListSchema,
 			async execute(_toolCallId, params: VaultObjectListInput, signal, _onUpdate, ctx) {
-				return executeCaseDevTool(ctx, signal, ["vault", "object", "list", resolveVaultId(ctx, params.vaultId)]);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const objects = await listCaseDevVaultObjects({ ...ctx, signal }, vaultId);
+				return jsonResult(["GET", `/vault/${vaultId}/objects`], {
+					vaultId,
+					objects,
+					count: objects.length,
+				});
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault objects", args, theme),
 			renderResult,
@@ -265,14 +266,9 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			],
 			parameters: vaultSearchSchema,
 			async execute(_toolCallId, params: VaultSearchInput, signal, _onUpdate, ctx) {
-				const args = ["search", "vault", params.query];
-				args.push("--vault", resolveVaultId(ctx, params.vaultId));
-				if (params.method) args.push("--method", params.method);
-				if (params.limit !== undefined) args.push("--limit", String(params.limit));
-				for (const objectId of params.objectIds ?? []) {
-					args.push("--object", objectId);
-				}
-				return executeCaseDevTool(ctx, signal, args);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const result = await searchCaseDevVault({ ...ctx, signal }, vaultId, params);
+				return jsonResult(["POST", `/vault/${vaultId}/search`], result);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault search", args, theme),
 			renderResult,
@@ -299,11 +295,21 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 				if (!params.objectId && !params.path) {
 					throw new Error("Provide objectId or path.");
 				}
-				const args = ["vault", "download", "--vault", resolveVaultId(ctx, params.vaultId)];
-				if (params.objectId) args.push("--object", params.objectId);
-				if (params.path) args.push("--path", params.path);
-				if (params.outDir) args.push("--out", params.outDir);
-				return executeCaseDevTool(ctx, signal, args);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const scopedCtx = { ...ctx, signal };
+				if (params.objectId) {
+					const objects = await listCaseDevVaultObjects(scopedCtx, vaultId);
+					const object = objects.find((item) => item.id === params.objectId);
+					const result = await downloadCaseDevVaultObject(scopedCtx, {
+						vaultId,
+						objectId: params.objectId,
+						outDir: params.outDir ?? ctx.cwd,
+						filename: object?.filename ?? object?.name ?? params.objectId,
+					});
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], result);
+				}
+				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
+				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault download", args, theme),
 			renderResult,
@@ -315,9 +321,11 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "List available case.dev vaults",
 			parameters: vaultListSchema,
 			async execute(_toolCallId, params: VaultListInput, signal, _onUpdate, ctx) {
-				const args = ["vault", "list"];
-				if (params.wide) args.push("--wide");
-				return executeCaseDevTool(ctx, signal, args);
+				const vaults = await listCaseDevVaults({ ...ctx, signal });
+				return jsonResult(params.wide ? ["GET", "/vault", "--wide"] : ["GET", "/vault"], {
+					vaults,
+					total: vaults.length,
+				});
 			},
 			renderCall: (args, theme) => renderCall("vault_list", args, theme),
 			renderResult,
@@ -329,14 +337,9 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			promptSnippet: "Search matter documents in a vault",
 			parameters: vaultSearchSchema,
 			async execute(_toolCallId, params: VaultSearchInput, signal, _onUpdate, ctx) {
-				const args = ["search", "vault", params.query];
-				args.push("--vault", resolveVaultId(ctx, params.vaultId));
-				if (params.method) args.push("--method", params.method);
-				if (params.limit !== undefined) args.push("--limit", String(params.limit));
-				for (const objectId of params.objectIds ?? []) {
-					args.push("--object", objectId);
-				}
-				return executeCaseDevTool(ctx, signal, args);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const result = await searchCaseDevVault({ ...ctx, signal }, vaultId, params);
+				return jsonResult(["POST", `/vault/${vaultId}/search`], result);
 			},
 			renderCall: (args, theme) => renderCall("vault_search", args, theme),
 			renderResult,
@@ -364,11 +367,21 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 				if (!params.objectId && !params.path) {
 					throw new Error("Provide objectId or path.");
 				}
-				const args = ["vault", "download", "--vault", resolveVaultId(ctx, params.vaultId)];
-				if (params.objectId) args.push("--object", params.objectId);
-				if (params.path) args.push("--path", params.path);
-				if (params.outDir) args.push("--out", params.outDir);
-				return executeCaseDevTool(ctx, signal, args);
+				const vaultId = resolveVaultId(ctx, params.vaultId);
+				const scopedCtx = { ...ctx, signal };
+				if (params.objectId) {
+					const objects = await listCaseDevVaultObjects(scopedCtx, vaultId);
+					const object = objects.find((item) => item.id === params.objectId);
+					const result = await downloadCaseDevVaultObject(scopedCtx, {
+						vaultId,
+						objectId: params.objectId,
+						outDir: params.outDir ?? ctx.cwd,
+						filename: object?.filename ?? object?.name ?? params.objectId,
+					});
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], result);
+				}
+				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
+				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
 			},
 			renderCall: (args, theme) => renderCall("vault_download", args, theme),
 			renderResult,

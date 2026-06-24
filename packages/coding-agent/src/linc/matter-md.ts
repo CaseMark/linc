@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import type { ExtensionContext, ToolResultEvent, ToolResultEventResult } from "../core/extensions/types.ts";
 import type { ReadonlySessionManager } from "../core/session-manager.ts";
-import { formatCaseDevCliResult, runCaseDevCli } from "./casedev-cli.ts";
+import {
+	type CaseDevVaultObjectRecord,
+	downloadCaseDevVaultObject,
+	listCaseDevVaultObjects,
+	uploadCaseDevVaultFile,
+} from "./casedev-vault-api.ts";
 import { getAttachedVault, type LincVaultRef } from "./vault-attachment.ts";
 
 export const MATTER_MD_FILENAME = "MATTER.md";
@@ -50,13 +55,6 @@ export interface MatterMdMaterializeOptions {
 	sourcePrecedence?: MatterMdSourcePrecedence;
 }
 
-interface CaseDevVaultObjectRecord {
-	id: string;
-	name?: string;
-	path?: string;
-	filename?: string;
-}
-
 export function getMatterMdPath(ctx: ExtensionContext): string {
 	return join(ctx.cwd, MATTER_MD_FILENAME);
 }
@@ -95,41 +93,7 @@ export function getMatterMdInitializationDecision(
 	return undefined;
 }
 
-function readVaultObjectRecord(value: unknown): CaseDevVaultObjectRecord | undefined {
-	if (!isRecord(value)) return undefined;
-	const id = typeof value.id === "string" ? value.id : typeof value.objectId === "string" ? value.objectId : undefined;
-	if (!id) return undefined;
-	return {
-		id,
-		name: typeof value.name === "string" ? value.name : undefined,
-		path: typeof value.path === "string" ? value.path : undefined,
-		filename: typeof value.filename === "string" ? value.filename : undefined,
-	};
-}
-
-function collectVaultObjectRecords(value: unknown): CaseDevVaultObjectRecord[] {
-	if (Array.isArray(value)) {
-		return value
-			.map(readVaultObjectRecord)
-			.filter((record): record is CaseDevVaultObjectRecord => record !== undefined);
-	}
-	if (!isRecord(value)) return [];
-	for (const key of ["objects", "items", "data", "results"]) {
-		const records = collectVaultObjectRecords(value[key]);
-		if (records.length > 0) return records;
-	}
-	const record = readVaultObjectRecord(value);
-	return record ? [record] : [];
-}
-
-function findMatterMdObject(output: string): CaseDevVaultObjectRecord | undefined {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(output) as unknown;
-	} catch {
-		return undefined;
-	}
-	const records = collectVaultObjectRecords(parsed);
+function findMatterMdObject(records: CaseDevVaultObjectRecord[]): CaseDevVaultObjectRecord | undefined {
 	return records.find((record) => {
 		const names = [record.filename, record.name, record.path].filter((name): name is string => name !== undefined);
 		return names.some((name) => basename(name) === MATTER_MD_FILENAME);
@@ -137,17 +101,17 @@ function findMatterMdObject(output: string): CaseDevVaultObjectRecord | undefine
 }
 
 async function downloadMatterMdFromVault(ctx: ExtensionContext, vault: LincVaultRef): Promise<string | undefined> {
-	const listResult = await runCaseDevCli(ctx, ["vault", "object", "list", vault.id], ctx.signal);
-	const matterObject = findMatterMdObject(formatCaseDevCliResult(listResult));
+	const matterObject = findMatterMdObject(await listCaseDevVaultObjects(ctx, vault.id));
 	if (!matterObject) return undefined;
 
 	const outDir = await mkdtemp(join(tmpdir(), "linc-matter-md-"));
 	try {
-		await runCaseDevCli(
-			ctx,
-			["vault", "download", "--vault", vault.id, "--object", matterObject.id, "--out", outDir],
-			ctx.signal,
-		);
+		await downloadCaseDevVaultObject(ctx, {
+			vaultId: vault.id,
+			objectId: matterObject.id,
+			outDir,
+			filename: MATTER_MD_FILENAME,
+		});
 
 		const downloadedPath = join(outDir, MATTER_MD_FILENAME);
 		if (!(await fileExists(downloadedPath))) {
@@ -307,25 +271,15 @@ export async function syncMatterMdToVault(ctx: ExtensionContext): Promise<string
 		throw new Error("No MATTER.md found at the workspace root.");
 	}
 
-	const result = await runCaseDevCli(
-		ctx,
-		[
-			"vault",
-			"object",
-			"upload",
-			path,
-			"--vault",
-			vault.id,
-			"--name",
-			MATTER_MD_FILENAME,
-			"--content-type",
-			"text/markdown",
-			"--no-ingest",
-		],
-		ctx.signal,
-	);
+	const result = await uploadCaseDevVaultFile(ctx, {
+		vaultId: vault.id,
+		filePath: path,
+		name: MATTER_MD_FILENAME,
+		contentType: "text/markdown",
+		ingest: false,
+	});
 	setMatterMdStatus(ctx, await readMatterMd(ctx));
-	return formatCaseDevCliResult(result);
+	return JSON.stringify(result, null, 2);
 }
 
 export function setMatterMdStatus(ctx: ExtensionContext, state: MatterMdState | undefined): void {
