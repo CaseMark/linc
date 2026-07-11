@@ -6,6 +6,7 @@ import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import {
 	downloadCaseDevVaultObject,
 	listCaseDevVaults,
+	readCaseDevVaultObjectText,
 	searchCaseDevVault,
 	uploadCaseDevVaultFile,
 } from "../src/linc/casedev-vault-api.ts";
@@ -125,6 +126,78 @@ describe("Case.dev vault REST API helper", () => {
 			headers: { Authorization: "Bearer sk_case_test" },
 			signal: undefined,
 		});
+	});
+
+	it("streams multi-chunk download bodies to disk", async () => {
+		const chunkA = new TextEncoder().encode("a".repeat(64 * 1024));
+		const chunkB = new TextEncoder().encode("b".repeat(64 * 1024));
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(chunkA);
+				controller.enqueue(chunkB);
+				controller.close();
+			},
+		});
+		const fetchMock = vi.fn(async () => new Response(body, { status: 200 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await downloadCaseDevVaultObject(createContext(cwd), {
+			vaultId: "vault-1",
+			objectId: "obj-big",
+			outDir: cwd,
+			filename: "big-original.pdf",
+		});
+
+		expect(result).toEqual({
+			objectId: "obj-big",
+			path: join(cwd, "big-original.pdf"),
+			bytes: chunkA.byteLength + chunkB.byteLength,
+		});
+		await expect(readFile(join(cwd, "big-original.pdf"), "utf-8")).resolves.toBe(
+			"a".repeat(64 * 1024) + "b".repeat(64 * 1024),
+		);
+	});
+
+	it("writes extracted object text into the workspace with page-marker stats", async () => {
+		const text = "--- Page 1 ---\nFirst page body\n\n--- Page 2 ---\nSecond page body";
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ text, metadata: { filename: "report.pdf", length: text.length } }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await readCaseDevVaultObjectText(createContext(cwd), {
+			vaultId: "vault-1",
+			objectId: "obj-1",
+			outDir: cwd,
+		});
+
+		expect(result).toMatchObject({
+			objectId: "obj-1",
+			path: join(cwd, "report.pdf.txt"),
+			chars: text.length,
+			pageMarkers: 2,
+		});
+		expect(result.note).toContain("page numbers");
+		await expect(readFile(join(cwd, "report.pdf.txt"), "utf-8")).resolves.toBe(text);
+		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault/vault-1/objects/obj-1/text", {
+			method: "GET",
+			headers: { Authorization: "Bearer sk_case_test" },
+			body: undefined,
+			signal: undefined,
+		});
+	});
+
+	it("rejects text reads for objects with no extracted text", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ text: "" }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			readCaseDevVaultObjectText(createContext(cwd), {
+				vaultId: "vault-1",
+				objectId: "obj-empty",
+				outDir: cwd,
+			}),
+		).rejects.toThrow("no extracted text");
 	});
 
 	it("uploads, confirms, and ingests a vault file through REST", async () => {
