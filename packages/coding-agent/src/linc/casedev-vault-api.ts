@@ -1,5 +1,9 @@
+import { createWriteStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, relative, resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import type { ExtensionContext } from "../core/extensions/types.ts";
 import { getCaseDevApiKey } from "./casedev-cli.ts";
 
@@ -31,6 +35,13 @@ export interface CaseDevVaultUploadParams {
 }
 
 export interface CaseDevVaultDownloadParams {
+	vaultId: string;
+	objectId: string;
+	outDir: string;
+	filename?: string;
+}
+
+export interface CaseDevVaultReadTextParams {
 	vaultId: string;
 	objectId: string;
 	outDir: string;
@@ -231,11 +242,53 @@ export async function downloadCaseDevVaultObject(
 			`Case.dev API GET /vault/${params.vaultId}/objects/${params.objectId}/download failed (${response.status}): ${stringifyApiError(body)}`,
 		);
 	}
-	const bytes = new Uint8Array(await response.arrayBuffer());
+	if (!response.body) {
+		throw new Error(
+			`Case.dev API GET /vault/${params.vaultId}/objects/${params.objectId}/download returned an empty body`,
+		);
+	}
 	await mkdir(params.outDir, { recursive: true });
 	const outputPath = safeOutputPath(params.outDir, params.filename ?? params.objectId);
-	await writeFile(outputPath, bytes);
-	return { objectId: params.objectId, path: outputPath, bytes: bytes.byteLength };
+	// Stream to disk: buffering the whole object holds the full file in memory
+	// and gets the runtime OOM-killed on multi-GB originals (CD-1284).
+	await pipeline(Readable.fromWeb(response.body as WebReadableStream<Uint8Array>), createWriteStream(outputPath));
+	const stats = await stat(outputPath);
+	return { objectId: params.objectId, path: outputPath, bytes: stats.size };
+}
+
+export async function readCaseDevVaultObjectText(
+	ctx: ExtensionContext,
+	params: CaseDevVaultReadTextParams,
+): Promise<{ objectId: string; path: string; chars: number; pageMarkers: number; note: string }> {
+	const payload = await caseDevApiRequest<{ text?: unknown; metadata?: { filename?: unknown } }>(
+		ctx,
+		"GET",
+		`/vault/${encodeURIComponent(params.vaultId)}/objects/${encodeURIComponent(params.objectId)}/text`,
+		{ signal: ctx.signal },
+	);
+	const text = typeof payload?.text === "string" ? payload.text : "";
+	if (!text) {
+		throw new Error(
+			`Case.dev returned no extracted text for object ${params.objectId}; the object may not be ingested yet.`,
+		);
+	}
+	const metadataFilename = typeof payload?.metadata?.filename === "string" ? payload.metadata.filename : undefined;
+	const baseName = params.filename ?? metadataFilename ?? params.objectId;
+	const filename = baseName.endsWith(".txt") ? baseName : `${baseName}.txt`;
+	await mkdir(params.outDir, { recursive: true });
+	const outputPath = safeOutputPath(params.outDir, filename);
+	await writeFile(outputPath, text, "utf8");
+	const pageMarkers = (text.match(/^--- Page \d+ ---$/gm) ?? []).length;
+	return {
+		objectId: params.objectId,
+		path: outputPath,
+		chars: text.length,
+		pageMarkers,
+		note:
+			pageMarkers > 0
+				? "Text contains --- Page N --- markers; cite findings by those page numbers."
+				: "This document has no page markers; cite findings by section or heading.",
+	};
 }
 
 export async function uploadCaseDevVaultFile(

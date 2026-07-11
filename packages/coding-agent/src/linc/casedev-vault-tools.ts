@@ -9,6 +9,7 @@ import {
 	getCaseDevVault,
 	listCaseDevVaultObjects,
 	listCaseDevVaults,
+	readCaseDevVaultObjectText,
 	searchCaseDevVault,
 	uploadCaseDevVaultFile,
 } from "./casedev-vault-api.ts";
@@ -69,12 +70,20 @@ const vaultDownloadSchema = Type.Object({
 	outDir: Type.Optional(Type.String({ description: "Local output directory." })),
 });
 
+const vaultReadTextSchema = Type.Object({
+	vaultId: Type.Optional(Type.String({ description: "Source vault ID. Defaults to the attached vault." })),
+	objectId: Type.String({ description: "Object ID to read." }),
+	outDir: Type.Optional(Type.String({ description: "Local output directory for the .txt file." })),
+	filename: Type.Optional(Type.String({ description: "Optional local filename for the .txt file." })),
+});
+
 type VaultListInput = Static<typeof vaultListSchema>;
 type VaultGetInput = Static<typeof vaultGetSchema>;
 type VaultObjectListInput = Static<typeof vaultObjectListSchema>;
 type VaultSearchInput = Static<typeof vaultSearchSchema>;
 type VaultUploadInput = Static<typeof vaultUploadSchema>;
 type VaultDownloadInput = Static<typeof vaultDownloadSchema>;
+type VaultReadTextInput = Static<typeof vaultReadTextSchema>;
 
 function splitEnvList(value: string | undefined): string[] {
 	return (value ?? "")
@@ -206,6 +215,27 @@ async function downloadVaultPath(ctx: ExtensionContext, vaultId: string, path: s
 	};
 }
 
+const DOWNLOAD_CONTENT_NOTE =
+	"This is the original file (raw bytes). To read or analyze the document's content, use vault_read_text — it returns the extracted, page-numbered text.";
+
+async function executeVaultReadText(
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+	params: VaultReadTextInput,
+) {
+	const vaultId = resolveVaultId(ctx, params.vaultId);
+	const result = await readCaseDevVaultObjectText(
+		{ ...ctx, signal },
+		{
+			vaultId,
+			objectId: params.objectId,
+			outDir: params.outDir ?? ctx.cwd,
+			...(params.filename ? { filename: params.filename } : {}),
+		},
+	);
+	return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/text`], result);
+}
+
 export function createCaseDevVaultTools(): ToolDefinition[] {
 	return [
 		{
@@ -288,7 +318,8 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 		{
 			name: "casedev_vault_download",
 			label: "case.dev vault download",
-			description: "Download an object or path prefix from a Case.dev vault.",
+			description:
+				"Download an object or path prefix from a Case.dev vault as the ORIGINAL file (raw bytes, often a scanned PDF with no text layer). To read or analyze document CONTENT, use casedev_vault_read_text instead.",
 			promptSnippet: "Download a Case.dev vault object or path prefix.",
 			parameters: vaultDownloadSchema,
 			async execute(_toolCallId, params: VaultDownloadInput, signal, _onUpdate, ctx) {
@@ -306,12 +337,27 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 						outDir: params.outDir ?? ctx.cwd,
 						filename: object?.filename ?? object?.name ?? params.objectId,
 					});
-					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], result);
+					const payload =
+						object?.ingestionStatus === "completed" ? { ...result, note: DOWNLOAD_CONTENT_NOTE } : result;
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload);
 				}
 				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
 				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault download", args, theme),
+			renderResult,
+		},
+		{
+			name: "casedev_vault_read_text",
+			label: "case.dev vault read text",
+			description:
+				"Write the full extracted text of an ingested Case.dev vault object into the workspace as a .txt file, page-numbered when the source is paginated. The right tool for reading, grepping, or comprehensively analyzing document content at any document size.",
+			promptSnippet: "Read a Case.dev vault object's full extracted text into the workspace.",
+			parameters: vaultReadTextSchema,
+			async execute(_toolCallId, params: VaultReadTextInput, signal, _onUpdate, ctx) {
+				return executeVaultReadText(ctx, signal, params);
+			},
+			renderCall: (args, theme) => renderCall("case.dev vault read text", args, theme),
 			renderResult,
 		},
 		{
@@ -360,7 +406,8 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 		{
 			name: "vault_download",
 			label: "vault_download",
-			description: "Download a matter document into the workspace.",
+			description:
+				"Download a matter document's ORIGINAL file (raw bytes, often a scanned PDF with no text layer) into the workspace. Use for file manipulation: page extraction, format conversion, serving faithful copies. To read or analyze document CONTENT, use vault_read_text instead.",
 			promptSnippet: "Download a matter document into the workspace",
 			parameters: vaultDownloadSchema,
 			async execute(_toolCallId, params: VaultDownloadInput, signal, _onUpdate, ctx) {
@@ -378,12 +425,30 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 						outDir: params.outDir ?? ctx.cwd,
 						filename: object?.filename ?? object?.name ?? params.objectId,
 					});
-					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], result);
+					const payload =
+						object?.ingestionStatus === "completed" ? { ...result, note: DOWNLOAD_CONTENT_NOTE } : result;
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload);
 				}
 				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
 				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
 			},
 			renderCall: (args, theme) => renderCall("vault_download", args, theme),
+			renderResult,
+		},
+		{
+			name: "vault_read_text",
+			label: "vault_read_text",
+			description:
+				"Write the full extracted text of an ingested matter document into the workspace as a .txt file, page-numbered when the source is paginated. The right tool for reading, grepping, or comprehensively analyzing document content at any document size. Works on every ingested document; the original raw file is NOT needed for content questions.",
+			promptSnippet: "Read a matter document's full extracted text into the workspace",
+			promptGuidelines: [
+				"Originals from vault_download are raw bytes and often scanned images; use vault_read_text for full document content and page-numbered citations.",
+			],
+			parameters: vaultReadTextSchema,
+			async execute(_toolCallId, params: VaultReadTextInput, signal, _onUpdate, ctx) {
+				return executeVaultReadText(ctx, signal, params);
+			},
+			renderCall: (args, theme) => renderCall("vault_read_text", args, theme),
 			renderResult,
 		},
 	];
