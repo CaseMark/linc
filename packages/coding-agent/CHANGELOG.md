@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed local release packaging for `@casemark/linc` and bundled standalone binary runtime assets so the built-in Matter and Vault extensions load outside the repository.
+
 ## [0.79.3] - 2026-07-11
 
 ## [0.79.2] - 2026-06-24
