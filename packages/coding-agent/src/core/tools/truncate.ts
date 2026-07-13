@@ -9,7 +9,13 @@
  */
 
 export const DEFAULT_MAX_LINES = 2000;
-export const DEFAULT_MAX_BYTES = 50 * 1024; // 50KB
+// 20KB per tool result: bounds how much any single read/find/grep can drag
+// into billed model context (each result rides along with every subsequent
+// call in the session). Offset/limit pagination remains available for more —
+// the truncation notices tell the model how to continue. Lowered from the
+// upstream 50KB after a production session accumulated ~450KB of context via
+// nine max-size reads of a legal document (CD-1284 follow-up).
+export const DEFAULT_MAX_BYTES = 20 * 1024; // 20KB
 export const GREP_MAX_LINE_LENGTH = 500; // Max chars per grep match line
 
 export interface TruncationResult {

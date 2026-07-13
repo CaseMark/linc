@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import {
-	CASEDEV_VAULT_TEXT_MAX_CHARS,
-	CASEDEV_VAULT_TEXT_TRUNCATION_WARNING,
 	downloadCaseDevVaultObject,
 	listCaseDevVaults,
 	readCaseDevVaultObjectText,
@@ -232,8 +230,8 @@ describe("Case.dev vault REST API helper", () => {
 		});
 	});
 
-	it("limits extracted object text and prepends targeted-search guidance", async () => {
-		const text = "x".repeat(CASEDEV_VAULT_TEXT_MAX_CHARS + 1);
+	it("writes large extracted text to disk in full with grep-first guidance", async () => {
+		const text = "x".repeat(50_000);
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => jsonResponse({ text, metadata: { filename: "long.pdf" } })),
@@ -248,15 +246,13 @@ describe("Case.dev vault REST API helper", () => {
 		expect(result).toMatchObject({
 			objectId: "obj-long",
 			chars: text.length,
-			note: CASEDEV_VAULT_TEXT_TRUNCATION_WARNING,
 		});
+		expect(result.note).toContain("grep -n");
+		expect(result.note).toContain("Never page through the full text");
+		// The on-disk file is complete: disk is outside model context and free,
+		// and grep over the whole text is what enables large-document analysis.
 		const written = await readFile(join(cwd, "long.pdf.txt"), "utf-8");
-		expect(written).toHaveLength(CASEDEV_VAULT_TEXT_MAX_CHARS);
-		expect(written).toBe(
-			`${CASEDEV_VAULT_TEXT_TRUNCATION_WARNING}\n\n${"x".repeat(
-				CASEDEV_VAULT_TEXT_MAX_CHARS - CASEDEV_VAULT_TEXT_TRUNCATION_WARNING.length - 2,
-			)}`,
-		);
+		expect(written).toBe(text);
 	});
 
 	it("rejects text reads for objects with no extracted text", async () => {

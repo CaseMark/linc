@@ -48,10 +48,6 @@ export interface CaseDevVaultReadTextParams {
 	filename?: string;
 }
 
-export const CASEDEV_VAULT_TEXT_MAX_CHARS = 10_000;
-export const CASEDEV_VAULT_TEXT_TRUNCATION_WARNING =
-	"this document is too long to view in full. Use targeted vault searches to retrieve more context";
-
 export interface CaseDevVaultSearchParams {
 	query: string;
 	method?: "hybrid" | "global" | "entity" | "fast" | "vector" | "graph" | "local";
@@ -287,24 +283,25 @@ export async function readCaseDevVaultObjectText(
 	const filename = baseName.endsWith(".txt") ? baseName : `${baseName}.txt`;
 	await mkdir(params.outDir, { recursive: true });
 	const outputPath = safeOutputPath(params.outDir, filename);
-	const truncated = text.length > CASEDEV_VAULT_TEXT_MAX_CHARS;
-	const visibleTextLimit = truncated
-		? CASEDEV_VAULT_TEXT_MAX_CHARS - CASEDEV_VAULT_TEXT_TRUNCATION_WARNING.length - 2
-		: CASEDEV_VAULT_TEXT_MAX_CHARS;
-	const visibleText = text.slice(0, visibleTextLimit);
-	const output = truncated ? `${CASEDEV_VAULT_TEXT_TRUNCATION_WARNING}\n\n${visibleText}` : visibleText;
-	await writeFile(outputPath, output, "utf8");
-	const pageMarkers = (visibleText.match(/^--- Page \d+ ---$/gm) ?? []).length;
+	// The full text is written to disk deliberately: files on disk are outside
+	// model context and cost nothing, and grep over the complete text is what
+	// makes comprehensive large-document analysis possible. Context safety is
+	// enforced where the cost is — per-result output caps on read/grep/bash —
+	// not by truncating the file (which silently breaks any search past the
+	// cut and does nothing for other large files in the workspace).
+	await writeFile(outputPath, text, "utf8");
+	const pageMarkers = (text.match(/^--- Page \d+ ---$/gm) ?? []).length;
+	const usage =
+		'Locate content with `grep -n "pattern" <path>` and read only narrow line ranges around matches. Never page through the full text — it is too large for the conversation.';
 	return {
 		objectId: params.objectId,
 		path: outputPath,
 		chars: text.length,
 		pageMarkers,
-		note: truncated
-			? CASEDEV_VAULT_TEXT_TRUNCATION_WARNING
-			: pageMarkers > 0
-				? "Text contains --- Page N --- markers; cite findings by those page numbers."
-				: "This document has no page markers; cite findings by section or heading.",
+		note:
+			(pageMarkers > 0
+				? "Text contains --- Page N --- markers; cite findings by those page numbers. "
+				: "This document has no page markers; cite findings by section or heading. ") + usage,
 	};
 }
 
