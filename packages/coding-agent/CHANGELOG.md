@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Capped Case.dev vault text reads at 10,000 characters with targeted-search guidance so full documents do not enter durable agent context ([#22](https://github.com/CaseMark/linc/pull/22)).
+
 ## [0.79.3] - 2026-07-11
 
 ## [0.79.2] - 2026-06-24
