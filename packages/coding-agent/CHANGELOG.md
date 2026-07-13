@@ -2,9 +2,12 @@
 
 ## [Unreleased]
 
+## [0.79.4] - 2026-07-13
+
 ### Fixed
 
 - Fixed local release packaging for `@casemark/linc` and bundled standalone binary runtime assets so the built-in Matter and Vault extensions load outside the repository.
+- Capped Case.dev vault text reads at 10,000 characters with targeted-search guidance so full documents do not enter durable agent context ([#22](https://github.com/CaseMark/linc/pull/22)).
 
 ## [0.79.3] - 2026-07-11
 
