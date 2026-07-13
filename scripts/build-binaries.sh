@@ -121,6 +121,17 @@ cd packages/coding-agent
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"/{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64,windows-arm64}
 
+# Linc extensions are loaded from disk at runtime, outside Bun's compiled
+# executable. Bundle their dependency graphs so the standalone archive does not
+# need the package's full node_modules tree.
+BUNDLED_EXTENSIONS_DIR=$(mktemp -d)
+trap 'rm -rf "$BUNDLED_EXTENSIONS_DIR"' EXIT
+bun build \
+    ./dist/linc/extensions/matter.js \
+    ./dist/linc/extensions/vault.js \
+    --target=bun \
+    --outdir "$BUNDLED_EXTENSIONS_DIR"
+
 # Determine which platforms to build
 if [[ -n "$PLATFORM" ]]; then
     PLATFORMS=("$PLATFORM")
@@ -153,6 +164,8 @@ for platform in "${PLATFORMS[@]}"; do
     mkdir -p "$OUTPUT_DIR/$platform/assets"
     cp dist/modes/interactive/assets/* "$OUTPUT_DIR/$platform/assets/"
     cp -r dist/core/export-html "$OUTPUT_DIR/$platform/"
+    cp -r dist "$OUTPUT_DIR/$platform/"
+    cp "$BUNDLED_EXTENSIONS_DIR"/*.js "$OUTPUT_DIR/$platform/dist/linc/extensions/"
     cp -r docs "$OUTPUT_DIR/$platform/"
     cp -r examples "$OUTPUT_DIR/$platform/"
 
