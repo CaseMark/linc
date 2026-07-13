@@ -218,6 +218,72 @@ async function downloadVaultPath(ctx: ExtensionContext, vaultId: string, path: s
 const DOWNLOAD_CONTENT_NOTE =
 	"This is the original file (raw bytes). To read or analyze the document's content, use vault_read_text — it returns the extracted, page-numbered text.";
 
+const SEARCH_SNIPPET_MAX_CHARS = 500;
+const SEARCH_RESULT_MAX_CHARS = 20_000;
+const SEARCH_RESULT_NOTE =
+	"Result snippets are truncated for context economy. For full passages, use vault_read_text to write the document text into the workspace, then grep -n around the match.";
+
+function trimSearchText(value: unknown): unknown {
+	if (typeof value === "string") {
+		return value.length > SEARCH_SNIPPET_MAX_CHARS ? `${value.slice(0, SEARCH_SNIPPET_MAX_CHARS)}…` : value;
+	}
+	if (Array.isArray(value)) return value.map(trimSearchText);
+	if (typeof value === "object" && value !== null) {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value)) {
+			out[k] = trimSearchText(v);
+		}
+		return out;
+	}
+	return value;
+}
+
+// Search results come back from the API with full chunk text — 50 results can
+// be ~46K chars, and tool results are billed model context on every later
+// call in the session. Trim snippets, then drop trailing results until the
+// serialized payload fits the cap; the note steers agents to vault_read_text
+// + grep for full passages (the file on disk is free; tool results are not).
+function capSearchResult(data: unknown): { payload: unknown; omitted: number } {
+	let payload = trimSearchText(data);
+	let omitted = 0;
+	const serialized = () => JSON.stringify(payload, null, 2).length;
+	if (serialized() <= SEARCH_RESULT_MAX_CHARS) return { payload, omitted };
+	if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+		const record = { ...(payload as Record<string, unknown>) };
+		for (const key of ["chunks", "results", "matches", "data"]) {
+			const list = record[key];
+			if (Array.isArray(list)) {
+				const capped = [...list];
+				while (
+					capped.length > 1 &&
+					JSON.stringify({ ...record, [key]: capped }, null, 2).length > SEARCH_RESULT_MAX_CHARS
+				) {
+					capped.pop();
+					omitted += 1;
+				}
+				record[key] = capped;
+				payload = record;
+				break;
+			}
+		}
+	}
+	return { payload, omitted };
+}
+
+function searchToolResult(command: string[], data: unknown) {
+	const { payload, omitted } = capSearchResult(data);
+	const body: Record<string, unknown> = { note: SEARCH_RESULT_NOTE };
+	if (omitted > 0) {
+		body.omittedResults = `${omitted} result(s) omitted to bound output size — narrow the query or lower limit.`;
+	}
+	if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+		Object.assign(body, payload as Record<string, unknown>);
+	} else {
+		body.results = payload;
+	}
+	return resultContent(command, JSON.stringify(body, null, 2));
+}
+
 async function executeVaultReadText(
 	ctx: ExtensionContext,
 	signal: AbortSignal | undefined,
@@ -298,7 +364,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			async execute(_toolCallId, params: VaultSearchInput, signal, _onUpdate, ctx) {
 				const vaultId = resolveVaultId(ctx, params.vaultId);
 				const result = await searchCaseDevVault({ ...ctx, signal }, vaultId, params);
-				return jsonResult(["POST", `/vault/${vaultId}/search`], result);
+				return searchToolResult(["POST", `/vault/${vaultId}/search`], result);
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault search", args, theme),
 			renderResult,
@@ -385,7 +451,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			async execute(_toolCallId, params: VaultSearchInput, signal, _onUpdate, ctx) {
 				const vaultId = resolveVaultId(ctx, params.vaultId);
 				const result = await searchCaseDevVault({ ...ctx, signal }, vaultId, params);
-				return jsonResult(["POST", `/vault/${vaultId}/search`], result);
+				return searchToolResult(["POST", `/vault/${vaultId}/search`], result);
 			},
 			renderCall: (args, theme) => renderCall("vault_search", args, theme),
 			renderResult,
