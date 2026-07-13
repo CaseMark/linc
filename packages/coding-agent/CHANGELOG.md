@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Case.dev Vault tools in protected preview deployments by forwarding the injected Vercel protection bypass header on REST and download requests ([#25](https://github.com/CaseMark/linc/pull/25)).
+
 ## [0.79.4] - 2026-07-13
 
 ### Fixed
