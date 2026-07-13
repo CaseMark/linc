@@ -37,12 +37,14 @@ describe("Case.dev vault REST API helper", () => {
 	const originalCaseDevBaseUrl = process.env.CASEDEV_API_BASE_URL;
 	const originalCaseDevBaseUrlAlt = process.env.CASEDEV_BASE_URL;
 	const originalCaseApiUrl = process.env.CASE_API_URL;
+	const originalVercelProtectionBypass = process.env.CASEDEV_VERCEL_PROTECTION_BYPASS;
 
 	beforeEach(async () => {
 		cwd = await mkdtemp(join(tmpdir(), "linc-vault-api-test-"));
 		process.env.CASEDEV_API_BASE_URL = "https://preview.api.case.dev";
 		delete process.env.CASEDEV_BASE_URL;
 		delete process.env.CASE_API_URL;
+		delete process.env.CASEDEV_VERCEL_PROTECTION_BYPASS;
 	});
 
 	afterEach(async () => {
@@ -54,6 +56,8 @@ describe("Case.dev vault REST API helper", () => {
 		else process.env.CASEDEV_BASE_URL = originalCaseDevBaseUrlAlt;
 		if (originalCaseApiUrl === undefined) delete process.env.CASE_API_URL;
 		else process.env.CASE_API_URL = originalCaseApiUrl;
+		if (originalVercelProtectionBypass === undefined) delete process.env.CASEDEV_VERCEL_PROTECTION_BYPASS;
+		else process.env.CASEDEV_VERCEL_PROTECTION_BYPASS = originalVercelProtectionBypass;
 	});
 
 	it("lists vaults through the REST API with the stored Case.dev key", async () => {
@@ -106,6 +110,24 @@ describe("Case.dev vault REST API helper", () => {
 		});
 	});
 
+	it("forwards the Vercel protection bypass on REST requests", async () => {
+		process.env.CASEDEV_VERCEL_PROTECTION_BYPASS = "preview-bypass";
+		const fetchMock = vi.fn(async () => jsonResponse({ vaults: [] }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await listCaseDevVaults(createContext(cwd));
+
+		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault", {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer sk_case_test",
+				"x-vercel-protection-bypass": "preview-bypass",
+			},
+			body: undefined,
+			signal: undefined,
+		});
+	});
+
 	it("downloads a vault object to a local file", async () => {
 		const fetchMock = vi.fn(async () => new Response("downloaded text", { status: 200 }));
 		vi.stubGlobal("fetch", fetchMock);
@@ -126,6 +148,27 @@ describe("Case.dev vault REST API helper", () => {
 		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault/vault-1/objects/obj-1/download", {
 			method: "GET",
 			headers: { Authorization: "Bearer sk_case_test" },
+			signal: undefined,
+		});
+	});
+
+	it("forwards the Vercel protection bypass on streaming downloads", async () => {
+		process.env.CASEDEV_VERCEL_PROTECTION_BYPASS = "preview-bypass";
+		const fetchMock = vi.fn(async () => new Response("downloaded text", { status: 200 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await downloadCaseDevVaultObject(createContext(cwd), {
+			vaultId: "vault-1",
+			objectId: "obj-1",
+			outDir: cwd,
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault/vault-1/objects/obj-1/download", {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer sk_case_test",
+				"x-vercel-protection-bypass": "preview-bypass",
+			},
 			signal: undefined,
 		});
 	});

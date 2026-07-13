@@ -68,6 +68,11 @@ function getCaseDevApiBaseUrl(): string {
 	).replace(/\/+$/, "");
 }
 
+function getCaseDevVercelProtectionHeaders(): Record<string, string> {
+	const bypass = process.env.CASEDEV_VERCEL_PROTECTION_BYPASS;
+	return bypass ? { "x-vercel-protection-bypass": bypass } : {};
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -155,6 +160,7 @@ export async function caseDevApiRequest<T = unknown>(
 		method,
 		headers: {
 			Authorization: `Bearer ${apiKey}`,
+			...getCaseDevVercelProtectionHeaders(),
 			...(options?.body === undefined ? {} : { "Content-Type": "application/json" }),
 		},
 		body: options?.body === undefined ? undefined : JSON.stringify(options.body),
@@ -236,7 +242,7 @@ export async function downloadCaseDevVaultObject(
 		`${getCaseDevApiBaseUrl()}/vault/${encodeURIComponent(params.vaultId)}/objects/${encodeURIComponent(params.objectId)}/download`,
 		{
 			method: "GET",
-			headers: { Authorization: `Bearer ${apiKey}` },
+			headers: { Authorization: `Bearer ${apiKey}`, ...getCaseDevVercelProtectionHeaders() },
 			signal: ctx.signal,
 		},
 	);
