@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import {
+	CASEDEV_VAULT_TEXT_MAX_CHARS,
+	CASEDEV_VAULT_TEXT_TRUNCATION_WARNING,
 	downloadCaseDevVaultObject,
 	listCaseDevVaults,
 	readCaseDevVaultObjectText,
@@ -185,6 +187,33 @@ describe("Case.dev vault REST API helper", () => {
 			body: undefined,
 			signal: undefined,
 		});
+	});
+
+	it("limits extracted object text and prepends targeted-search guidance", async () => {
+		const text = "x".repeat(CASEDEV_VAULT_TEXT_MAX_CHARS + 1);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => jsonResponse({ text, metadata: { filename: "long.pdf" } })),
+		);
+
+		const result = await readCaseDevVaultObjectText(createContext(cwd), {
+			vaultId: "vault-1",
+			objectId: "obj-long",
+			outDir: cwd,
+		});
+
+		expect(result).toMatchObject({
+			objectId: "obj-long",
+			chars: text.length,
+			note: CASEDEV_VAULT_TEXT_TRUNCATION_WARNING,
+		});
+		const written = await readFile(join(cwd, "long.pdf.txt"), "utf-8");
+		expect(written).toHaveLength(CASEDEV_VAULT_TEXT_MAX_CHARS);
+		expect(written).toBe(
+			`${CASEDEV_VAULT_TEXT_TRUNCATION_WARNING}\n\n${"x".repeat(
+				CASEDEV_VAULT_TEXT_MAX_CHARS - CASEDEV_VAULT_TEXT_TRUNCATION_WARNING.length - 2,
+			)}`,
+		);
 	});
 
 	it("rejects text reads for objects with no extracted text", async () => {

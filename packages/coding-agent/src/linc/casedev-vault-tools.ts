@@ -351,8 +351,8 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			name: "casedev_vault_read_text",
 			label: "case.dev vault read text",
 			description:
-				"Write the full extracted text of an ingested Case.dev vault object into the workspace as a .txt file, page-numbered when the source is paginated. The right tool for reading, grepping, or comprehensively analyzing document content at any document size.",
-			promptSnippet: "Read a Case.dev vault object's full extracted text into the workspace.",
+				"Write up to the first 10,000 characters of an ingested Case.dev vault object's extracted text into the workspace as a .txt file. Use targeted vault searches for additional context.",
+			promptSnippet: "Read a bounded excerpt of a Case.dev vault object's extracted text into the workspace.",
 			parameters: vaultReadTextSchema,
 			async execute(_toolCallId, params: VaultReadTextInput, signal, _onUpdate, ctx) {
 				return executeVaultReadText(ctx, signal, params);
@@ -439,10 +439,10 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			name: "vault_read_text",
 			label: "vault_read_text",
 			description:
-				"Write the full extracted text of an ingested matter document into the workspace as a .txt file, page-numbered when the source is paginated. The right tool for reading, grepping, or comprehensively analyzing document content at any document size. Works on every ingested document; the original raw file is NOT needed for content questions.",
-			promptSnippet: "Read a matter document's full extracted text into the workspace",
+				"Write up to the first 10,000 characters of an ingested matter document's extracted text into the workspace as a .txt file. Use targeted vault searches for additional context.",
+			promptSnippet: "Read a bounded excerpt of a matter document's extracted text into the workspace",
 			promptGuidelines: [
-				"Originals from vault_download are raw bytes and often scanned images; use vault_read_text for full document content and page-numbered citations.",
+				"Originals from vault_download are raw bytes and often scanned images; use vault_read_text for a bounded excerpt and targeted vault searches for additional context.",
 			],
 			parameters: vaultReadTextSchema,
 			async execute(_toolCallId, params: VaultReadTextInput, signal, _onUpdate, ctx) {

@@ -48,6 +48,10 @@ export interface CaseDevVaultReadTextParams {
 	filename?: string;
 }
 
+export const CASEDEV_VAULT_TEXT_MAX_CHARS = 10_000;
+export const CASEDEV_VAULT_TEXT_TRUNCATION_WARNING =
+	"this document is too long to view in full. Use targeted vault searches to retrieve more context";
+
 export interface CaseDevVaultSearchParams {
 	query: string;
 	method?: "hybrid" | "global" | "entity" | "fast" | "vector" | "graph" | "local";
@@ -277,15 +281,22 @@ export async function readCaseDevVaultObjectText(
 	const filename = baseName.endsWith(".txt") ? baseName : `${baseName}.txt`;
 	await mkdir(params.outDir, { recursive: true });
 	const outputPath = safeOutputPath(params.outDir, filename);
-	await writeFile(outputPath, text, "utf8");
-	const pageMarkers = (text.match(/^--- Page \d+ ---$/gm) ?? []).length;
+	const truncated = text.length > CASEDEV_VAULT_TEXT_MAX_CHARS;
+	const visibleTextLimit = truncated
+		? CASEDEV_VAULT_TEXT_MAX_CHARS - CASEDEV_VAULT_TEXT_TRUNCATION_WARNING.length - 2
+		: CASEDEV_VAULT_TEXT_MAX_CHARS;
+	const visibleText = text.slice(0, visibleTextLimit);
+	const output = truncated ? `${CASEDEV_VAULT_TEXT_TRUNCATION_WARNING}\n\n${visibleText}` : visibleText;
+	await writeFile(outputPath, output, "utf8");
+	const pageMarkers = (visibleText.match(/^--- Page \d+ ---$/gm) ?? []).length;
 	return {
 		objectId: params.objectId,
 		path: outputPath,
 		chars: text.length,
 		pageMarkers,
-		note:
-			pageMarkers > 0
+		note: truncated
+			? CASEDEV_VAULT_TEXT_TRUNCATION_WARNING
+			: pageMarkers > 0
 				? "Text contains --- Page N --- markers; cite findings by those page numbers."
 				: "This document has no page markers; cite findings by section or heading.",
 	};
