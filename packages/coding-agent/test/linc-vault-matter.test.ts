@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 	listCaseDevVaultObjects: vi.fn(),
 	downloadCaseDevVaultObject: vi.fn(),
 	uploadCaseDevVaultFile: vi.fn(),
+	searchCaseDevVault: vi.fn(),
 }));
 
 vi.mock("../src/linc/casedev-cli.ts", () => ({
@@ -43,6 +44,7 @@ vi.mock("../src/linc/casedev-vault-api.ts", async (importOriginal) => {
 		listCaseDevVaultObjects: mocks.listCaseDevVaultObjects,
 		downloadCaseDevVaultObject: mocks.downloadCaseDevVaultObject,
 		uploadCaseDevVaultFile: mocks.uploadCaseDevVaultFile,
+		searchCaseDevVault: mocks.searchCaseDevVault,
 	};
 });
 
@@ -295,6 +297,57 @@ describe("Case.dev vault tools", () => {
 			),
 		).rejects.toThrow("not in CASE_ALLOWED_VAULT_IDS");
 		expect(mocks.runCaseDevCli).not.toHaveBeenCalled();
+	});
+
+	it("caps oversized search results and steers toward vault_read_text", async () => {
+		delete process.env.CASE_ALLOWED_VAULT_IDS;
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+		mocks.searchCaseDevVault.mockResolvedValue({
+			chunks: Array.from({ length: 50 }, (_, i) => ({
+				objectId: `obj-${i}`,
+				text: "x".repeat(2_000),
+				metadata: { page: i + 1 },
+			})),
+		});
+
+		const result = await getTool("vault_search").execute(
+			"tool-call-1",
+			{ query: "facts", vaultId: "vault-1", limit: 50 },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const first = result.content[0];
+		const output = first?.type === "text" ? first.text : "";
+		expect(output.length).toBeLessThanOrEqual(22_000);
+		const parsed = JSON.parse(output);
+		expect(parsed.note).toContain("vault_read_text");
+		for (const chunk of parsed.chunks) {
+			expect(chunk.text.length).toBeLessThanOrEqual(501);
+		}
+		expect(parsed.omittedResults ?? "").toContain("omitted");
+	});
+
+	it("passes small search results through intact with the steering note", async () => {
+		delete process.env.CASE_ALLOWED_VAULT_IDS;
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+		mocks.searchCaseDevVault.mockResolvedValue({
+			chunks: [{ objectId: "obj-1", text: "short match", metadata: { page: 3 } }],
+		});
+
+		const result = await getTool("vault_search").execute(
+			"tool-call-1",
+			{ query: "facts", vaultId: "vault-1" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const firstSmall = result.content[0];
+		const parsed = JSON.parse(firstSmall?.type === "text" ? firstSmall.text : "{}");
+		expect(parsed.chunks).toHaveLength(1);
+		expect(parsed.chunks[0].text).toBe("short match");
+		expect(parsed.note).toContain("vault_read_text");
+		expect(parsed.omittedResults).toBeUndefined();
 	});
 });
 
