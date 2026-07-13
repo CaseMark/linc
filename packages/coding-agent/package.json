@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc",
-	"version": "0.79.4",
+	"version": "0.79.5",
 	"description": "Legal AI terminal agent powered by case.dev",
 	"type": "module",
 	"piConfig": {
@@ -44,9 +44,9 @@
 		"prepublishOnly": "npm run clean && npm run build && npm run shrinkwrap"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.79.4",
-		"@earendil-works/pi-ai": "^0.79.4",
-		"@earendil-works/pi-tui": "^0.79.4",
+		"@earendil-works/pi-agent-core": "^0.79.5",
+		"@earendil-works/pi-ai": "^0.79.5",
+		"@earendil-works/pi-tui": "^0.79.5",
 		"@silvia-odwyer/photon-node": "0.3.4",
 		"chalk": "5.6.2",
 		"cross-spawn": "7.0.6",
