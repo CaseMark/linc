@@ -351,7 +351,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			name: "casedev_vault_read_text",
 			label: "case.dev vault read text",
 			description:
-				"Write up to the first 10,000 characters of an ingested Case.dev vault object's extracted text into the workspace as a .txt file. Use targeted vault searches for additional context.",
+				"Write the full extracted text of an ingested Case.dev vault object into the workspace as a .txt file, page-numbered when the source is paginated. Locate content with grep -n and read only narrow line ranges around matches; never page the full text into the conversation.",
 			promptSnippet: "Read a bounded excerpt of a Case.dev vault object's extracted text into the workspace.",
 			parameters: vaultReadTextSchema,
 			async execute(_toolCallId, params: VaultReadTextInput, signal, _onUpdate, ctx) {
@@ -439,7 +439,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			name: "vault_read_text",
 			label: "vault_read_text",
 			description:
-				"Write up to the first 10,000 characters of an ingested matter document's extracted text into the workspace as a .txt file. Use targeted vault searches for additional context.",
+				"Write the full extracted text of an ingested matter document into the workspace as a .txt file, page-numbered when the source is paginated. The right tool for comprehensively analyzing document content at any size: locate content with grep -n and read only narrow line ranges around matches; never page the full text into the conversation.",
 			promptSnippet: "Read a bounded excerpt of a matter document's extracted text into the workspace",
 			promptGuidelines: [
 				"Originals from vault_download are raw bytes and often scanned images; use vault_read_text for a bounded excerpt and targeted vault searches for additional context.",

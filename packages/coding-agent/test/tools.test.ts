@@ -84,7 +84,7 @@ describe("Coding Agent Tools", () => {
 
 		it("should truncate when byte limit exceeded", async () => {
 			const testFile = join(testDir, "large-bytes.txt");
-			// Create file that exceeds 50KB byte limit but has fewer than 2000 lines
+			// Create file that exceeds the byte limit but has fewer than 2000 lines
 			const lines = Array.from({ length: 500 }, (_, i) => `Line ${i + 1}: ${"x".repeat(200)}`);
 			writeFileSync(testFile, lines.join("\n"));
 
