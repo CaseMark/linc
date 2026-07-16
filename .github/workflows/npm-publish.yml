@@ -59,8 +59,16 @@ jobs:
       - name: Test
         run: npm test
 
+      # The model metadata files are regenerated from live provider/gateway
+      # data during every build, so they drift whenever upstream catalogs or
+      # pricing change between release prep and publish. Excluding them keeps
+      # the verify meaningful (nothing else may be uncommitted) without racing
+      # live data.
       - name: Verify release artifacts are committed
-        run: git diff --exit-code
+        run: >-
+          git diff --exit-code --
+          . ':(exclude)packages/ai/src/models.generated.ts'
+          ':(exclude)packages/ai/src/image-models.generated.ts'
 
       - name: Upgrade npm for trusted publishing
         run: |
