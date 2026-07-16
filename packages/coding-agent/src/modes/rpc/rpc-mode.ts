@@ -422,7 +422,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "abort": {
+				// Clear before aborting: the post-run settlement loop auto-continues
+				// any messages still queued when the aborted run resolves, so a
+				// clear issued after the abort races that continuation.
+				const clearedQueue = command.clearQueue ? session.clearQueue() : undefined;
 				await session.abort();
+				if (clearedQueue) {
+					return success(id, "abort", { clearedQueue });
+				}
 				return success(id, "abort");
 			}
 
