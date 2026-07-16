@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.8] - 2026-07-16
+
+### Added
+
+- `abort` RPC command accepts `clearQueue` to clear queued steering/follow-up messages before the abort settles, returning the cleared texts so clients can restore them ([#31](https://github.com/CaseMark/linc/pull/31)).
 
 ## [0.79.7] - 2026-07-13
 
