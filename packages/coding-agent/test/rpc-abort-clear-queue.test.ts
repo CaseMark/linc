@@ -193,6 +193,11 @@ describe("RPC abort clearQueue", () => {
 				expect(getResponses(rpcIo.outputLines, "a2")).toHaveLength(1);
 			});
 
+			lineHandler(JSON.stringify({ id: "a2s", type: "steer", message: "Steered message" }));
+			await vi.waitFor(() => {
+				expect(getResponses(rpcIo.outputLines, "a2s")).toHaveLength(1);
+			});
+
 			lineHandler(JSON.stringify({ id: "a3", type: "abort", clearQueue: true }));
 			await vi.waitFor(() => {
 				const responses = getResponses(rpcIo.outputLines, "a3");
@@ -202,7 +207,7 @@ describe("RPC abort clearQueue", () => {
 					type: "response",
 					command: "abort",
 					success: true,
-					data: { clearedQueue: { steering: [], followUp: ["Queued message"] } },
+					data: { clearedQueue: { steering: ["Steered message"], followUp: ["Queued message"] } },
 				});
 			});
 

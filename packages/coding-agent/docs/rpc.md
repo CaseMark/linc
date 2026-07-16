@@ -134,9 +134,10 @@ Response:
 {"type": "response", "command": "abort", "success": true}
 ```
 
-With `clearQueue: true`, queued steering and follow-up messages are also
-cleared after the abort. The cleared texts are returned so the client can
-restore them (for example, back into an input editor):
+With `clearQueue: true`, queued steering and follow-up messages are cleared
+before the abort settles (clearing later would race the post-run
+continuation described below). The cleared texts are returned so the client
+can restore them (for example, back into an input editor):
 
 ```json
 {"type": "abort", "clearQueue": true}
