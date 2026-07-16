@@ -213,9 +213,15 @@ export class RpcClient {
 
 	/**
 	 * Abort current operation.
+	 * @param options.clearQueue - Also clear queued steering/follow-up messages;
+	 * the cleared texts are returned so callers can restore them (e.g. to an editor)
 	 */
-	async abort(): Promise<void> {
-		await this.send({ type: "abort" });
+	async abort(options?: {
+		clearQueue?: boolean;
+	}): Promise<{ clearedQueue: { steering: string[]; followUp: string[] } } | undefined> {
+		const response = await this.send({ type: "abort", clearQueue: options?.clearQueue });
+		if (!options?.clearQueue) return undefined;
+		return this.getData(response);
 	}
 
 	/**

@@ -134,6 +134,30 @@ Response:
 {"type": "response", "command": "abort", "success": true}
 ```
 
+With `clearQueue: true`, queued steering and follow-up messages are cleared
+before the abort settles (clearing later would race the post-run
+continuation described below). The cleared texts are returned so the client
+can restore them (for example, back into an input editor):
+
+```json
+{"type": "abort", "clearQueue": true}
+```
+
+Response:
+```json
+{
+  "type": "response",
+  "command": "abort",
+  "success": true,
+  "data": {"clearedQueue": {"steering": [], "followUp": ["Queued message text"]}}
+}
+```
+
+Without `clearQueue`, messages still queued when the aborted run settles are
+delivered through the post-run continuation: the agent immediately starts a
+new run to process them. Pass `clearQueue: true` when an abort should leave
+the agent fully idle.
+
 #### new_session
 
 Start a fresh session. Can be cancelled by a `session_before_switch` extension event handler.
