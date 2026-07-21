@@ -17,6 +17,28 @@ import { getAttachedVault } from "./vault-attachment.ts";
 
 interface CaseDevToolDetails {
 	command: string[];
+	sources?: CaseDevVaultSource[];
+}
+
+/**
+ * Structured source reference for downstream UIs (CD-1320). The model-visible
+ * text payload is capped for context economy, so these ride `details`, which
+ * flows verbatim into tool_execution_end events and persisted toolResult
+ * messages without being billed as model context. Field names match the
+ * consumer contract in c3 (lib/chat/sources.ts normalizeExplicitSources):
+ * `type`, `object_id`, `title` are required for a vault source; `fullText`
+ * feeds the citation verifier and must be real passage text, never a
+ * truncated preview.
+ */
+interface CaseDevVaultSource {
+	type: "vault";
+	object_id: string;
+	title: string;
+	snippet?: string;
+	fullText?: string;
+	pages?: string;
+	chunkIndices?: number[];
+	totalChunks?: number;
 }
 
 const vaultListSchema = Type.Object({
@@ -131,18 +153,19 @@ function renderResult(result: {
 function resultContent(
 	command: string[],
 	output: string,
+	sources?: CaseDevVaultSource[],
 ): {
 	content: Array<{ type: "text"; text: string }>;
 	details: CaseDevToolDetails;
 } {
 	return {
 		content: [{ type: "text", text: output }],
-		details: { command },
+		details: sources && sources.length > 0 ? { command, sources } : { command },
 	};
 }
 
-function jsonResult(command: string[], data: unknown) {
-	return resultContent(command, JSON.stringify(data, null, 2));
+function jsonResult(command: string[], data: unknown, sources?: CaseDevVaultSource[]) {
+	return resultContent(command, JSON.stringify(data, null, 2), sources);
 }
 
 function resolveVaultId(ctx: ExtensionContext, vaultId: string | undefined): string {
@@ -270,6 +293,96 @@ function capSearchResult(data: unknown): { payload: unknown; omitted: number } {
 	return { payload, omitted };
 }
 
+const SOURCE_SNIPPET_MAX_CHARS = 300;
+const SOURCE_FULLTEXT_MAX_CHARS = 16_000;
+const SOURCES_MAX = 20;
+
+function sourceString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function sourceNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function sourcePageRange(rec: Record<string, unknown>): string | undefined {
+	const start = sourceNumber(rec.page_start) ?? sourceNumber(rec.pageStart);
+	if (start === undefined) return undefined;
+	const end = sourceNumber(rec.page_end) ?? sourceNumber(rec.pageEnd);
+	return end !== undefined && end !== start ? `${start}–${end}` : `${start}`;
+}
+
+// One source per document, built from the UNCAPPED search payload: the text
+// result drops snippets and trailing results to bound model context, but the
+// sources drawer and the citation verifier need real passage text and page
+// spans. The payload shape is provider JSON, so extraction is defensive —
+// unknown shapes yield no sources, never an error.
+function extractVaultSearchSources(data: unknown): CaseDevVaultSource[] {
+	if (typeof data !== "object" || data === null || Array.isArray(data)) return [];
+	const record = data as Record<string, unknown>;
+	let list: unknown[] | undefined;
+	for (const key of ["chunks", "results", "matches", "data"]) {
+		const candidate = record[key];
+		if (Array.isArray(candidate)) {
+			list = candidate;
+			break;
+		}
+	}
+	if (!list) return [];
+	const byObject = new Map<string, CaseDevVaultSource>();
+	for (const item of list) {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+		const rec = item as Record<string, unknown>;
+		const objectId =
+			sourceString(rec.object_id) ??
+			sourceString(rec.objectId) ??
+			sourceString(rec.document_id) ??
+			sourceString(rec.documentId);
+		if (!objectId) continue;
+		const text =
+			sourceString(rec.text) ??
+			sourceString(rec.content) ??
+			sourceString(rec.chunk_text) ??
+			sourceString(rec.snippet);
+		const chunkIndex = sourceNumber(rec.chunk_index) ?? sourceNumber(rec.chunkIndex);
+		const pages = sourcePageRange(rec);
+		const existing = byObject.get(objectId);
+		if (existing) {
+			if (text && (existing.fullText?.length ?? 0) + text.length + 2 <= SOURCE_FULLTEXT_MAX_CHARS) {
+				existing.fullText = existing.fullText ? `${existing.fullText}\n\n${text}` : text;
+			}
+			if (chunkIndex !== undefined) {
+				existing.chunkIndices = [...(existing.chunkIndices ?? []), chunkIndex];
+			}
+			if (pages && existing.pages && !existing.pages.split(", ").includes(pages)) {
+				existing.pages = `${existing.pages}, ${pages}`;
+			}
+			continue;
+		}
+		if (byObject.size >= SOURCES_MAX) continue;
+		const source: CaseDevVaultSource = {
+			type: "vault",
+			object_id: objectId,
+			title:
+				sourceString(rec.filename) ??
+				sourceString(rec.object_name) ??
+				sourceString(rec.name) ??
+				sourceString(rec.title) ??
+				objectId,
+		};
+		if (text) {
+			source.snippet = text.length > SOURCE_SNIPPET_MAX_CHARS ? `${text.slice(0, SOURCE_SNIPPET_MAX_CHARS)}…` : text;
+			source.fullText = text.slice(0, SOURCE_FULLTEXT_MAX_CHARS);
+		}
+		if (pages) source.pages = pages;
+		if (chunkIndex !== undefined) source.chunkIndices = [chunkIndex];
+		const totalChunks = sourceNumber(rec.total_chunks) ?? sourceNumber(rec.totalChunks);
+		if (totalChunks !== undefined) source.totalChunks = totalChunks;
+		byObject.set(objectId, source);
+	}
+	return [...byObject.values()];
+}
+
 function searchToolResult(command: string[], data: unknown) {
 	const { payload, omitted } = capSearchResult(data);
 	const body: Record<string, unknown> = { note: SEARCH_RESULT_NOTE };
@@ -281,7 +394,7 @@ function searchToolResult(command: string[], data: unknown) {
 	} else {
 		body.results = payload;
 	}
-	return resultContent(command, JSON.stringify(body, null, 2));
+	return resultContent(command, JSON.stringify(body, null, 2), extractVaultSearchSources(data));
 }
 
 async function executeVaultReadText(
@@ -299,7 +412,14 @@ async function executeVaultReadText(
 			...(params.filename ? { filename: params.filename } : {}),
 		},
 	);
-	return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/text`], result);
+	const title =
+		result.path
+			.split(/[\\/]/)
+			.pop()
+			?.replace(/\.txt$/, "") || result.objectId;
+	return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/text`], result, [
+		{ type: "vault", object_id: result.objectId, title },
+	]);
 }
 
 export function createCaseDevVaultTools(): ToolDefinition[] {
@@ -405,7 +525,13 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 					});
 					const payload =
 						object?.ingestionStatus === "completed" ? { ...result, note: DOWNLOAD_CONTENT_NOTE } : result;
-					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload);
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload, [
+						{
+							type: "vault",
+							object_id: params.objectId,
+							title: object?.filename ?? object?.name ?? params.objectId,
+						},
+					]);
 				}
 				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
 				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
@@ -493,7 +619,13 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 					});
 					const payload =
 						object?.ingestionStatus === "completed" ? { ...result, note: DOWNLOAD_CONTENT_NOTE } : result;
-					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload);
+					return jsonResult(["GET", `/vault/${vaultId}/objects/${params.objectId}/download`], payload, [
+						{
+							type: "vault",
+							object_id: params.objectId,
+							title: object?.filename ?? object?.name ?? params.objectId,
+						},
+					]);
 				}
 				const result = await downloadVaultPath(scopedCtx, vaultId, params.path!, params.outDir ?? ctx.cwd);
 				return jsonResult(["GET", `/vault/${vaultId}/objects`, "download-path", params.path!], result);
