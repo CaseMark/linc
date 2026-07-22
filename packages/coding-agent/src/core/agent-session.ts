@@ -249,6 +249,11 @@ interface ToolDefinitionEntry {
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
+/** Provider-overload error class: saturated upstreams need long, jittered backoff (CD-1291). */
+const OVERLOAD_ERROR_RE = /overloaded|rate.?limit|too many requests|429|502|503|529/i;
+const OVERLOAD_BACKOFF_MULTIPLIER = 5;
+const MAX_RETRY_DELAY_MS = 60_000;
+
 // ============================================================================
 // AgentSession Class
 // ============================================================================
@@ -2507,7 +2512,17 @@ export class AgentSession {
 			return false;
 		}
 
-		const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);
+		// Provider overload (429/502/503/overloaded) signals a saturated
+		// upstream: retrying on the default 2s/4s/8s schedule lands inside the
+		// same rate-limit window and re-bills the full cached context each
+		// attempt (CD-1291). Back off 5× longer for that class, with jitter so
+		// concurrent sessions hitting the same outage don't retry in lockstep.
+		const overloaded = OVERLOAD_ERROR_RE.test(message.errorMessage || "");
+		const baseDelayMs = settings.baseDelayMs * (overloaded ? OVERLOAD_BACKOFF_MULTIPLIER : 1);
+		let delayMs = Math.min(baseDelayMs * 2 ** (this._retryAttempt - 1), MAX_RETRY_DELAY_MS);
+		if (overloaded) {
+			delayMs = Math.max(1, Math.round(delayMs * (0.8 + Math.random() * 0.4)));
+		}
 
 		this._emit({
 			type: "auto_retry_start",

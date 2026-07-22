@@ -68,10 +68,16 @@ describe("AgentSession retry", () => {
 		}
 	});
 
-	function createSession(options?: { failCount?: number; maxRetries?: number; delayAssistantMessageEndMs?: number }) {
+	function createSession(options?: {
+		failCount?: number;
+		maxRetries?: number;
+		delayAssistantMessageEndMs?: number;
+		errorMessage?: string;
+	}) {
 		const failCount = options?.failCount ?? 1;
 		const maxRetries = options?.maxRetries ?? 3;
 		const delayAssistantMessageEndMs = options?.delayAssistantMessageEndMs ?? 0;
+		const errorMessage = options?.errorMessage ?? "overloaded_error";
 		let callCount = 0;
 
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
@@ -85,7 +91,7 @@ describe("AgentSession retry", () => {
 					if (callCount <= failCount) {
 						const msg = createAssistantMessage("", {
 							stopReason: "error",
-							errorMessage: "overloaded_error",
+							errorMessage,
 						});
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
@@ -128,6 +134,33 @@ describe("AgentSession retry", () => {
 
 		return { session, getCallCount: () => callCount };
 	}
+
+	it("backs off longer with jitter for provider-overload errors (CD-1291)", async () => {
+		const created = createSession({ failCount: 1, errorMessage: "502 true" });
+		const delays: number[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") delays.push(event.delayMs);
+		});
+
+		await created.session.prompt("Test");
+
+		// base 1ms × overload multiplier 5, jittered ±20% → 4–6ms (never the plain 1ms)
+		expect(delays).toHaveLength(1);
+		expect(delays[0]).toBeGreaterThanOrEqual(4);
+		expect(delays[0]).toBeLessThanOrEqual(6);
+	});
+
+	it("keeps the standard schedule for non-overload transient errors", async () => {
+		const created = createSession({ failCount: 1, errorMessage: "network error" });
+		const delays: number[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") delays.push(event.delayMs);
+		});
+
+		await created.session.prompt("Test");
+
+		expect(delays).toEqual([1]);
+	});
 
 	it("retries after a transient error and succeeds", async () => {
 		const created = createSession({ failCount: 1 });
