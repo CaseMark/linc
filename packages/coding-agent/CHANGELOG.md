@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.9] - 2026-07-22
+
+### Added
+
+- Vault tool results (`vault_search`, `vault_read_text`, single-object `vault_download`, and their `casedev_*` twins) attach structured source refs on `details` — object id, title, snippet, merged full passage text, page spans, chunk indices — built from the uncapped search payload for downstream sources/citation UIs. The model-visible text output is unchanged ([#35](https://github.com/CaseMark/linc/pull/35)).
+
+### Changed
+
+- Provider-overload retry errors (429/502/503/overloaded) back off 5× longer than other transient errors (10s/20s/40s at defaults, capped at 60s) with ±20% jitter, so retries stop landing inside the same rate-limit window and re-billing cached context ([#36](https://github.com/CaseMark/linc/pull/36)).
 
 ## [0.79.8] - 2026-07-16
 
