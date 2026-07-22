@@ -328,6 +328,80 @@ describe("Case.dev vault tools", () => {
 		expect(parsed.omittedResults ?? "").toContain("omitted");
 	});
 
+	it("attaches structured sources to search results from the uncapped payload", async () => {
+		delete process.env.CASE_ALLOWED_VAULT_IDS;
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+		mocks.searchCaseDevVault.mockResolvedValue({
+			chunks: [
+				{
+					object_id: "obj-1",
+					filename: "Deposition_Smith.pdf",
+					text: "a".repeat(600),
+					page_start: 3,
+					page_end: 4,
+					chunk_index: 12,
+					total_chunks: 40,
+				},
+				{
+					object_id: "obj-1",
+					filename: "Deposition_Smith.pdf",
+					text: "second passage from the same document",
+					page_start: 7,
+					chunk_index: 19,
+				},
+				{ object_id: "obj-2", name: "Incident Report", text: "short match" },
+				{ text: "no object id — skipped" },
+			],
+		});
+
+		const result = await getTool("vault_search").execute(
+			"tool-call-1",
+			{ query: "facts", vaultId: "vault-1" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const details = result.details as { command: string[]; sources?: Array<Record<string, unknown>> };
+		const sources = details.sources;
+		expect(sources).toHaveLength(2);
+		expect(details.command).toEqual(["POST", "/vault/vault-1/search"]);
+
+		const [first, second] = sources ?? [];
+		expect(first).toMatchObject({
+			type: "vault",
+			object_id: "obj-1",
+			title: "Deposition_Smith.pdf",
+			pages: "3–4, 7",
+			chunkIndices: [12, 19],
+			totalChunks: 40,
+		});
+		// Snippet is display-truncated; fullText keeps the real passages for
+		// the citation verifier, merged across the document's chunks.
+		expect(String(first?.snippet).length).toBeLessThanOrEqual(301);
+		expect(first?.fullText).toContain("a".repeat(600));
+		expect(first?.fullText).toContain("second passage from the same document");
+		expect(second).toMatchObject({ type: "vault", object_id: "obj-2", title: "Incident Report" });
+	});
+
+	it("attaches a structured source to single-object downloads", async () => {
+		delete process.env.CASE_ALLOWED_VAULT_IDS;
+		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+		mocks.listCaseDevVaultObjects.mockResolvedValue([
+			{ id: "obj-9", filename: "Contract.pdf", ingestionStatus: "completed" },
+		]);
+		mocks.downloadCaseDevVaultObject.mockResolvedValue({ objectId: "obj-9", path: "/tmp/Contract.pdf", bytes: 10 });
+
+		const result = await getTool("vault_download").execute(
+			"tool-call-1",
+			{ objectId: "obj-9", vaultId: "vault-1" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const downloadDetails = result.details as { sources?: unknown };
+		expect(downloadDetails.sources).toEqual([{ type: "vault", object_id: "obj-9", title: "Contract.pdf" }]);
+	});
+
 	it("passes small search results through intact with the steering note", async () => {
 		delete process.env.CASE_ALLOWED_VAULT_IDS;
 		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
