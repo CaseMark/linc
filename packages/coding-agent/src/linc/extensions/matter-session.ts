@@ -13,7 +13,7 @@ import {
 	syncMatterMdToVault,
 	writeMatterMdContent,
 } from "../matter-md.ts";
-import { formatVaultRef, getAttachedVault } from "../vault-attachment.ts";
+import { formatVaultRef, getEffectiveVault } from "../vault-attachment.ts";
 
 const LINC_EXTENSIONS_DIR = dirname(fileURLToPath(import.meta.url));
 const LINC_DIR = dirname(LINC_EXTENSIONS_DIR);
@@ -29,7 +29,7 @@ async function loadMatterInitSkill(): Promise<string> {
 }
 
 async function promptMatterMdInitialization(ctx: ExtensionContext): Promise<MatterMdInitializationAnswers | undefined> {
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	if (!vault) return undefined;
 
 	const shouldInitialize = await ctx.ui.confirm(
@@ -74,7 +74,7 @@ export async function ensureMatterMd(
 	const matter = await materializeMatterMd(ctx, { sourcePrecedence: options?.sourcePrecedence });
 	if (matter) return matter;
 
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	if (!vault || !ctx.hasUI || !options?.promptForMissing) return undefined;
 	if (getMatterMdInitializationDecision(ctx.sessionManager, vault.id) !== undefined) return undefined;
 
@@ -92,7 +92,7 @@ export async function ensureMatterMd(
 }
 
 export async function buildMatterInitPrompt(ctx: ExtensionCommandContext, notes: string): Promise<string> {
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	const matter = await readMatterMd(ctx);
 	const skill = await loadMatterInitSkill();
 	return [
@@ -113,7 +113,7 @@ export async function buildMatterInitPrompt(ctx: ExtensionCommandContext, notes:
 }
 
 export async function buildMatterAutoInitPrompt(ctx: ExtensionCommandContext, notes: string): Promise<string> {
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	const matter = await readMatterMd(ctx);
 	const skill = await loadMatterInitSkill();
 	return [
@@ -147,7 +147,7 @@ export async function buildMatterAutoInitPrompt(ctx: ExtensionCommandContext, no
 export async function showMatterMd(ctx: ExtensionCommandContext): Promise<void> {
 	const matter = await readMatterMd(ctx);
 	if (!matter) {
-		const vault = getAttachedVault(ctx.sessionManager);
+		const vault = getEffectiveVault(ctx.sessionManager);
 		ctx.ui.notify(
 			vault
 				? "No MATTER.md is loaded. Run /init, /autoinit, or /matter edit to create one."
@@ -166,7 +166,7 @@ export async function editMatterMd(pi: Pick<ExtensionAPI, "appendEntry">, ctx: E
 	if (!ctx.hasUI) {
 		throw new Error("/matter edit requires an interactive session.");
 	}
-	if (!getAttachedVault(ctx.sessionManager)) {
+	if (!getEffectiveVault(ctx.sessionManager)) {
 		ctx.ui.notify("Attach a Case.dev vault before editing MATTER.md", "warning");
 		return;
 	}

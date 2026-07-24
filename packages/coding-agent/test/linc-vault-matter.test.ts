@@ -15,7 +15,7 @@ import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef 
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
 import { materializeMatterMd } from "../src/linc/matter-md.ts";
-import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
+import { formatVaultRef, getAttachedVault, getEffectiveVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
 
 const mocks = vi.hoisted(() => ({
 	runCaseDevCli: vi.fn(),
@@ -137,6 +137,29 @@ describe("Linc vault attachment state", () => {
 		};
 
 		expect(getAttachedVault(clearedSessionManager as never)).toBeUndefined();
+	});
+
+	it("falls back to CASE_VAULT_ID for the effective vault, with explicit attachment winning", () => {
+		const originalCaseVaultId = process.env.CASE_VAULT_ID;
+		try {
+			const emptySessionManager = { getEntries: () => [] };
+
+			delete process.env.CASE_VAULT_ID;
+			expect(getEffectiveVault(emptySessionManager as never)).toBeUndefined();
+
+			process.env.CASE_VAULT_ID = "vault-env";
+			expect(getEffectiveVault(emptySessionManager as never)).toEqual({ id: "vault-env", name: "vault-env" });
+
+			const attachedVault = { id: "vault-1", name: "First Vault", totalObjects: 2 };
+			const attachedSessionManager = { getEntries: () => [attachedVaultEntry(attachedVault)] };
+			expect(getEffectiveVault(attachedSessionManager as never)).toEqual(attachedVault);
+		} finally {
+			if (originalCaseVaultId === undefined) {
+				delete process.env.CASE_VAULT_ID;
+			} else {
+				process.env.CASE_VAULT_ID = originalCaseVaultId;
+			}
+		}
 	});
 });
 
@@ -547,25 +570,10 @@ describe("Linc matter and vault commands", () => {
 		expect(notifications).toEqual([{ message: "Attach a Case.dev vault before running /autoinit", type: "warning" }]);
 	});
 
-	it("discovers MATTER.md as a session context file only when a vault is attached", async () => {
+	it("does not register MATTER.md as a context file (system-prompt embed is the single injection path)", async () => {
 		await writeFile(join(cwd, "MATTER.md"), "# Matter\n", "utf-8");
 		const { handlers } = loadLincCommands();
-		const resourceHandlers = handlers.get("resources_discover");
-		expect(resourceHandlers).toBeDefined();
-
-		await expect(
-			resourceHandlers![0]!({ type: "resources_discover", cwd, reason: "startup" }, createContext({ cwd })),
-		).resolves.toBeUndefined();
-
-		const result = await resourceHandlers![0]!(
-			{ type: "resources_discover", cwd, reason: "startup" },
-			createContext({
-				cwd,
-				entries: [attachedVaultEntry({ id: "vault-1", name: "Alpha" })],
-			}),
-		);
-
-		expect(result).toEqual({ contextFilePaths: [join(cwd, "MATTER.md")] });
+		expect(handlers.get("resources_discover")).toBeUndefined();
 	});
 
 	it("sends an exploratory matter initialization prompt for /autoinit", async () => {
