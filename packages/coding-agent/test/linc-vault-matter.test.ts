@@ -15,7 +15,12 @@ import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef 
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
 import { materializeMatterMd } from "../src/linc/matter-md.ts";
-import { formatVaultRef, getAttachedVault, getEffectiveVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
+import {
+	formatVaultRef,
+	getAttachedVault,
+	getEffectiveVault,
+	LINC_VAULT_ENTRY_TYPE,
+} from "../src/linc/vault-attachment.ts";
 
 const mocks = vi.hoisted(() => ({
 	runCaseDevCli: vi.fn(),
