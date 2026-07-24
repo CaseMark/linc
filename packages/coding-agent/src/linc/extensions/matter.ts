@@ -1,7 +1,7 @@
 import type { ExtensionFactory } from "../../core/extensions/types.ts";
 import { buildMatterMdSystemPrompt, readMatterMd, syncMatterMdToolResult } from "../matter-md.ts";
 import { createMatterMdTools } from "../matter-md-tools.ts";
-import { getEffectiveVault } from "../vault-attachment.ts";
+import { getAttachedVault, getEffectiveVault } from "../vault-attachment.ts";
 import {
 	buildMatterAutoInitPrompt,
 	buildMatterInitPrompt,
@@ -17,7 +17,10 @@ const matterExtension: ExtensionFactory = (pi) => {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		const vault = getEffectiveVault(ctx.sessionManager);
+		// Eager vault-first materialization only for explicit /vault attach
+		// sessions. Env-scoped (headless) sessions materialize lazily on first
+		// matter-tool use instead, so session startup adds no vault API calls.
+		const vault = getAttachedVault(ctx.sessionManager);
 		if (!vault) return;
 		await ensureMatterMd(pi, ctx, {
 			sourcePrecedence: "vault-first",
@@ -30,11 +33,9 @@ const matterExtension: ExtensionFactory = (pi) => {
 		await ensureMatterMd(pi, ctx, { promptForMissing: false });
 	});
 
-	pi.on("resources_discover", async (_event, ctx) => {
-		if (!getEffectiveVault(ctx.sessionManager)) return undefined;
-		const matter = await readMatterMd(ctx);
-		return matter ? { contextFilePaths: [matter.path] } : undefined;
-	});
+	// MATTER.md reaches the model through the before_agent_start system-prompt
+	// embed only. Registering it as a context file too would inject the same
+	// content twice per turn.
 
 	pi.on("tool_result", async (event, ctx) => {
 		return syncMatterMdToolResult(ctx, event);
