@@ -37,6 +37,21 @@ export function getAttachedVault(sessionManager: ReadonlySessionManager): LincVa
 	return undefined;
 }
 
+/**
+ * Vault in effect for this session: an explicit /vault attach entry wins,
+ * otherwise fall back to the runtime-scoped CASE_VAULT_ID. Headless sessions
+ * (C3 chat) receive their vault only through that env var and have no
+ * interactive attach step, so matter context must honor it too — the same
+ * precedence the casedev vault tools already use.
+ */
+export function getEffectiveVault(sessionManager: ReadonlySessionManager): LincVaultRef | undefined {
+	const attached = getAttachedVault(sessionManager);
+	if (attached) return attached;
+	const envVaultId = process.env.CASE_VAULT_ID?.trim();
+	if (!envVaultId) return undefined;
+	return { id: envVaultId, name: envVaultId };
+}
+
 export function formatVaultRef(vault: LincVaultRef): string {
 	const objectText = vault.totalObjects === undefined ? "" : `, ${vault.totalObjects} objects`;
 	return `${vault.name} (${vault.id}${objectText})`;

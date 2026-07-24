@@ -1,7 +1,7 @@
 import type { ExtensionFactory } from "../../core/extensions/types.ts";
 import { buildMatterMdSystemPrompt, readMatterMd, syncMatterMdToolResult } from "../matter-md.ts";
 import { createMatterMdTools } from "../matter-md-tools.ts";
-import { getAttachedVault } from "../vault-attachment.ts";
+import { getEffectiveVault } from "../vault-attachment.ts";
 import {
 	buildMatterAutoInitPrompt,
 	buildMatterInitPrompt,
@@ -17,7 +17,7 @@ const matterExtension: ExtensionFactory = (pi) => {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		const vault = getAttachedVault(ctx.sessionManager);
+		const vault = getEffectiveVault(ctx.sessionManager);
 		if (!vault) return;
 		await ensureMatterMd(pi, ctx, {
 			sourcePrecedence: "vault-first",
@@ -26,12 +26,12 @@ const matterExtension: ExtensionFactory = (pi) => {
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
-		if (!getAttachedVault(ctx.sessionManager)) return;
+		if (!getEffectiveVault(ctx.sessionManager)) return;
 		await ensureMatterMd(pi, ctx, { promptForMissing: false });
 	});
 
 	pi.on("resources_discover", async (_event, ctx) => {
-		if (!getAttachedVault(ctx.sessionManager)) return undefined;
+		if (!getEffectiveVault(ctx.sessionManager)) return undefined;
 		const matter = await readMatterMd(ctx);
 		return matter ? { contextFilePaths: [matter.path] } : undefined;
 	});
@@ -41,7 +41,7 @@ const matterExtension: ExtensionFactory = (pi) => {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		if (!getAttachedVault(ctx.sessionManager)) return undefined;
+		if (!getEffectiveVault(ctx.sessionManager)) return undefined;
 		const matter = await readMatterMd(ctx);
 		if (!matter) return undefined;
 		return {
@@ -85,7 +85,7 @@ const matterExtension: ExtensionFactory = (pi) => {
 				throw new Error("/init requires an interactive session.");
 			}
 
-			const vault = getAttachedVault(ctx.sessionManager);
+			const vault = getEffectiveVault(ctx.sessionManager);
 			if (!vault) {
 				ctx.ui.notify("Attach a Case.dev vault before running /init", "warning");
 				return;
@@ -102,7 +102,7 @@ const matterExtension: ExtensionFactory = (pi) => {
 				throw new Error("/autoinit requires an interactive session.");
 			}
 
-			const vault = getAttachedVault(ctx.sessionManager);
+			const vault = getEffectiveVault(ctx.sessionManager);
 			if (!vault) {
 				ctx.ui.notify("Attach a Case.dev vault before running /autoinit", "warning");
 				return;

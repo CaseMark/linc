@@ -9,7 +9,7 @@ import {
 	listCaseDevVaultObjects,
 	uploadCaseDevVaultFile,
 } from "./casedev-vault-api.ts";
-import { getAttachedVault, type LincVaultRef } from "./vault-attachment.ts";
+import { getEffectiveVault, type LincVaultRef } from "./vault-attachment.ts";
 
 export const MATTER_MD_FILENAME = "MATTER.md";
 export const LINC_MATTER_MD_ENTRY_TYPE = "linc.matterMd";
@@ -196,7 +196,7 @@ export async function readMatterMd(ctx: ExtensionContext): Promise<MatterMdState
 	return {
 		path,
 		content: await readFile(path, "utf-8"),
-		vault: getAttachedVault(ctx.sessionManager),
+		vault: getEffectiveVault(ctx.sessionManager),
 	};
 }
 
@@ -205,7 +205,7 @@ export async function materializeMatterMd(
 	options?: MatterMdMaterializeOptions,
 ): Promise<MatterMdState | undefined> {
 	const path = getMatterMdPath(ctx);
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	const sourcePrecedence = options?.sourcePrecedence ?? "workspace-first";
 
 	if (vault && sourcePrecedence === "vault-first") {
@@ -244,7 +244,7 @@ export async function initializeMatterMd(
 	ctx: ExtensionContext,
 	answers: MatterMdInitializationAnswers,
 ): Promise<MatterMdState> {
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	if (!vault) {
 		throw new Error("No Case.dev vault attached. Attach a vault before initializing MATTER.md.");
 	}
@@ -261,7 +261,7 @@ export async function writeMatterMdContent(ctx: ExtensionContext, content: strin
 }
 
 export async function syncMatterMdToVault(ctx: ExtensionContext): Promise<string> {
-	const vault = getAttachedVault(ctx.sessionManager);
+	const vault = getEffectiveVault(ctx.sessionManager);
 	if (!vault) {
 		throw new Error("No Case.dev vault attached. Run /vault attach <vault-id> before syncing MATTER.md.");
 	}

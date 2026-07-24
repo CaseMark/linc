@@ -15,7 +15,7 @@ import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef 
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
 import { materializeMatterMd } from "../src/linc/matter-md.ts";
-import { formatVaultRef, getAttachedVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
+import { formatVaultRef, getAttachedVault, getEffectiveVault, LINC_VAULT_ENTRY_TYPE } from "../src/linc/vault-attachment.ts";
 
 const mocks = vi.hoisted(() => ({
 	runCaseDevCli: vi.fn(),
@@ -137,6 +137,29 @@ describe("Linc vault attachment state", () => {
 		};
 
 		expect(getAttachedVault(clearedSessionManager as never)).toBeUndefined();
+	});
+
+	it("falls back to CASE_VAULT_ID for the effective vault, with explicit attachment winning", () => {
+		const originalCaseVaultId = process.env.CASE_VAULT_ID;
+		try {
+			const emptySessionManager = { getEntries: () => [] };
+
+			delete process.env.CASE_VAULT_ID;
+			expect(getEffectiveVault(emptySessionManager as never)).toBeUndefined();
+
+			process.env.CASE_VAULT_ID = "vault-env";
+			expect(getEffectiveVault(emptySessionManager as never)).toEqual({ id: "vault-env", name: "vault-env" });
+
+			const attachedVault = { id: "vault-1", name: "First Vault", totalObjects: 2 };
+			const attachedSessionManager = { getEntries: () => [attachedVaultEntry(attachedVault)] };
+			expect(getEffectiveVault(attachedSessionManager as never)).toEqual(attachedVault);
+		} finally {
+			if (originalCaseVaultId === undefined) {
+				delete process.env.CASE_VAULT_ID;
+			} else {
+				process.env.CASE_VAULT_ID = originalCaseVaultId;
+			}
+		}
 	});
 });
 
