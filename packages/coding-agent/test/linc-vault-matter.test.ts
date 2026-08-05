@@ -15,6 +15,7 @@ import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef 
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
 import { materializeMatterMd } from "../src/linc/matter-md.ts";
+import { createMatterMdTools } from "../src/linc/matter-md-tools.ts";
 import {
 	formatVaultRef,
 	getAttachedVault,
@@ -515,6 +516,48 @@ describe("MATTER.md source precedence", () => {
 			materializeMatterMd(contextWithAttachedVault(), { sourcePrecedence: "vault-first" }),
 		).resolves.toBeUndefined();
 		expect(statuses.get("linc.matter")).toBeUndefined();
+	});
+
+	it("reads as a soft empty result when no MATTER.md exists anywhere", async () => {
+		mocks.listCaseDevVaultObjects.mockResolvedValue([]);
+		const tool = createMatterMdTools().find((entry) => entry.name === "casedev_matter_read");
+		if (!tool) throw new Error("Missing tool casedev_matter_read");
+
+		const result = await tool.execute(
+			"tool-call-1",
+			{},
+			undefined,
+			undefined,
+			contextWithAttachedVault() as unknown as ExtensionContext,
+		);
+
+		const firstContent = result.content[0];
+		expect(firstContent?.type).toBe("text");
+		expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
+			"No matter context has been initialized yet",
+		);
+		expect(result.details).toMatchObject({ synced: false });
+	});
+
+	it("reads MATTER.md content when the vault has one", async () => {
+		mocks.listCaseDevVaultObjects.mockResolvedValueOnce([{ id: "object-1", name: "MATTER.md" }]);
+		mocks.downloadCaseDevVaultObject.mockImplementation(async (_ctx: ExtensionContext, args: { outDir: string }) => {
+			await writeFile(join(args.outDir, "MATTER.md"), "# Vault Matter\n", "utf-8");
+			return { objectId: "object-1", path: join(args.outDir, "MATTER.md"), bytes: 15 };
+		});
+		const tool = createMatterMdTools().find((entry) => entry.name === "casedev_matter_read");
+		if (!tool) throw new Error("Missing tool casedev_matter_read");
+
+		const result = await tool.execute(
+			"tool-call-1",
+			{},
+			undefined,
+			undefined,
+			contextWithAttachedVault() as unknown as ExtensionContext,
+		);
+
+		const firstContent = result.content[0];
+		expect(firstContent?.type === "text" ? firstContent.text : "").toBe("# Vault Matter\n");
 	});
 });
 
