@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.79.12] - 2026-08-06
+
+### Fixed
+
+- Republish of 0.79.11, which was uninstallable: its `@earendil-works/pi-*` dependencies were pinned to 0.79.11, a version upstream pi never published (upstream is on 0.8x). Dependencies now pin the last published upstream versions (`^0.79.10`); `@casemark/linc` versions independently from here on.
+
 ## [0.79.11] - 2026-08-06
 
 ## [0.79.9] - 2026-07-22
