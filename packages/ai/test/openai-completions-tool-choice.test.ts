@@ -156,8 +156,15 @@ describe("openai-completions tool_choice", () => {
 		expect("strict" in (tool ?? {})).toBe(false);
 	});
 
-	it("maps groq qwen3 reasoning levels to default reasoning_effort", async () => {
-		const model = getModel("groq", "qwen/qwen3-32b")!;
+	it("maps reasoning levels through thinkingLevelMap to reasoning_effort", async () => {
+		// No current groq catalog model carries a thinkingLevelMap (qwen3-32b did
+		// before it was retired), so pin the mapping explicitly to keep the code
+		// path covered as the live catalog drifts.
+		const baseModel = getModel("groq", "qwen/qwen3.6-27b")!;
+		const model = {
+			...baseModel,
+			thinkingLevelMap: { medium: "default" },
+		} as const;
 		let payload: unknown;
 
 		await streamSimple(
@@ -213,7 +220,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("enables tool_stream for supported z.ai models with tools", async () => {
-		const model = getModel("zai", "glm-5.1")!;
+		const model = getModel("zai", "glm-5.2")!;
 		const tools: Tool[] = [
 			{
 				name: "ping",
@@ -250,15 +257,21 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("stores z.ai tool_stream support in model compat metadata", () => {
-		expect(getModel("zai", "glm-5.1")?.compat?.zaiToolStream).toBe(true);
-		expect(getModel("zai", "glm-4.7")?.compat?.zaiToolStream).toBe(true);
+		// Every current z.ai catalog model supports tool_stream; the
+		// unsupported case is covered below with an explicit compat override.
+		expect(getModel("zai", "glm-5.2")?.compat?.zaiToolStream).toBe(true);
 		expect(getModel("zai", "glm-4.7")?.compat?.zaiToolStream).toBe(true);
 		expect(getModel("zai", "glm-5-turbo")?.compat?.zaiToolStream).toBe(true);
-		expect(getModel("zai", "glm-4.5-air")?.compat?.zaiToolStream).toBeUndefined();
+		expect(getModel("zai", "glm-5.2-highspeed")?.compat?.zaiToolStream).toBe(true);
 	});
 
-	it("omits tool_stream for unsupported z.ai models", async () => {
-		const model = getModel("zai", "glm-4.5-air")!;
+	it("omits tool_stream for z.ai models without compat support", async () => {
+		const baseModel = getModel("zai", "glm-5.2")!;
+		const { zaiToolStream: _zaiToolStream, ...compatWithoutToolStream } = baseModel.compat ?? {};
+		const model = {
+			...baseModel,
+			compat: compatWithoutToolStream,
+		} as const;
 		const tools: Tool[] = [
 			{
 				name: "ping",
@@ -295,7 +308,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("respects explicit z.ai tool_stream compat override", async () => {
-		const baseModel = getModel("zai", "glm-4.5-air")!;
+		const baseModel = getModel("zai", "glm-5.2")!;
 		const model = {
 			...baseModel,
 			compat: {
@@ -339,7 +352,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("omits tool_stream when no tools are provided", async () => {
-		const model = getModel("zai", "glm-5.1")!;
+		const model = getModel("zai", "glm-5.2")!;
 		let payload: unknown;
 
 		await streamSimple(
@@ -381,7 +394,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const model = getModel("zai", "glm-5.1")!;
+		const model = getModel("zai", "glm-5.2")!;
 		const response = await streamSimple(
 			model,
 			{

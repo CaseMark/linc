@@ -100,7 +100,20 @@ export function createMatterMdTools(): ToolDefinition[] {
 			promptGuidelines: ["Use casedev_matter_read before making durable matter-level decisions or edits."],
 			parameters: matterReadSchema,
 			async execute(_toolCallId, _params: MatterReadInput, _signal, _onUpdate, ctx) {
-				const state = await ensureMatterMd(ctx);
+				// An uninitialized matter is the normal starting state, not an error:
+				// erroring here burned a failed tool turn in nearly every fresh matter session.
+				const state = (await materializeMatterMd(ctx)) ?? (await readMatterMd(ctx));
+				if (!state) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "No matter context has been initialized yet. Use casedev_matter_write to create MATTER.md once there is durable matter-level context worth keeping.",
+							},
+						],
+						details: { synced: false } satisfies CaseDevMatterToolDetails,
+					};
+				}
 				return {
 					content: [{ type: "text", text: state.content }],
 					details: { synced: state.vault !== undefined } satisfies CaseDevMatterToolDetails,
