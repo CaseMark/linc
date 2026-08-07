@@ -13,6 +13,7 @@ import {
 	searchCaseDevVault,
 	uploadCaseDevVaultFile,
 } from "./casedev-vault-api.ts";
+import { formatDocxValidationIssues, validateDocxFile } from "./docx-validate.ts";
 import { getAttachedVault } from "./vault-attachment.ts";
 
 interface CaseDevToolDetails {
@@ -184,6 +185,17 @@ function shouldSkipIngest(params: VaultUploadInput): boolean {
 async function executeVaultUpload(ctx: ExtensionContext, signal: AbortSignal | undefined, params: VaultUploadInput) {
 	const vaultId = resolveVaultId(ctx, params.vaultId);
 	const filename = params.name ?? params.filename;
+	if (/\.docx$/i.test(params.filePath) || (filename && /\.docx$/i.test(filename))) {
+		const issues = validateDocxFile(params.filePath);
+		if (issues.length > 0) {
+			throw new Error(
+				`Refusing to upload ${filename ?? params.filePath}: the .docx failed structural validation and Microsoft Word would reject it.\n` +
+					`${formatDocxValidationIssues(issues)}\n` +
+					"Repair the listed parts in the local file, then run vault_upload again. " +
+					"Do not re-upload the same bytes or hand the broken file to the user.",
+			);
+		}
+	}
 	const result = await uploadCaseDevVaultFile(
 		{ ...ctx, signal },
 		{

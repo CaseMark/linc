@@ -261,16 +261,16 @@ describe("Case.dev vault tools", () => {
 		mocks.uploadCaseDevVaultFile.mockResolvedValueOnce({
 			vaultId: "vault-env",
 			objectId: "obj-deliverable",
-			filename: "Deliverable.docx",
+			filename: "Deliverable.pdf",
 		});
 
 		const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
 		const result = await getTool("vault_upload").execute(
 			"tool-call-1",
 			{
-				filePath: "Deliverable.docx",
-				filename: "Deliverable.docx",
-				contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				filePath: "Deliverable.pdf",
+				filename: "Deliverable.pdf",
+				contentType: "application/pdf",
 				storageOnly: true,
 			},
 			undefined,
@@ -287,12 +287,29 @@ describe("Case.dev vault tools", () => {
 		});
 		expect(mocks.uploadCaseDevVaultFile).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/tmp/linc-test" }), {
 			vaultId: "vault-env",
-			filePath: "Deliverable.docx",
-			name: "Deliverable.docx",
-			contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			filePath: "Deliverable.pdf",
+			name: "Deliverable.pdf",
+			contentType: "application/pdf",
 			ingest: false,
 		});
 		expect(mocks.runCaseDevCli).not.toHaveBeenCalled();
+	});
+
+	it("rejects a structurally broken .docx before any upload happens", async () => {
+		process.env.CASE_VAULT_ID = "vault-env";
+		const dir = await mkdtemp(join(tmpdir(), "linc-vault-docx-"));
+		const filePath = join(dir, "Broken.docx");
+		await writeFile(filePath, "not a zip archive");
+
+		const ctx = createContext({ cwd: dir }) as unknown as ExtensionContext;
+		try {
+			await expect(
+				getTool("vault_upload").execute("tool-call-1", { filePath }, undefined, undefined, ctx),
+			).rejects.toThrow("failed structural validation");
+			expect(mocks.uploadCaseDevVaultFile).not.toHaveBeenCalled();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("propagates REST upload failures", async () => {
@@ -304,7 +321,7 @@ describe("Case.dev vault tools", () => {
 		await expect(
 			getTool("vault_upload").execute(
 				"tool-call-1",
-				{ filePath: "Deliverable.docx", autoIndex: false },
+				{ filePath: "Deliverable.pdf", autoIndex: false },
 				undefined,
 				undefined,
 				ctx,
