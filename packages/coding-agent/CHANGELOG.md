@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- After a transient provider failure (429/5xx/529) on Core Potassium, Linc switches to Core Lightning Pro for 10 minutes and then restores the original model. Override with `LINC_MODEL_FALLBACK_MODEL` and `LINC_MODEL_FALLBACK_TTL_MS`.
+
 ## [0.79.13] - 2026-08-07
 
 ### Added

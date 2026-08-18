@@ -450,11 +450,13 @@ export function getBundledLincExtensionPaths(): BundledLincExtensionPath[] {
 		return [
 			{ path: join(packageDir, "src", "linc", "extensions", "vault.ts"), label: "vault" },
 			{ path: join(packageDir, "src", "linc", "extensions", "matter.ts"), label: "matter" },
+			{ path: join(packageDir, "src", "linc", "extensions", "model-fallback.ts"), label: "model-fallback" },
 		];
 	}
 	return [
 		{ path: join(packageDir, "dist", "linc", "extensions", "vault.js"), label: "vault" },
 		{ path: join(packageDir, "dist", "linc", "extensions", "matter.js"), label: "matter" },
+		{ path: join(packageDir, "dist", "linc", "extensions", "model-fallback.js"), label: "model-fallback" },
 	];
 }
 
