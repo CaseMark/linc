@@ -19,6 +19,7 @@ import type {
 	Message,
 	Model,
 	OpenAICompletionsCompat,
+	ProviderResponse,
 	SimpleStreamOptions,
 	StopReason,
 	StreamFunction,
@@ -38,6 +39,22 @@ import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copi
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
+
+function readFailedHttpResponse(error: unknown): ProviderResponse | null {
+	if (!error || typeof error !== "object") return null;
+	const record = error as { status?: unknown; headers?: unknown };
+	if (typeof record.status !== "number" || !Number.isFinite(record.status)) return null;
+	if (record.headers instanceof Headers) {
+		return { status: record.status, headers: headersToRecord(record.headers) };
+	}
+	const headers: Record<string, string> = {};
+	if (record.headers && typeof record.headers === "object") {
+		for (const [key, value] of Object.entries(record.headers as Record<string, unknown>)) {
+			if (typeof value === "string") headers[key] = value;
+		}
+	}
+	return { status: record.status, headers };
+}
 
 /**
  * Check if conversation messages contain tool calls or tool results.
@@ -406,6 +423,10 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
+			const failedResponse = readFailedHttpResponse(error);
+			if (failedResponse) {
+				await options?.onResponse?.(failedResponse, model);
+			}
 			for (const block of output.content) {
 				delete (block as { index?: number }).index;
 				// Streaming scratch buffers are only used during parsing; never persist them.
