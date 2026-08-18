@@ -2,10 +2,10 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
 import {
 	getActiveModelFallback,
-	getFallbackModelId,
+	getFallbackChain,
 	getFallbackTtlMs,
+	getNextFallbackModelId,
 	isFallbackStatus,
-	isPrimaryFallbackSource,
 	LINC_MODEL_FALLBACK_ENTRY_TYPE,
 	resolveFallbackModel,
 } from "../model-fallback.ts";
@@ -42,25 +42,40 @@ const modelFallbackExtension: ExtensionFactory = (pi) => {
 	pi.on("after_provider_response", async (event, ctx) => {
 		if (!isFallbackStatus(event.status)) return;
 		const current = ctx.model;
-		if (!current || !isPrimaryFallbackSource(current)) return;
-		const active = getActiveModelFallback(ctx.sessionManager);
-		if (active && !active.restored && !active.cancelled && Date.now() < active.restoreAt) return;
+		if (!current) return;
 
-		const fallback = resolveFallbackModel(ctx.modelRegistry, current.provider, getFallbackModelId());
+		const nextModelId = getNextFallbackModelId(current.id, getFallbackChain());
+		if (!nextModelId) return;
+
+		// Already switched to this target (e.g. a second in-flight request from
+		// the same failing model): don't re-append state or re-notify. A failure
+		// from the fallback model itself has a different `current`, so the chain
+		// still advances.
+		const active = getActiveModelFallback(ctx.sessionManager);
+		const activeInWindow = active && !active.restored && !active.cancelled && Date.now() < active.restoreAt;
+		if (activeInWindow && active.fallbackModelId.toLowerCase() === nextModelId) return;
+
+		const fallback = resolveFallbackModel(ctx.modelRegistry, current.provider, nextModelId);
 		if (!fallback || (fallback.provider === current.provider && fallback.id === current.id)) return;
 
 		const switched = await applyModel(fallback);
 		if (!switched) return;
+
+		// Keep the user's original model across chain hops so the restore always
+		// returns to what they picked, not to an intermediate fallback.
+		const original = activeInWindow
+			? { provider: active.originalProvider, id: active.originalModelId }
+			: { provider: current.provider, id: current.id };
 		pi.appendEntry(LINC_MODEL_FALLBACK_ENTRY_TYPE, {
-			originalProvider: current.provider,
-			originalModelId: current.id,
+			originalProvider: original.provider,
+			originalModelId: original.id,
 			fallbackProvider: fallback.provider,
 			fallbackModelId: fallback.id,
 			restoreAt: Date.now() + getFallbackTtlMs(),
 		});
 		ctx.ui.setStatus("linc.model-fallback", `fallback: ${fallback.id}`);
 		ctx.ui.notify(
-			`Fell back to ${fallback.provider}/${fallback.id} for ${Math.round(getFallbackTtlMs() / 60000)}m after HTTP ${event.status}`,
+			`${current.provider}/${current.id} is having trouble (HTTP ${event.status}); temporarily using ${fallback.provider}/${fallback.id} for ${Math.round(getFallbackTtlMs() / 60000)}m`,
 			"warning",
 		);
 	});
