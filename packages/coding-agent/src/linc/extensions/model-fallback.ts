@@ -36,7 +36,7 @@ const modelFallbackExtension: ExtensionFactory = (pi) => {
 		if (!switched) return;
 		pi.appendEntry(LINC_MODEL_FALLBACK_ENTRY_TYPE, { ...state, restored: true });
 		ctx.ui.setStatus("linc.model-fallback", undefined);
-		ctx.ui.notify(`Restored ${original.provider}/${original.id} after fallback window`, "info");
+		ctx.ui.notify(`${original.name} is available again and has been restored`, "info");
 	};
 
 	pi.on("after_provider_response", async (event, ctx) => {
@@ -74,8 +74,11 @@ const modelFallbackExtension: ExtensionFactory = (pi) => {
 			restoreAt: Date.now() + getFallbackTtlMs(),
 		});
 		ctx.ui.setStatus("linc.model-fallback", `fallback: ${fallback.id}`);
+		// Customer-facing (rendered as a banner in C3): display names only, no
+		// provider ids or HTTP codes. The raw error is in the ledger and the
+		// gateway's chat.completion.failed Watchtower event.
 		ctx.ui.notify(
-			`${current.provider}/${current.id} is having trouble (HTTP ${event.status}); temporarily using ${fallback.provider}/${fallback.id} for ${Math.round(getFallbackTtlMs() / 60000)}m`,
+			`${current.name} is temporarily unavailable — using ${fallback.name} instead. Your conversation continues normally.`,
 			"warning",
 		);
 	});
