@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.14] - 2026-08-18
+
 ### Added
 
 - After a transient provider failure (429/5xx/529, or a status-less stream/network failure) on any `casemark/core-*` model, Linc walks an ordered fallback chain — core-potassium → core-lightning-pro → gpt-5.6-sol — switching for 10 minutes per hop and then restoring the user's original model. Sol is the terminal fallback and never switches away. Override the chain with `LINC_MODEL_FALLBACK_CHAIN` (comma-separated), a single first hop with `LINC_MODEL_FALLBACK_MODEL`, and the window with `LINC_MODEL_FALLBACK_TTL_MS`. Failed HTTP statuses reach this hook via the OpenAI-completions `onResponse` error path; upstream failures without an HTTP status (stream truncation, connection resets) surface as a synthetic 599.
