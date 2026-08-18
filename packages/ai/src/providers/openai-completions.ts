@@ -56,6 +56,20 @@ function readFailedHttpResponse(error: unknown): ProviderResponse | null {
 	return { status: record.status, headers };
 }
 
+// Upstream stream/network failures that surface without an HTTP status. These
+// are the same class of provider outage as a 5xx, so they are reported to
+// onResponse with a synthetic 599 status. Local errors (type errors, aborts)
+// must not match.
+const STREAM_FAILURE_PATTERNS =
+	/stream ended without finish_reason|premature close|socket hang up|fetch failed|network error|econnreset|econnrefused|etimedout|und_err|terminated/i;
+
+function readStreamFailureResponse(error: unknown): ProviderResponse | null {
+	if (!(error instanceof Error)) return null;
+	if (typeof (error as { status?: unknown }).status === "number") return null;
+	const message = `${error.message} ${(error.cause as Error | undefined)?.message ?? ""}`;
+	return STREAM_FAILURE_PATTERNS.test(message) ? { status: 599, headers: {} } : null;
+}
+
 /**
  * Check if conversation messages contain tool calls or tool results.
  * This is needed because Anthropic (via proxy) requires the tools param
@@ -423,7 +437,8 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
-			const failedResponse = readFailedHttpResponse(error);
+			const failedResponse =
+				readFailedHttpResponse(error) ?? (options?.signal?.aborted ? null : readStreamFailureResponse(error));
 			if (failedResponse) {
 				await options?.onResponse?.(failedResponse, model);
 			}

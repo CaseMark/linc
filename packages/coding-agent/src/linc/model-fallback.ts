@@ -5,9 +5,22 @@ import { CASEDEV_PROVIDER_ID, CASEMARK_CORE_PROVIDER_ID } from "./casedev-auth.t
 
 export const LINC_MODEL_FALLBACK_ENTRY_TYPE = "linc.model-fallback";
 export const DEFAULT_FALLBACK_TTL_MS = 10 * 60 * 1000;
-export const DEFAULT_PRIMARY_MODEL_ID = "casemark/core-potassium";
-export const DEFAULT_FALLBACK_MODEL_ID = "casemark/core-lightning-pro";
-export const FALLBACK_STATUS_CODES = new Set([429, 500, 502, 503, 504, 529]);
+/** Synthetic status for upstream stream/network failures that carry no HTTP status. */
+export const STREAM_FAILURE_STATUS = 599;
+/**
+ * Ordered fallback chain. A failing model moves to the entry after it (core
+ * models outside the chain enter at the top). The last entry is the terminal
+ * fallback and never switches away: gpt-5.6-sol is served by OpenAI and does
+ * not share an upstream with the casemark/core family.
+ */
+export const DEFAULT_FALLBACK_CHAIN = [
+	"casemark/core-potassium",
+	"casemark/core-lightning-pro",
+	"openai/gpt-5.6-sol",
+] as const;
+export const FALLBACK_STATUS_CODES = new Set([429, 500, 502, 503, 504, 529, STREAM_FAILURE_STATUS]);
+
+const CORE_FAMILY_PREFIX = "casemark/core-";
 
 export type ModelFallbackState = {
 	originalProvider: string;
@@ -42,12 +55,46 @@ export function getFallbackTtlMs(env: NodeJS.ProcessEnv = process.env): number {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FALLBACK_TTL_MS;
 }
 
-export function getFallbackModelId(env: NodeJS.ProcessEnv = process.env): string {
-	return env.LINC_MODEL_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL_ID;
+/**
+ * The fallback chain, in order. `LINC_MODEL_FALLBACK_CHAIN` (comma-separated
+ * model ids) replaces the whole chain; `LINC_MODEL_FALLBACK_MODEL` keeps its
+ * original meaning as the single first-hop target before the terminal entry.
+ */
+export function getFallbackChain(env: NodeJS.ProcessEnv = process.env): string[] {
+	const rawChain = env.LINC_MODEL_FALLBACK_CHAIN?.trim();
+	if (rawChain) {
+		const chain = rawChain
+			.split(",")
+			.map((id) => id.trim().toLowerCase())
+			.filter((id) => id.length > 0);
+		if (chain.length > 0) return chain;
+	}
+	const singleTarget = env.LINC_MODEL_FALLBACK_MODEL?.trim();
+	if (singleTarget) {
+		const target = singleTarget.toLowerCase();
+		const terminal = DEFAULT_FALLBACK_CHAIN[DEFAULT_FALLBACK_CHAIN.length - 1];
+		return target === terminal ? [target] : [target, terminal];
+	}
+	return [...DEFAULT_FALLBACK_CHAIN];
 }
 
-export function isPrimaryFallbackSource(model: Pick<Model<string>, "id">): boolean {
-	return model.id.toLowerCase() === DEFAULT_PRIMARY_MODEL_ID || model.id.toLowerCase().endsWith("/core-potassium");
+export function isCoreFamilyModel(modelId: string): boolean {
+	return modelId.toLowerCase().startsWith(CORE_FAMILY_PREFIX);
+}
+
+/**
+ * Next model id in the chain for a failing model, or undefined when there is
+ * nowhere left to go (terminal entry, or a model we do not manage).
+ */
+export function getNextFallbackModelId(currentModelId: string, chain: string[]): string | undefined {
+	if (chain.length === 0) return undefined;
+	const current = currentModelId.toLowerCase();
+	const index = chain.indexOf(current);
+	if (index !== -1) {
+		return index < chain.length - 1 ? chain[index + 1] : undefined;
+	}
+	if (!isCoreFamilyModel(current)) return undefined;
+	return chain[0] === current ? chain[1] : chain[0];
 }
 
 export function parseModelFallbackState(value: unknown): ModelFallbackState | undefined {
