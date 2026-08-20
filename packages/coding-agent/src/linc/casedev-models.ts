@@ -53,10 +53,14 @@ function readPricing(value: unknown): Model<Api>["cost"] {
 		typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 	const input = readNumber(pricing.input);
 	const output = readNumber(pricing.output);
+	// Published per-model where caching is billed (e.g. core-mini prefix-cache
+	// hits at $0.10/MTok, CD-1429). The gateway does not bill cache writes and
+	// publishes no such field.
+	const cacheRead = readNumber(pricing.input_cache_read);
 	return {
 		input: input === undefined ? 0 : input * 1_000_000,
 		output: output === undefined ? 0 : output * 1_000_000,
-		cacheRead: 0,
+		cacheRead: cacheRead === undefined ? 0 : cacheRead * 1_000_000,
 		cacheWrite: 0,
 	};
 }
@@ -66,9 +70,14 @@ function toCaseDevModel(record: CaseDevModelRecord, provider: string): Model<Api
 	if (record.type !== "language") return undefined;
 
 	const tags = readTags(record.tags);
-	const contextWindow = readNumber(record.context_window) ?? DEFAULT_CONTEXT_WINDOW;
 	const maxTokens = readNumber(record.max_tokens) ?? DEFAULT_MAX_TOKENS;
 	if (maxTokens <= 0) return undefined;
+	// Same guard as maxTokens: a zero/negative published window would trip the
+	// silent-overflow compact-and-retry heuristic on every successful response.
+	// Absent falls back to the default; present and non-positive is unusable.
+	const publishedWindow = readNumber(record.context_window);
+	if (publishedWindow !== undefined && publishedWindow <= 0) return undefined;
+	const contextWindow = publishedWindow ?? DEFAULT_CONTEXT_WINDOW;
 
 	return {
 		id: record.id,
@@ -84,7 +93,22 @@ function toCaseDevModel(record: CaseDevModelRecord, provider: string): Model<Api
 	};
 }
 
-export function parseCaseDevModelsResponse(data: unknown, provider = CASEDEV_PROVIDER_ID): Model<Api>[] {
+/**
+ * Per-model adjustments a consumer needs on top of the parsed catalog —
+ * e.g. the sandbox extension pins compat.supportsDeveloperRole=false because
+ * the gateway fronts heterogeneous upstreams and sglang-served models reject
+ * the "developer" role. Exported so external registrars (the casedev sandbox
+ * extension) can reuse THIS parser instead of mirroring it.
+ */
+export type CaseDevModelOverrides = {
+	compat?: Model<Api>["compat"];
+};
+
+export function parseCaseDevModelsResponse(
+	data: unknown,
+	provider = CASEDEV_PROVIDER_ID,
+	overrides?: CaseDevModelOverrides,
+): Model<Api>[] {
 	if (!isCaseDevModelRecord(data)) return [];
 	const response = data as CaseDevModelListResponse;
 	if (!Array.isArray(response.data)) return [];
@@ -94,13 +118,16 @@ export function parseCaseDevModelsResponse(data: unknown, provider = CASEDEV_PRO
 		if (!isCaseDevModelRecord(item)) continue;
 		const model = toCaseDevModel(item, provider);
 		if (model) {
-			models.push(model);
+			models.push(overrides?.compat ? { ...model, compat: overrides.compat } : model);
 		}
 	}
 	return models;
 }
 
-export async function fetchCaseDevModels(fetchFn: typeof fetch = fetch): Promise<Model<Api>[]> {
+export async function fetchCaseDevModels(
+	fetchFn: typeof fetch = fetch,
+	overrides?: CaseDevModelOverrides,
+): Promise<Model<Api>[]> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), MODEL_CATALOG_TIMEOUT_MS);
 	try {
@@ -108,7 +135,7 @@ export async function fetchCaseDevModels(fetchFn: typeof fetch = fetch): Promise
 		if (!response.ok) {
 			throw new Error(`HTTP ${response.status}`);
 		}
-		return parseCaseDevModelsResponse(await response.json());
+		return parseCaseDevModelsResponse(await response.json(), CASEDEV_PROVIDER_ID, overrides);
 	} finally {
 		clearTimeout(timeout);
 	}

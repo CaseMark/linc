@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- The Case.dev gateway model-catalog parser is exported from the package root (`parseCaseDevModelsResponse`, `fetchCaseDevModels`, `CaseDevModelOverrides`, provider ids, packaged model lists) so external registrars — the casedev sandbox extension — reuse the one parser instead of mirroring it. `parseCaseDevModelsResponse`/`fetchCaseDevModels` accept an optional per-model `overrides` (e.g. `compat.supportsDeveloperRole=false` for heterogeneous gateway upstreams).
+
+### Fixed
+
+- Catalog pricing now maps `pricing.input_cache_read` to `cost.cacheRead` ($/token → $/mtok), so prompt-cache hits are no longer priced as free in the local cost model (the gateway publishes cache-read rates per model, e.g. core-mini at $0.10/MTok). Catalog entries publishing a zero/negative `context_window` are rejected instead of registered — an understated window trips the silent-overflow compact-and-retry heuristic on successful responses.
+
 ## [0.79.14] - 2026-08-18
 
 ### Added

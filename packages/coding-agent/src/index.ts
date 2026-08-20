@@ -296,6 +296,17 @@ export {
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
 // Main entry point
+// Case.dev gateway model catalog — the one parser of /llm/v1/models. External
+// registrars (the casedev sandbox extension) must import this instead of
+// mirroring it, so both readers of the catalog can never drift.
+export { CASEDEV_PROVIDER_ID, CASEMARK_CORE_PROVIDER_ID } from "./linc/casedev-auth.ts";
+export {
+	CASEMARK_CORE_MODELS,
+	type CaseDevModelOverrides,
+	DEFAULT_CASEDEV_MODELS,
+	fetchCaseDevModels,
+	parseCaseDevModelsResponse,
+} from "./linc/casedev-models.ts";
 export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
 export {
