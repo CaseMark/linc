@@ -56,6 +56,13 @@ describe("isContextOverflow", () => {
 		expect(isContextOverflow(message, 131072)).toBe(true);
 	});
 
+	it("detects proxy-level 413 body-limit rejections as overflow", () => {
+		// Verbatim production error from a core-titanium turn whose conversation
+		// carried ~6MB of inline images through api.case.dev (CD-1516).
+		expect(isContextOverflow(createErrorMessage("413 Request Entity Too Large"))).toBe(true);
+		expect(isContextOverflow(createErrorMessage("413 Payload Too Large"))).toBe(true);
+	});
+
 	it("does not treat generic non-overflow Ollama errors as overflow", () => {
 		const message = createErrorMessage("500 `model runner crashed unexpectedly`");
 		expect(isContextOverflow(message, 32768)).toBe(false);

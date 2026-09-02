@@ -24,6 +24,8 @@ import type { AssistantMessage } from "../types.ts";
  * - MiniMax: "invalid params, context window exceeds limit"
  * - Kimi For Coding: "Your request exceeded model token limit: X (requested: Y)"
  * - Cerebras: "400/413 status code (no body)"
+ * - Vercel/nginx-fronted proxies (e.g. api.case.dev): "413 Request Entity Too Large" /
+ *   "Payload Too Large" — the proxy's request-body cap, hit before the model sees the request
  * - Mistral: "Prompt contains X tokens ... too large for model with Y maximum context length"
  * - z.ai: Does NOT error, accepts overflow silently - handled via usage.input > contextWindow
  * - Xiaomi MiMo: Truncates input to fill contextWindow exactly, then returns finish_reason "length"
@@ -55,6 +57,8 @@ const OVERFLOW_PATTERNS = [
 	/too many tokens/i, // Generic fallback
 	/token limit exceeded/i, // Generic fallback
 	/^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i, // Cerebras: 400/413 with no body
+	/request entity too large/i, // Proxy-level 413 (nginx/Vercel wording, e.g. api.case.dev body limit)
+	/payload too large/i, // Proxy-level 413 (Node/Express wording)
 ];
 
 /**
