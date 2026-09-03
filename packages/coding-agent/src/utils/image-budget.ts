@@ -22,6 +22,9 @@ export function capImageBytes(messages: Message[], budget = DEFAULT_IMAGE_BYTE_B
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
 		const content = (msg as { content?: unknown }).content;
+		// Assistant messages are intentionally excluded: no current provider
+		// returns image content in assistant output, and their content shape
+		// differs. Revisit if a multimodal provider starts emitting images.
 		if ((msg.role !== "user" && msg.role !== "toolResult") || !Array.isArray(content)) {
 			result[i] = msg;
 			continue;

@@ -4,7 +4,7 @@ import { loadPhoton } from "./photon.ts";
 export interface ImageResizeOptions {
 	maxWidth?: number; // Default: 2000
 	maxHeight?: number; // Default: 2000
-	maxBytes?: number; // Default: 4.5MB of base64 payload (below Anthropic's 5MB limit)
+	maxBytes?: number; // Default: 1.5MB of base64 payload per image (headroom under proxy body caps; see image-budget.ts for the per-request total)
 	jpegQuality?: number; // Default: 80
 }
 
