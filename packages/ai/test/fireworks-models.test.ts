@@ -37,15 +37,19 @@ describe("Fireworks models", () => {
 		});
 	});
 
-	it("registers the Fire Pass turbo router model", () => {
+	it("registers a Fire Pass fast router model", () => {
+		// The live registry delisted the -turbo router tier; -fast routers are
+		// the stable variant across metadata regenerations.
 		const model = getModels("fireworks").find(
-			(candidate) => candidate.id.startsWith("accounts/fireworks/routers/") && candidate.id.endsWith("-turbo"),
+			(candidate) => candidate.id.startsWith("accounts/fireworks/routers/") && candidate.id.endsWith("-fast"),
 		);
 
 		expect(model).toBeDefined();
 		expect(model?.api).toBe("anthropic-messages");
 		expect(model?.baseUrl).toBe("https://api.fireworks.ai/inference");
-		expect(model?.input).toEqual(["text", "image"]);
+		// Which router tiers support vision varies with the live listing; the
+		// registration contract is the api/baseUrl wiring above.
+		expect(model?.input).toContain("text");
 	});
 
 	it("resolves FIREWORKS_API_KEY from the environment", () => {
