@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.79.15] - 2026-09-03
+
+### Fixed
+
+- Tool-result images are bounded before every model request: the resizer now picks the smallest fitting encoding (screenshots that PNG-encoded at 2-3 MB now ship as ~10x smaller JPEGs), the default per-image cap drops from 4.5 MB to 1.5 MB, and each request carries at most 2.5 MB of image bytes in total — older images are replaced with a placeholder telling the model to re-read the file if still needed. Prevents conversations with many screenshots from exceeding proxy request-body limits ([#54](https://github.com/CaseMark/linc/pull/54)).
+- Proxy-level HTTP 413 rejections ("Request Entity Too Large" / "Payload Too Large") are recognized as context overflow, so the agent compacts and retries instead of failing the turn ([#54](https://github.com/CaseMark/linc/pull/54)).
+
 ## [0.79.14] - 2026-08-18
 
 ### Added
