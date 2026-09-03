@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
+import { capImageBytes } from "../utils/image-budget.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
@@ -256,7 +257,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		const converted = convertToLlm(messages);
 		// Check setting dynamically so mid-session changes take effect
 		if (!settingsManager.getBlockImages()) {
-			return converted;
+			// Every historical image rides along in every request; bound their
+			// total bytes so a conversation full of screenshots cannot push the
+			// request body past proxy limits (413 on api.case.dev).
+			return capImageBytes(converted);
 		}
 		// Filter out ImageContent from all messages, replacing with text placeholder
 		return converted.map((msg) => {

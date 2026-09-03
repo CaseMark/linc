@@ -4,7 +4,7 @@ import { loadPhoton } from "./photon.ts";
 export interface ImageResizeOptions {
 	maxWidth?: number; // Default: 2000
 	maxHeight?: number; // Default: 2000
-	maxBytes?: number; // Default: 4.5MB of base64 payload (below Anthropic's 5MB limit)
+	maxBytes?: number; // Default: 1.5MB of base64 payload per image (headroom under proxy body caps; see image-budget.ts for the per-request total)
 	jpegQuality?: number; // Default: 80
 }
 
@@ -18,8 +18,12 @@ export interface ResizedImage {
 	wasResized: boolean;
 }
 
-// 4.5MB of base64 payload. Provides headroom below Anthropic's 5MB limit.
-const DEFAULT_MAX_BYTES = 4.5 * 1024 * 1024;
+// 1.5MB of base64 payload per image. The binding limit is not the provider's
+// per-image cap (Anthropic allows 5MB) but the whole-request body cap of
+// proxy-fronted endpoints: api.case.dev rejects bodies over ~4.5MB with 413,
+// and every image in the conversation rides along in every request. A 2000px
+// JPEG lands well under this; the cap only bites on pathological encodes.
+const DEFAULT_MAX_BYTES = 1.5 * 1024 * 1024;
 
 const DEFAULT_OPTIONS: Required<ImageResizeOptions> = {
 	maxWidth: 2000,
@@ -125,18 +129,21 @@ export async function resizeImageInProcess(
 
 		while (true) {
 			const candidates = tryEncodings(currentWidth, currentHeight, qualitySteps);
-			for (const candidate of candidates) {
-				if (candidate.encodedSize < opts.maxBytes) {
-					return {
-						data: candidate.data,
-						mimeType: candidate.mimeType,
-						originalWidth,
-						originalHeight,
-						width: currentWidth,
-						height: currentHeight,
-						wasResized: true,
-					};
-				}
+			// Pick the smallest fitting candidate, not the first. PNG is generated
+			// first, and screenshots often PNG-encode just under the cap where the
+			// JPEG alternative is a tenth of the size.
+			const fitting = candidates.filter((candidate) => candidate.encodedSize < opts.maxBytes);
+			if (fitting.length > 0) {
+				const smallest = fitting.reduce((a, b) => (b.encodedSize < a.encodedSize ? b : a));
+				return {
+					data: smallest.data,
+					mimeType: smallest.mimeType,
+					originalWidth,
+					originalHeight,
+					width: currentWidth,
+					height: currentHeight,
+					wasResized: true,
+				};
 			}
 
 			if (currentWidth === 1 && currentHeight === 1) {
