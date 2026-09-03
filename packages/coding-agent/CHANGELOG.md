@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.79.14] - 2026-08-18
+
+### Added
+
+- After a transient provider failure (429/5xx/529, or a status-less stream/network failure) on any `casemark/core-*` model, Linc walks an ordered fallback chain — core-potassium → core-lightning-pro → gpt-5.6-sol — switching for 10 minutes per hop and then restoring the user's original model. Sol is the terminal fallback and never switches away. Override the chain with `LINC_MODEL_FALLBACK_CHAIN` (comma-separated), a single first hop with `LINC_MODEL_FALLBACK_MODEL`, and the window with `LINC_MODEL_FALLBACK_TTL_MS`. Failed HTTP statuses reach this hook via the OpenAI-completions `onResponse` error path; upstream failures without an HTTP status (stream truncation, connection resets) surface as a synthetic 599.
+
+## [0.79.13] - 2026-08-07
+
+### Added
+
+- `vault_upload` and `casedev_vault_upload` structurally validate `.docx` files before uploading them, so a document Word would refuse to open fails in the sandbox — where the agent can repair it — instead of on the user's machine. Checks the zip container, per-part XML well-formedness, and run-level content (text, field codes, breaks) placed outside a `<w:r>` run. Schema violations Word tolerates are not flagged, so stock `python-docx` output still uploads ([#47](https://github.com/CaseMark/linc/pull/47)).
+
+### Fixed
+
+- Model catalog generation no longer applies OpenAI-completions-only compat overrides to models that moved to the responses API upstream, which broke every build after OpenCode's `grok-build-0.1` switched APIs ([#47](https://github.com/CaseMark/linc/pull/47)).
+
 ## [0.79.12] - 2026-08-06
 
 ### Fixed

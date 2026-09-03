@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenAI-completions `onResponse` now fires for HTTP error statuses (429/5xx/529). The OpenAI client rejects those responses, so the success-path hook never saw them.
+
 ## [0.79.11] - 2026-08-06
 
 ## [0.79.9] - 2026-07-22
