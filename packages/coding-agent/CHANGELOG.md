@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.16] - 2026-09-04
+
 ### Fixed
 
 - The `subagent` tool's parameter schema now requires one complete mode (`agent` + `task`, a non-empty `tasks` array, or a non-empty `chain` array) via a schema-level `anyOf`. Every property was optional before, so a call naming an agent with no task validated and reached the tool, which answered with plain text; models re-issued the identical call indefinitely. With the constraint in the schema, models fill in the task (GLM-5.3: 10 of 10 probes, from 2 of 9), and any call that still misses it is rejected by the agent loop's argument validation with the missing field named. The tool's own invalid-parameter paths also return `isError: true` ([#57](https://github.com/CaseMark/linc/pull/57)).

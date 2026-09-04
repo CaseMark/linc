@@ -1,6 +1,6 @@
 {
 	"name": "@casemark/linc",
-	"version": "0.79.15",
+	"version": "0.79.16",
 	"description": "Legal AI terminal agent powered by case.dev",
 	"type": "module",
 	"piConfig": {
