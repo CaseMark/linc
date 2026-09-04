@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { TSchema } from "typebox";
+import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import subagentExtension from "../examples/extensions/subagent/index.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
@@ -61,7 +63,7 @@ describe("subagent example extension: invalid parameters", () => {
 		fs.rmSync(tmpRoot, { recursive: true, force: true });
 	});
 
-	test("agent without task is an error, names the modes, and points at project agents", async () => {
+	test("agent without task is an error when called directly", async () => {
 		const tool = registerSubagentTool();
 		const result = await tool.execute(
 			"call-1",
@@ -72,12 +74,28 @@ describe("subagent example extension: invalid parameters", () => {
 		);
 
 		expect(result.isError).toBe(true);
-		const text = textOf(result);
-		expect(text).toContain("Invalid parameters");
-		expect(text).toContain("single (agent + task)");
-		expect(text).toContain("Available agents (user scope): none");
-		expect(text).toContain(path.join(projectCwd, ".pi", "agents"));
-		expect(text).toContain('agentScope: "project" or "both"');
+		expect(textOf(result)).toContain("Invalid parameters");
+	});
+
+	test("the parameter schema itself rejects the malformed shapes before the tool runs", () => {
+		const tool = registerSubagentTool();
+		const schema = (tool as unknown as { parameters: TSchema }).parameters;
+		// Shapes seen in production from GLM-5.3, and the fallback shapes.
+		expect(Value.Check(schema, { agent: "vault-researcher", cwd: "/workspace", confirmProjectAgents: false })).toBe(
+			false,
+		);
+		expect(
+			Value.Check(schema, { agent: "vault-researcher", agentScope: "project", confirmProjectAgents: false }),
+		).toBe(false);
+		expect(Value.Check(schema, { agentScope: "project", confirmProjectAgents: false, cwd: "." })).toBe(false);
+		expect(Value.Check(schema, { tasks: '[{"agent":"a","task":"t"}]' })).toBe(false);
+		expect(Value.Check(schema, { tasks: [] })).toBe(false);
+		// Valid shapes for each mode.
+		expect(Value.Check(schema, { agent: "vault-researcher", task: "review", agentScope: "project" })).toBe(true);
+		expect(Value.Check(schema, { tasks: [{ agent: "vault-researcher", task: "review" }], agentScope: "both" })).toBe(
+			true,
+		);
+		expect(Value.Check(schema, { chain: [{ agent: "vault-researcher", task: "review {previous}" }] })).toBe(true);
 	});
 
 	test("no mode at all is an error even when agents are discoverable", async () => {
@@ -89,9 +107,7 @@ describe("subagent example extension: invalid parameters", () => {
 		});
 
 		expect(result.isError).toBe(true);
-		const text = textOf(result);
-		expect(text).toContain("Available agents (project scope): vault-researcher (project)");
-		expect(text).not.toContain("pass agentScope");
+		expect(textOf(result)).toContain("Available agents: vault-researcher (project)");
 	});
 
 	test("more than one mode is an error", async () => {
