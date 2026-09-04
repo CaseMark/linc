@@ -498,9 +498,9 @@ export default function (pi: ExtensionAPI) {
 				});
 
 			if (modeCount !== 1) {
-				// Unreachable through the agent loop, which validates arguments
-				// against SubagentParams (anyOf above) first; kept for direct
-				// callers, and an invalid call is an error, never a result.
+				// The agent loop validates arguments against SubagentParams (anyOf
+				// above) before calling execute, so only a call with two modes, or a
+				// direct caller, gets here. An invalid call is an error, never a result.
 				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 				return {
 					content: [
@@ -702,12 +702,10 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
-			return {
-				content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
-				details: makeDetails("single")([]),
-				isError: true,
-			};
+			// modeCount === 1 and neither chain nor tasks matched, so single mode
+			// matched above and returned. Reaching here means the mode bookkeeping
+			// drifted; surface that rather than answer the model.
+			throw new Error("subagent: no mode branch handled a call that passed the mode check");
 		},
 
 		renderCall(args, theme, _context) {

@@ -1,12 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import subagentExtension from "../examples/extensions/subagent/index.ts";
-import { ENV_AGENT_DIR } from "../src/config.ts";
-import type { ExtensionAPI } from "../src/core/extensions/index.ts";
+import subagentExtension from "../../../examples/extensions/subagent/index.ts";
+import { ENV_AGENT_DIR } from "../../../src/config.ts";
+import type { ExtensionAPI } from "../../../src/core/extensions/index.ts";
+import { createHarness, type Harness } from "../harness.ts";
 
 type RegisteredTool = {
 	name: string;
@@ -35,7 +37,7 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 	return result.content.map((part) => part.text ?? "").join("\n");
 }
 
-describe("subagent example extension: invalid parameters", () => {
+describe("regression CD-1531: malformed subagent calls are rejected before the tool runs", () => {
 	let tmpRoot: string;
 	let projectCwd: string;
 	let previousAgentDir: string | undefined;
@@ -173,6 +175,47 @@ describe("subagent example extension: invalid parameters", () => {
 
 		expect(result.isError).toBe(true);
 		expect(textOf(result)).toContain("Provide exactly one mode");
+	});
+
+	test("through the agent loop, the production GLM-5.3 shape is rejected by argument validation as an error", async () => {
+		const harness: Harness = await createHarness({
+			extensionFactories: [subagentExtension],
+			initialActiveToolNames: ["subagent"],
+		});
+		try {
+			harness.setResponses([
+				fauxAssistantMessage(
+					[
+						fauxToolCall("subagent", {
+							agent: "vault-researcher",
+							cwd: "/workspace",
+							confirmProjectAgents: false,
+						}),
+					],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("done"),
+			]);
+			await harness.session.prompt("delegate the document review");
+
+			const toolResults = harness.sessionManager
+				.getBranch()
+				.filter((entry) => entry.type === "message")
+				.map((entry) => entry.message)
+				.filter((message) => message.role === "toolResult") as Array<{
+				isError?: boolean;
+				content: Array<{ type: string; text?: string }>;
+			}>;
+			expect(toolResults).toHaveLength(1);
+			expect(toolResults[0].isError).toBe(true);
+			const text = textOf(toolResults[0]);
+			expect(text).toContain('Validation failed for tool "subagent"');
+			expect(text).toContain("task");
+			// The extension itself never ran: its own message is not what came back.
+			expect(text).not.toContain("Invalid parameters. Provide exactly one mode");
+		} finally {
+			harness.cleanup();
+		}
 	});
 
 	test("unknown agent in single mode is still an error", async () => {
