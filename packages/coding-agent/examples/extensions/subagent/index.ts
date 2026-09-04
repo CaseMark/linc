@@ -484,15 +484,25 @@ export default function (pi: ExtensionAPI) {
 				});
 
 			if (modeCount !== 1) {
+				// A malformed call is a failure, not a result. Without isError the
+				// model reads this text as an answer and re-issues the identical
+				// call; one session did so 3,500 times in a single turn.
 				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+				const scopeHint =
+					agentScope === "user" && discovery.projectAgentsDir
+						? `\nProject agents exist in ${discovery.projectAgentsDir}; pass agentScope: "project" or "both" to use them.`
+						: "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
+							text:
+								`Invalid parameters. Provide exactly one mode: single (agent + task), parallel (tasks: [{agent, task}]), or chain (chain: [{agent, task}]).` +
+								`\nAvailable agents (${agentScope} scope): ${available}${scopeHint}`,
 						},
 					],
 					details: makeDetails("single")([]),
+					isError: true,
 				};
 			}
 
@@ -688,6 +698,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
 				details: makeDetails("single")([]),
+				isError: true,
 			};
 		},
 
