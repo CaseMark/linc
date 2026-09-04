@@ -126,9 +126,9 @@ describe("Context overflow error handling", () => {
 	describe("GitHub Copilot (OAuth)", () => {
 		// Google model via Copilot
 		it.skipIf(!githubCopilotToken)(
-			"gemini-3.1-pro-preview - should detect overflow via isContextOverflow",
+			"gemini-3.5-flash - should detect overflow via isContextOverflow",
 			async () => {
-				const model = getModel("github-copilot", "gemini-3.1-pro-preview");
+				const model = getModel("github-copilot", "gemini-3.5-flash");
 				const result = await testContextOverflow(model, githubCopilotToken!);
 				logResult(result);
 
