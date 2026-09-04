@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The `subagent` tool now returns `isError: true` for malformed calls (no mode, several modes, or `agent` without `task`), and the message names the modes and the `agentScope` to pass when project agents exist. Previously the text came back as a normal result and models re-issued the identical call indefinitely ([#57](https://github.com/CaseMark/linc/pull/57)).
+
 ## [0.79.15] - 2026-09-03
 
 ### Fixed
