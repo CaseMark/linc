@@ -439,17 +439,31 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 	default: "user",
 });
 
-const SubagentParams = Type.Object({
-	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
-	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
-	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
-	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
-	agentScope: Type.Optional(AgentScopeSchema),
-	confirmProjectAgents: Type.Optional(
-		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
-	),
-	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
-});
+const SubagentParams = Type.Object(
+	{
+		agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
+		task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
+		tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
+		chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
+		agentScope: Type.Optional(AgentScopeSchema),
+		confirmProjectAgents: Type.Optional(
+			Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
+		),
+		cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+	},
+	{
+		// The three modes are mutually exclusive shapes, and every property is
+		// optional on its own, so without this constraint the schema accepts a
+		// call that names an agent and never says what to do. Some models
+		// (GLM-5.3 in 7 of 9 probes) emit exactly that; with the constraint
+		// in the schema they fill in the task, and the calls that still miss
+		// it are rejected by the agent loop's argument validation before this
+		// extension runs. No minItems on the arrays: OpenAI models send every
+		// property on every call (`chain: []`, `tasks: []` alongside a single
+		// agent + task), and those calls must keep validating.
+		anyOf: [{ required: ["agent", "task"] }, { required: ["tasks"] }, { required: ["chain"] }],
+	},
+);
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
@@ -484,6 +498,9 @@ export default function (pi: ExtensionAPI) {
 				});
 
 			if (modeCount !== 1) {
+				// The agent loop validates arguments against SubagentParams (anyOf
+				// above) before calling execute, so only a call with two modes, or a
+				// direct caller, gets here. An invalid call is an error, never a result.
 				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 				return {
 					content: [
@@ -493,6 +510,7 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: makeDetails("single")([]),
+					isError: true,
 				};
 			}
 
@@ -684,11 +702,10 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
-			return {
-				content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
-				details: makeDetails("single")([]),
-			};
+			// modeCount === 1 and neither chain nor tasks matched, so single mode
+			// matched above and returned. Reaching here means the mode bookkeeping
+			// drifted; surface that rather than answer the model.
+			throw new Error("subagent: no mode branch handled a call that passed the mode check");
 		},
 
 		renderCall(args, theme, _context) {
