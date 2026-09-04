@@ -443,12 +443,8 @@ const SubagentParams = Type.Object(
 	{
 		agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
 		task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
-		tasks: Type.Optional(
-			Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution", minItems: 1 }),
-		),
-		chain: Type.Optional(
-			Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution", minItems: 1 }),
-		),
+		tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
+		chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 		agentScope: Type.Optional(AgentScopeSchema),
 		confirmProjectAgents: Type.Optional(
 			Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
@@ -462,7 +458,9 @@ const SubagentParams = Type.Object(
 		// (GLM-5.3 in 7 of 9 probes) emit exactly that; with the constraint
 		// in the schema they fill in the task, and the calls that still miss
 		// it are rejected by the agent loop's argument validation before this
-		// extension runs.
+		// extension runs. No minItems on the arrays: OpenAI models send every
+		// property on every call (`chain: []`, `tasks: []` alongside a single
+		// agent + task), and those calls must keep validating.
 		anyOf: [{ required: ["agent", "task"] }, { required: ["tasks"] }, { required: ["chain"] }],
 	},
 );

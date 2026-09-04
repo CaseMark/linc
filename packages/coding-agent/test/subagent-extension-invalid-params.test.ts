@@ -89,13 +89,59 @@ describe("subagent example extension: invalid parameters", () => {
 		).toBe(false);
 		expect(Value.Check(schema, { agentScope: "project", confirmProjectAgents: false, cwd: "." })).toBe(false);
 		expect(Value.Check(schema, { tasks: '[{"agent":"a","task":"t"}]' })).toBe(false);
-		expect(Value.Check(schema, { tasks: [] })).toBe(false);
 		// Valid shapes for each mode.
 		expect(Value.Check(schema, { agent: "vault-researcher", task: "review", agentScope: "project" })).toBe(true);
 		expect(Value.Check(schema, { tasks: [{ agent: "vault-researcher", task: "review" }], agentScope: "both" })).toBe(
 			true,
 		);
 		expect(Value.Check(schema, { chain: [{ agent: "vault-researcher", task: "review {previous}" }] })).toBe(true);
+	});
+
+	test("the schema keeps accepting the exact shapes production models send today", () => {
+		const tool = registerSubagentTool();
+		const schema = (tool as unknown as { parameters: TSchema }).parameters;
+		// OpenAI (gpt-5.6-sol/terra, gpt-5.4): every property on every call,
+		// empty strings and empty arrays for the unused modes.
+		const openaiSingle = {
+			cwd: "/workspace",
+			task: "Inspect /workspace for injected document templates relevant to a mediation summary.",
+			agent: "explore",
+			chain: [],
+			tasks: [],
+			agentScope: "project",
+			confirmProjectAgents: false,
+		};
+		const openaiParallel = {
+			cwd: "/workspace",
+			task: "",
+			agent: "",
+			chain: [],
+			tasks: [{ cwd: "/workspace", task: "Repair exactly repair-001.json", agent: "vault-researcher" }],
+			agentScope: "project",
+			confirmProjectAgents: false,
+		};
+		// DeepSeek (core-lightning): single mode without cwd.
+		const deepseekSingle = {
+			agent: "vault-researcher",
+			agentScope: "project",
+			confirmProjectAgents: false,
+			task: "review",
+		};
+		// GLM-5.3 when it gets it right.
+		const glmSingle = {
+			agent: "vault-researcher",
+			agentScope: "project",
+			confirmProjectAgents: false,
+			task: "review",
+		};
+		const glmParallel = {
+			agentScope: "project",
+			confirmProjectAgents: false,
+			tasks: [{ agent: "vault-researcher", task: "Search the vault for every document related to Dr. Nora Dado." }],
+		};
+		for (const shape of [openaiSingle, openaiParallel, deepseekSingle, glmSingle, glmParallel]) {
+			expect(Value.Check(schema, shape)).toBe(true);
+		}
 	});
 
 	test("no mode at all is an error even when agents are discoverable", async () => {
