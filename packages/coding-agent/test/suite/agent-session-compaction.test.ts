@@ -568,6 +568,59 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(4);
 	});
 
+	for (const [label, stop] of [
+		["session.abort()", async (harness: Harness) => await harness.session.abort()],
+		["agent.abort()", async (harness: Harness) => harness.session.agent.abort()],
+	] as const) {
+		it(`${label} during mid-run compaction cancels the compaction and ends the run`, async () => {
+			let compactionSignal: AbortSignal | undefined;
+			let markCompactionStarted = () => {};
+			const compactionStarted = new Promise<void>((resolve) => {
+				markCompactionStarted = resolve;
+			});
+			const harness = await createMidRunCompactionHarness({
+				tools: [createLargeResultTool("large_result")],
+				extensionFactories: [
+					(pi) => {
+						pi.on("session_before_compact", async (event) => {
+							compactionSignal = event.signal;
+							markCompactionStarted();
+							// Hold the compaction open until the run is aborted.
+							await new Promise<void>((resolve) => {
+								event.signal.addEventListener("abort", () => resolve(), { once: true });
+							});
+							return { cancel: true };
+						});
+					},
+				],
+			});
+			harness.setResponses([
+				fauxAssistantMessage(OLD_HISTORY),
+				fauxAssistantMessage(RECENT_HISTORY),
+				fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+				fauxAssistantMessage("must not be requested"),
+			]);
+
+			await harness.session.prompt("seed old history");
+			await harness.session.prompt("seed recent history");
+			const promptPromise = harness.session.prompt("run the large tool");
+			await compactionStarted;
+
+			await stop(harness);
+			await promptPromise;
+
+			expect(compactionSignal?.aborted).toBe(true);
+			expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "threshold", aborted: true });
+			expect(harness.session.isCompacting).toBe(false);
+			expect(harness.session.isStreaming).toBe(false);
+			// The run ended on the abort instead of resuming with a model response. (The faux
+			// provider shifts its next queued response before honoring the signal, so the pending
+			// count is not a usable signal here.)
+			expect((harness.session.messages.at(-1) as AssistantMessage).stopReason).toBe("aborted");
+			expect(harness.session.getLastAssistantText()).not.toBe("must not be requested");
+		});
+	}
+
 	it("does not compact after a terminating tool result", async () => {
 		const harness = await createMidRunCompactionHarness({
 			tools: [createLargeResultTool("terminate_with_large_result", true)],

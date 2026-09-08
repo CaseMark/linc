@@ -468,11 +468,15 @@ export class AgentSession {
 	 * prompt, so a long tool-calling run could grow past the model's window unchecked
 	 * (CD-1553; upstream pi #6879). Mirrors upstream `_compactBeforeNextAssistantResponse`.
 	 */
-	private async _compactBeforeNextAssistantResponse(context: AgentContext): Promise<AgentContext> {
+	private async _compactBeforeNextAssistantResponse(
+		context: AgentContext,
+		signal?: AbortSignal,
+	): Promise<AgentContext> {
 		const model = this.model;
 		const settings = this.settingsManager.getCompactionSettings();
 
 		if (
+			signal?.aborted ||
 			!model ||
 			model.contextWindow <= 0 ||
 			!shouldCompact(estimateContextTokens(context.messages).tokens, model.contextWindow, settings)
@@ -480,7 +484,15 @@ export class AgentSession {
 			return context;
 		}
 
-		await this._runAutoCompaction("threshold", false);
+		// Stopping the run (agent.abort(), not only session.abort()) must also stop the
+		// compaction it is waiting on, or the run stays busy until the summary returns.
+		const abortCompaction = () => this._autoCompactionAbortController?.abort();
+		signal?.addEventListener("abort", abortCompaction, { once: true });
+		try {
+			await this._runAutoCompaction("threshold", false);
+		} finally {
+			signal?.removeEventListener("abort", abortCompaction);
+		}
 		return {
 			...context,
 			messages: this.agent.state.messages.slice(),
@@ -501,7 +513,7 @@ export class AgentSession {
 				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
 				: undefined);
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-			const context = await this._compactBeforeNextAssistantResponse(turn.context);
+			const context = await this._compactBeforeNextAssistantResponse(turn.context, signal);
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.({ ...turn, context }, signal);
 			return {
 				...previousSnapshot,
@@ -1468,6 +1480,11 @@ export class AgentSession {
 	 */
 	async abort(): Promise<void> {
 		this.abortRetry();
+		// Mid-run auto-compaction runs inside the agent loop's next-turn hook with its own
+		// controller; aborting only the agent would leave that summary request running
+		// and waitForIdle() blocked until it finished.
+		this.abortCompaction();
+		this.abortBranchSummary();
 		this.agent.abort();
 		await this.agent.waitForIdle();
 	}
