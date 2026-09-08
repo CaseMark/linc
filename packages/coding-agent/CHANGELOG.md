@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed large tool results crossing the auto-compaction threshold being sent to the provider before compaction. Linc now compacts between tool execution and the next assistant response in the same run, and restores interactive progress when that run resumes (CD-1553; ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+
 ## [0.79.16] - 2026-09-04
 
 ### Fixed
