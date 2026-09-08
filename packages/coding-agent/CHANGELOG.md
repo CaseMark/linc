@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed large tool results crossing the auto-compaction threshold being sent to the provider before compaction. Linc now compacts between tool execution and the next assistant response in the same run, and restores interactive progress when that run resumes (CD-1553; ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+- Fixed silent context overflow on a completed response compacting with a retry that `agent.continue()` then rejected with `Cannot continue from message role: assistant`. The overflow path now compacts without retrying when the response stopped normally (ported from upstream pi).
 
 ## [0.79.16] - 2026-09-04
 

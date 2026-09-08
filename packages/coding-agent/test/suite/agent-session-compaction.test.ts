@@ -225,6 +225,24 @@ describe("AgentSession compaction characterization", () => {
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(true);
 	});
 
+	it("compacts without retry when a completed response silently overflows the window", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const overflowMessage = createAssistant(harness, {
+			stopReason: "stop",
+			totalTokens: harness.getModel().contextWindow + 1,
+			timestamp: Date.now(),
+		});
+		const runAutoCompactionSpy = vi.spyOn(sessionInternals, "_runAutoCompaction").mockResolvedValue(false);
+
+		await sessionInternals._checkCompaction(overflowMessage);
+
+		// agent.continue() cannot resume from a completed assistant message, so the overflow
+		// path must not ask for a retry here.
+		expect(runAutoCompactionSpy).toHaveBeenCalledWith("overflow", false);
+	});
+
 	it("does not retry overflow recovery more than once", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -383,20 +401,77 @@ describe("AgentSession compaction characterization", () => {
 		expect(runAutoCompactionSpy).not.toHaveBeenCalled();
 	});
 
-	it("compacts after a tool result before the next assistant request in the same run", async () => {
-		const toolResult = `large-tool-result:${"x".repeat(4800)}`;
-		const largeTool: AgentTool = {
-			name: "large_result",
+	// Mid-run compaction fixtures. The faux provider counts every token in the serialized
+	// request (system prompt, tool schemas, cwd), which differs between machines, so the
+	// window is derived from a measured baseline rather than hard-coded: with sizes tuned
+	// for one environment the end-of-run check legitimately compacted a second time on CI.
+	const OLD_HISTORY = `old-history:${"a".repeat(3200)}`; // ~800 tokens, dropped by compaction
+	const RECENT_HISTORY = `recent-history:${"b".repeat(800)}`; // ~200 tokens, kept
+	const LARGE_TOOL_RESULT = `large-tool-result:${"x".repeat(8000)}`; // ~2000 tokens
+	const MID_RUN_RESERVE_TOKENS = 400;
+	// findCutPoint keeps the entry that crosses keepRecentTokens. The tool turn is ~2020 tokens
+	// (result + call + user), so 2100 makes the recent assistant the crossing entry: it is kept,
+	// and everything older (both seed users and the old assistant, ~810 tokens) is summarized.
+	const MID_RUN_KEEP_RECENT_TOKENS = 2100;
+
+	function createLargeResultTool(name: string, terminate = false): AgentTool {
+		return {
+			name,
 			label: "Large result",
 			description: "Returns enough content to cross the compaction threshold",
 			parameters: Type.Object({}),
-			execute: async () => ({ content: [{ type: "text", text: toolResult }], details: {} }),
+			execute: async () => ({
+				content: [{ type: "text", text: LARGE_TOOL_RESULT }],
+				details: {},
+				...(terminate ? { terminate: true } : {}),
+			}),
 		};
-		const order: string[] = [];
+	}
+
+	/**
+	 * Measure system prompt + tools + the first exchange in this environment, then size the
+	 * window so the request after the large tool result is ~400 tokens over the threshold and
+	 * the same request after compaction (old exchange dropped) is ~400 tokens under it.
+	 */
+	async function createMidRunCompactionHarness(options: {
+		tools: AgentTool[];
+		extensionFactories: NonNullable<Parameters<typeof createHarness>[0]>["extensionFactories"];
+	}): Promise<Harness> {
+		const probe = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
+			settings: { compaction: { enabled: false } },
+			tools: options.tools,
+		});
+		harnesses.push(probe);
+		probe.setResponses([fauxAssistantMessage(OLD_HISTORY)]);
+		await probe.session.prompt("seed old history");
+		const probeUsage = (probe.session.messages.at(-1) as AssistantMessage).usage;
+		const baseline = probeUsage.input + probeUsage.output + probeUsage.cacheRead + probeUsage.cacheWrite;
+		// Resumed request without compaction: baseline + recent exchange (~210) + tool call (~15) + result (~2000)
+		// = baseline + ~2225. After compaction the two seed users and the old assistant (~810) are gone and a
+		// short summary is added: baseline + ~1415. Put the threshold halfway between.
+		const threshold = baseline + 1825;
+
 		const harness = await createHarness({
-			models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
-			settings: { compaction: { enabled: true, reserveTokens: 400, keepRecentTokens: 1750 } },
-			tools: [largeTool],
+			models: [{ id: "faux-1", contextWindow: threshold + MID_RUN_RESERVE_TOKENS, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					reserveTokens: MID_RUN_RESERVE_TOKENS,
+					keepRecentTokens: MID_RUN_KEEP_RECENT_TOKENS,
+				},
+			},
+			tools: options.tools,
+			extensionFactories: options.extensionFactories,
+		});
+		harnesses.push(harness);
+		return harness;
+	}
+
+	it("compacts after a tool result before the next assistant request in the same run", async () => {
+		const order: string[] = [];
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("large_result")],
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_before_compact", (event) => {
@@ -413,11 +488,10 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		let resumedRequest = "";
 		harness.setResponses([
-			fauxAssistantMessage(`old-history:${"a".repeat(2000)}`),
-			fauxAssistantMessage(`recent-history:${"b".repeat(800)}`),
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
 			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
 			(context) => {
 				order.push("provider");
@@ -443,16 +517,6 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("includes steering queued during compaction in the resumed assistant request", async () => {
-		const largeTool: AgentTool = {
-			name: "large_result",
-			label: "Large result",
-			description: "Returns enough content to cross the compaction threshold",
-			parameters: Type.Object({}),
-			execute: async () => ({
-				content: [{ type: "text", text: `large-tool-result:${"x".repeat(4800)}` }],
-				details: {},
-			}),
-		};
 		let markCompactionStarted = () => {};
 		const compactionStarted = new Promise<void>((resolve) => {
 			markCompactionStarted = resolve;
@@ -461,10 +525,8 @@ describe("AgentSession compaction characterization", () => {
 		const compactionReleased = new Promise<void>((resolve) => {
 			releaseCompaction = resolve;
 		});
-		const harness = await createHarness({
-			models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
-			settings: { compaction: { enabled: true, reserveTokens: 400, keepRecentTokens: 1750 } },
-			tools: [largeTool],
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("large_result")],
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_before_compact", async (event) => {
@@ -482,11 +544,10 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		let resumedRequest = "";
 		harness.setResponses([
-			fauxAssistantMessage(`old-history:${"a".repeat(2000)}`),
-			fauxAssistantMessage(`recent-history:${"b".repeat(800)}`),
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
 			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
 			(context) => {
 				resumedRequest = JSON.stringify(context.messages);
@@ -508,21 +569,8 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("does not compact after a terminating tool result", async () => {
-		const terminatingTool: AgentTool = {
-			name: "terminate_with_large_result",
-			label: "Terminate with large result",
-			description: "Returns enough content to cross the compaction threshold, then terminates",
-			parameters: Type.Object({}),
-			execute: async () => ({
-				content: [{ type: "text", text: `large-tool-result:${"x".repeat(4800)}` }],
-				details: {},
-				terminate: true,
-			}),
-		};
-		const harness = await createHarness({
-			models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
-			settings: { compaction: { enabled: true, reserveTokens: 400, keepRecentTokens: 1750 } },
-			tools: [terminatingTool],
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("terminate_with_large_result", true)],
 			extensionFactories: [
 				(pi) => {
 					pi.on("session_before_compact", (event) => ({
@@ -536,10 +584,9 @@ describe("AgentSession compaction characterization", () => {
 				},
 			],
 		});
-		harnesses.push(harness);
 		harness.setResponses([
-			fauxAssistantMessage(`old-history:${"a".repeat(2000)}`),
-			fauxAssistantMessage(`recent-history:${"b".repeat(800)}`),
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
 			fauxAssistantMessage(fauxToolCall("terminate_with_large_result", {}), { stopReason: "toolUse" }),
 		]);
 

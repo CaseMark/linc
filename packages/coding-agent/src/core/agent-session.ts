@@ -1877,8 +1877,17 @@ export class AgentSession {
 			return false;
 		}
 
-		// Case 1: Overflow - LLM returned context overflow error
+		// Case 1: Overflow - LLM returned context overflow error, or a completed response
+		// whose usage silently exceeds the context window.
 		if (sameModel && isContextOverflow(assistantMessage, contextWindow)) {
+			// A completed response cannot be retried: agent.continue() rejects a trailing
+			// assistant message. Compact so the next prompt fits, but do not retry (upstream pi
+			// fixes this the same way; without it the silent-overflow path threw
+			// "Cannot continue from message role: assistant" out of prompt()).
+			if (assistantMessage.stopReason === "stop") {
+				return await this._runAutoCompaction("overflow", false);
+			}
+
 			if (this._overflowRecoveryAttempted) {
 				this._emit({
 					type: "compaction_end",
