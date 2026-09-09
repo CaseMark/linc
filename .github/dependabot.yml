@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/packages/agent"
+      - "/packages/ai"
+      - "/packages/coding-agent"
+      - "/packages/coding-agent/examples/extensions/custom-provider-anthropic"
+      - "/packages/coding-agent/examples/extensions/custom-provider-gitlab-duo"
+      - "/packages/coding-agent/examples/extensions/gondolin"
+      - "/packages/coding-agent/examples/extensions/sandbox"
+      - "/packages/coding-agent/examples/extensions/with-deps"
+      - "/packages/tui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
