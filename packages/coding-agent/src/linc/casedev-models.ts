@@ -1,5 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { CASEDEV_PROVIDER_ID, CASEMARK_CORE_PROVIDER_ID } from "./casedev-auth.ts";
+import { CASEDEV_PROVIDER_ID } from "./casedev-auth.ts";
 
 const DEFAULT_CASEDEV_API_BASE_URL = "https://api.case.dev";
 const MODEL_CATALOG_TIMEOUT_MS = 2500;
@@ -175,41 +175,3 @@ export async function fetchCaseDevModels(fetchFn: typeof fetch = fetch): Promise
 		clearTimeout(timeout);
 	}
 }
-
-/**
- * Packaged fallback for PI_OFFLINE=1 and for a failed catalog fetch. Values
- * mirror the live catalog (core-mini: sglang --context-length 262144, 32k out).
- */
-export const CASEMARK_CORE_MODELS = [
-	{
-		id: "casemark/core-large",
-		name: "CaseMark Core Large",
-		api: "openai-completions",
-		provider: CASEMARK_CORE_PROVIDER_ID,
-		baseUrl: getCaseDevLlmBaseUrl(),
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 5, output: 12, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 200000,
-		maxTokens: 128000,
-		compat: { supportsDeveloperRole: false },
-	},
-	{
-		id: "casemark/core-mini",
-		name: "CaseMark Core Mini",
-		api: "openai-completions",
-		provider: CASEMARK_CORE_PROVIDER_ID,
-		baseUrl: getCaseDevLlmBaseUrl(),
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 2, output: 6, cacheRead: 0.1, cacheWrite: 0 },
-		contextWindow: 262144,
-		maxTokens: 32000,
-		compat: { supportsDeveloperRole: false },
-	},
-] satisfies CaseDevModel[];
-
-export const DEFAULT_CASEDEV_MODELS = CASEMARK_CORE_MODELS.map((model) => ({
-	...model,
-	provider: CASEDEV_PROVIDER_ID,
-})) satisfies CaseDevModel[];

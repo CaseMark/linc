@@ -94,31 +94,67 @@ describe("ModelRegistry", () => {
 	};
 
 	describe("Linc Casemark Core models", () => {
-		test("lists Casemark Core models after Case.dev auth is configured", () => {
+		test("registers no Case.dev models until the live catalog is fetched", () => {
+			authStorage.set("casedev", { type: "api_key", key: "sk_case_test" });
 			authStorage.set("casemark-core", { type: "api_key", key: "sk_case_test" });
 
 			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
-			const availableModels = registry.getAvailable();
 
-			expect(availableModels.some((model) => model.provider === "casemark-core")).toBe(true);
-			expect(registry.find("casemark-core", "casemark/core-large")).toMatchObject({
-				api: "openai-completions",
-				baseUrl: "https://api.case.dev/llm/v1",
-				provider: "casemark-core",
-			});
+			expect(registry.getAvailable().some((model) => model.provider === "casedev")).toBe(false);
+			expect(registry.getAvailable().some((model) => model.provider === "casemark-core")).toBe(false);
 		});
 
-		test("lists packaged Case.dev models after Case.dev auth is configured", () => {
+		test("populates both Case.dev providers from one catalog fetch", async () => {
 			authStorage.set("casedev", { type: "api_key", key: "sk_case_test" });
+			authStorage.set("casemark-core", { type: "api_key", key: "sk_case_test" });
+			const fetchMock = vi.fn(async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [
+						{
+							id: "casemark/core-large",
+							object: "model",
+							type: "language",
+							name: "CaseMark Core Large",
+							context_window: 200000,
+							max_tokens: 128000,
+							tags: ["reasoning"],
+							pricing: { input: "0.000005", output: "0.000012" },
+						},
+					],
+				}),
+			}));
+			vi.stubGlobal("fetch", fetchMock);
 
 			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const error = await registry.refreshCaseDevModels();
 
-			expect(registry.find("casedev", "casemark/core-large")).toMatchObject({
-				api: "openai-completions",
-				baseUrl: "https://api.case.dev/llm/v1",
-				provider: "casedev",
-			});
-			expect(registry.getAvailable().some((model) => model.provider === "casedev")).toBe(true);
+			expect(error).toBeUndefined();
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			for (const provider of ["casedev", "casemark-core"]) {
+				expect(registry.find(provider, "casemark/core-large")).toMatchObject({
+					api: "openai-completions",
+					baseUrl: "https://api.case.dev/llm/v1",
+					provider,
+					contextWindow: 200000,
+					maxTokens: 128000,
+				});
+			}
+		});
+
+		test("a failed catalog fetch leaves no Case.dev models and reports it", async () => {
+			authStorage.set("casedev", { type: "api_key", key: "sk_case_test" });
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => ({ ok: false, status: 503 })),
+			);
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const error = await registry.refreshCaseDevModels();
+
+			expect(error).toContain("HTTP 503");
+			expect(registry.getAvailable().some((model) => model.provider === "casedev")).toBe(false);
 		});
 
 		test("refreshes Case.dev models from the remote model catalog", async () => {
