@@ -1,9 +1,12 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
+	fauxToolCall,
 	type Model,
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -222,6 +225,24 @@ describe("AgentSession compaction characterization", () => {
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(true);
 	});
 
+	it("compacts without retry when a completed response silently overflows the window", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const overflowMessage = createAssistant(harness, {
+			stopReason: "stop",
+			totalTokens: harness.getModel().contextWindow + 1,
+			timestamp: Date.now(),
+		});
+		const runAutoCompactionSpy = vi.spyOn(sessionInternals, "_runAutoCompaction").mockResolvedValue(false);
+
+		await sessionInternals._checkCompaction(overflowMessage);
+
+		// agent.continue() cannot resume from a completed assistant message, so the overflow
+		// path must not ask for a retry here.
+		expect(runAutoCompactionSpy).toHaveBeenCalledWith("overflow", false);
+	});
+
 	it("does not retry overflow recovery more than once", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -378,6 +399,257 @@ describe("AgentSession compaction characterization", () => {
 		await sessionInternals._checkCompaction(errorAssistant);
 
 		expect(runAutoCompactionSpy).not.toHaveBeenCalled();
+	});
+
+	// Mid-run compaction fixtures. The faux provider counts every token in the serialized
+	// request (system prompt, tool schemas, cwd), which differs between machines, so the
+	// window is derived from a measured baseline rather than hard-coded: with sizes tuned
+	// for one environment the end-of-run check legitimately compacted a second time on CI.
+	const OLD_HISTORY = `old-history:${"a".repeat(3200)}`; // ~800 tokens, dropped by compaction
+	const RECENT_HISTORY = `recent-history:${"b".repeat(800)}`; // ~200 tokens, kept
+	const LARGE_TOOL_RESULT = `large-tool-result:${"x".repeat(8000)}`; // ~2000 tokens
+	const MID_RUN_RESERVE_TOKENS = 400;
+	// findCutPoint keeps the entry that crosses keepRecentTokens. The tool turn is ~2020 tokens
+	// (result + call + user), so 2100 makes the recent assistant the crossing entry: it is kept,
+	// and everything older (both seed users and the old assistant, ~810 tokens) is summarized.
+	const MID_RUN_KEEP_RECENT_TOKENS = 2100;
+
+	function createLargeResultTool(name: string, terminate = false): AgentTool {
+		return {
+			name,
+			label: "Large result",
+			description: "Returns enough content to cross the compaction threshold",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [{ type: "text", text: LARGE_TOOL_RESULT }],
+				details: {},
+				...(terminate ? { terminate: true } : {}),
+			}),
+		};
+	}
+
+	/**
+	 * Measure system prompt + tools + the first exchange in this environment, then size the
+	 * window so the request after the large tool result is ~400 tokens over the threshold and
+	 * the same request after compaction (old exchange dropped) is ~400 tokens under it.
+	 */
+	async function createMidRunCompactionHarness(options: {
+		tools: AgentTool[];
+		extensionFactories: NonNullable<Parameters<typeof createHarness>[0]>["extensionFactories"];
+	}): Promise<Harness> {
+		const probe = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
+			settings: { compaction: { enabled: false } },
+			tools: options.tools,
+		});
+		harnesses.push(probe);
+		probe.setResponses([fauxAssistantMessage(OLD_HISTORY)]);
+		await probe.session.prompt("seed old history");
+		const probeUsage = (probe.session.messages.at(-1) as AssistantMessage).usage;
+		const baseline = probeUsage.input + probeUsage.output + probeUsage.cacheRead + probeUsage.cacheWrite;
+		// Resumed request without compaction: baseline + recent exchange (~210) + tool call (~15) + result (~2000)
+		// = baseline + ~2225. After compaction the two seed users and the old assistant (~810) are gone and a
+		// short summary is added: baseline + ~1415. Put the threshold halfway between.
+		const threshold = baseline + 1825;
+
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: threshold + MID_RUN_RESERVE_TOKENS, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					reserveTokens: MID_RUN_RESERVE_TOKENS,
+					keepRecentTokens: MID_RUN_KEEP_RECENT_TOKENS,
+				},
+			},
+			tools: options.tools,
+			extensionFactories: options.extensionFactories,
+		});
+		harnesses.push(harness);
+		return harness;
+	}
+
+	it("compacts after a tool result before the next assistant request in the same run", async () => {
+		const order: string[] = [];
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("large_result")],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", (event) => {
+						order.push("compaction");
+						return {
+							compaction: {
+								summary: "compacted history",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		let resumedRequest = "";
+		harness.setResponses([
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			(context) => {
+				order.push("provider");
+				resumedRequest = JSON.stringify(context.messages);
+				return fauxAssistantMessage("finished after compaction");
+			},
+		]);
+
+		await harness.session.prompt("seed old history");
+		await harness.session.prompt("seed recent history");
+		const agentStartsBefore = harness.eventsOfType("agent_start").length;
+		await harness.session.prompt("run the large tool");
+
+		expect(order).toEqual(["compaction", "provider"]);
+		expect(harness.eventsOfType("agent_start")).toHaveLength(agentStartsBefore + 1);
+		expect(harness.eventsOfType("compaction_start").at(-1)).toEqual({
+			type: "compaction_start",
+			reason: "threshold",
+		});
+		expect(resumedRequest).toContain("compacted history");
+		expect(resumedRequest).toContain("large-tool-result");
+		expect(harness.session.getLastAssistantText()).toBe("finished after compaction");
+	});
+
+	it("includes steering queued during compaction in the resumed assistant request", async () => {
+		let markCompactionStarted = () => {};
+		const compactionStarted = new Promise<void>((resolve) => {
+			markCompactionStarted = resolve;
+		});
+		let releaseCompaction = () => {};
+		const compactionReleased = new Promise<void>((resolve) => {
+			releaseCompaction = resolve;
+		});
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("large_result")],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => {
+						markCompactionStarted();
+						await compactionReleased;
+						return {
+							compaction: {
+								summary: "compacted history",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		let resumedRequest = "";
+		harness.setResponses([
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			(context) => {
+				resumedRequest = JSON.stringify(context.messages);
+				return fauxAssistantMessage("finished after compaction");
+			},
+			fauxAssistantMessage("finished after delayed steering"),
+		]);
+
+		await harness.session.prompt("seed old history");
+		await harness.session.prompt("seed recent history");
+		const promptPromise = harness.session.prompt("run the large tool");
+		await compactionStarted;
+		await harness.session.steer("change direction");
+		releaseCompaction();
+		await promptPromise;
+
+		expect(resumedRequest).toContain("change direction");
+		expect(harness.faux.state.callCount).toBe(4);
+	});
+
+	for (const [label, stop] of [
+		["session.abort()", async (harness: Harness) => await harness.session.abort()],
+		["agent.abort()", async (harness: Harness) => harness.session.agent.abort()],
+	] as const) {
+		it(`${label} during mid-run compaction cancels the compaction and ends the run`, async () => {
+			let compactionSignal: AbortSignal | undefined;
+			let markCompactionStarted = () => {};
+			const compactionStarted = new Promise<void>((resolve) => {
+				markCompactionStarted = resolve;
+			});
+			const harness = await createMidRunCompactionHarness({
+				tools: [createLargeResultTool("large_result")],
+				extensionFactories: [
+					(pi) => {
+						pi.on("session_before_compact", async (event) => {
+							compactionSignal = event.signal;
+							markCompactionStarted();
+							// Hold the compaction open until the run is aborted.
+							await new Promise<void>((resolve) => {
+								event.signal.addEventListener("abort", () => resolve(), { once: true });
+							});
+							return { cancel: true };
+						});
+					},
+				],
+			});
+			harness.setResponses([
+				fauxAssistantMessage(OLD_HISTORY),
+				fauxAssistantMessage(RECENT_HISTORY),
+				fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+				fauxAssistantMessage("must not be requested"),
+			]);
+
+			await harness.session.prompt("seed old history");
+			await harness.session.prompt("seed recent history");
+			const promptPromise = harness.session.prompt("run the large tool");
+			await compactionStarted;
+
+			await stop(harness);
+			await promptPromise;
+
+			expect(compactionSignal?.aborted).toBe(true);
+			expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "threshold", aborted: true });
+			expect(harness.session.isCompacting).toBe(false);
+			expect(harness.session.isStreaming).toBe(false);
+			// The run ended on the abort instead of resuming with a model response. (The faux
+			// provider shifts its next queued response before honoring the signal, so the pending
+			// count is not a usable signal here.)
+			expect((harness.session.messages.at(-1) as AssistantMessage).stopReason).toBe("aborted");
+			expect(harness.session.getLastAssistantText()).not.toBe("must not be requested");
+		});
+	}
+
+	it("does not compact after a terminating tool result", async () => {
+		const harness = await createMidRunCompactionHarness({
+			tools: [createLargeResultTool("terminate_with_large_result", true)],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", (event) => ({
+						compaction: {
+							summary: "unexpected compaction",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harness.setResponses([
+			fauxAssistantMessage(OLD_HISTORY),
+			fauxAssistantMessage(RECENT_HISTORY),
+			fauxAssistantMessage(fauxToolCall("terminate_with_large_result", {}), { stopReason: "toolUse" }),
+		]);
+
+		await harness.session.prompt("seed old history");
+		await harness.session.prompt("seed recent history");
+		await harness.session.prompt("run the terminating tool");
+
+		expect(harness.eventsOfType("compaction_start")).toEqual([]);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toEqual([]);
+		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
 	it("does not trigger threshold compaction below the threshold or when disabled", async () => {

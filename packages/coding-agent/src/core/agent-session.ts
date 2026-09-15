@@ -17,10 +17,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type {
 	Agent,
+	AgentContext,
 	AgentEvent,
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@earendil-works/pi-ai";
@@ -347,6 +349,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -458,6 +461,66 @@ export class AgentSession {
 	// =========================================================================
 	// Event Subscription
 	// =========================================================================
+
+	/**
+	 * Threshold compaction between tool execution and the next assistant request in the
+	 * same agent run. `_checkCompaction()` only runs after a run ends and before a new
+	 * prompt, so a long tool-calling run could grow past the model's window unchecked
+	 * (CD-1553; upstream pi #6879). Mirrors upstream `_compactBeforeNextAssistantResponse`.
+	 */
+	private async _compactBeforeNextAssistantResponse(
+		context: AgentContext,
+		signal?: AbortSignal,
+	): Promise<AgentContext> {
+		const model = this.model;
+		const settings = this.settingsManager.getCompactionSettings();
+
+		if (
+			signal?.aborted ||
+			!model ||
+			model.contextWindow <= 0 ||
+			!shouldCompact(estimateContextTokens(context.messages).tokens, model.contextWindow, settings)
+		) {
+			return context;
+		}
+
+		// Stopping the run (agent.abort(), not only session.abort()) must also stop the
+		// compaction it is waiting on, or the run stays busy until the summary returns.
+		const abortCompaction = () => this._autoCompactionAbortController?.abort();
+		signal?.addEventListener("abort", abortCompaction, { once: true });
+		try {
+			await this._runAutoCompaction("threshold", false);
+		} finally {
+			signal?.removeEventListener("abort", abortCompaction);
+		}
+		return {
+			...context,
+			messages: this.agent.state.messages.slice(),
+		};
+	}
+
+	/**
+	 * Hook the agent loop's next-turn preparation so the between-turn compaction check
+	 * runs before every continuation request. Preserves any `prepareNextTurn` hook the
+	 * host installed on the agent. Upstream also refreshes the system prompt and tool
+	 * list here; Linc rebuilds those through `_buildRuntime()`, so only compaction is
+	 * wired in.
+	 */
+	private _installAgentNextTurnRefresh(): void {
+		const previousPrepareNextTurnWithContext =
+			this.agent.prepareNextTurnWithContext ??
+			(this.agent.prepareNextTurn
+				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
+				: undefined);
+		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
+			const context = await this._compactBeforeNextAssistantResponse(turn.context, signal);
+			const previousSnapshot = await previousPrepareNextTurnWithContext?.({ ...turn, context }, signal);
+			return {
+				...previousSnapshot,
+				context: previousSnapshot?.context ?? context,
+			};
+		};
+	}
 
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
@@ -1417,6 +1480,11 @@ export class AgentSession {
 	 */
 	async abort(): Promise<void> {
 		this.abortRetry();
+		// Mid-run auto-compaction runs inside the agent loop's next-turn hook with its own
+		// controller; aborting only the agent would leave that summary request running
+		// and waitForIdle() blocked until it finished.
+		this.abortCompaction();
+		this.abortBranchSummary();
 		this.agent.abort();
 		await this.agent.waitForIdle();
 	}
@@ -1826,8 +1894,17 @@ export class AgentSession {
 			return false;
 		}
 
-		// Case 1: Overflow - LLM returned context overflow error
+		// Case 1: Overflow - LLM returned context overflow error, or a completed response
+		// whose usage silently exceeds the context window.
 		if (sameModel && isContextOverflow(assistantMessage, contextWindow)) {
+			// A completed response cannot be retried: agent.continue() rejects a trailing
+			// assistant message. Compact so the next prompt fits, but do not retry (upstream pi
+			// fixes this the same way; without it the silent-overflow path threw
+			// "Cannot continue from message role: assistant" out of prompt()).
+			if (assistantMessage.stopReason === "stop") {
+				return await this._runAutoCompaction("overflow", false);
+			}
+
 			if (this._overflowRecoveryAttempted) {
 				this._emit({
 					type: "compaction_end",

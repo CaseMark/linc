@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Changed `prepareNextTurn` to run only after `shouldStopAfterTurn` and queued-message checks determine that the agent loop will start another assistant turn. It no longer runs after final or terminating turns; move end-of-run work to `agent_end` handling. Added `prepareNextTurnWithContext` for `Agent` users that need the next-turn loop context (ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+
 ## [0.79.11] - 2026-08-06
 
 ## [0.79.9] - 2026-07-22
