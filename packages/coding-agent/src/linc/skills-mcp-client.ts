@@ -218,16 +218,19 @@ export class CaseDevSkillsMcpClient {
 		return validateEntry(result.skill, uri);
 	}
 
-	private async listSkills(
-		cursor?: string,
-		signal?: AbortSignal,
-	): Promise<{ skills: McpSkillEntry[]; nextCursor?: string }> {
+	async listSkills(cursor?: string, signal?: AbortSignal): Promise<{ skills: McpSkillEntry[]; nextCursor?: string }> {
+		if (cursor !== undefined && (cursor.length === 0 || cursor.length > 1024)) {
+			throw new Error("Invalid Case.dev skill cursor");
+		}
 		await this.initialize(signal);
 		const result = await this.send("skills/list", cursor ? { cursor } : {}, signal);
-		if (result.resultType !== "complete" || !Array.isArray(result.skills)) {
+		if (result.resultType !== "complete" || !Array.isArray(result.skills) || result.skills.length > 100) {
 			throw new Error("Case.dev MCP returned an invalid skill listing");
 		}
-		if (result.nextCursor !== undefined && typeof result.nextCursor !== "string") {
+		if (
+			result.nextCursor !== undefined &&
+			(typeof result.nextCursor !== "string" || result.nextCursor.length === 0 || result.nextCursor.length > 1024)
+		) {
 			throw new Error("Case.dev MCP returned an invalid skill cursor");
 		}
 		return {

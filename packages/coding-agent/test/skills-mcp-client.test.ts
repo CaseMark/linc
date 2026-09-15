@@ -91,6 +91,16 @@ describe("Case.dev MCP skills pilot client", () => {
 		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list"]);
 	});
 
+	test("discovers one bounded metadata page and rejects unsafe cursors before a request", async () => {
+		const { client, calls } = fixture();
+		const page = await client.listSkills();
+		expect(page.skills[0].uri).toBe(rootUri);
+		expect(page.nextCursor).toBe("public-next");
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list"]);
+		await expect(client.listSkills("x".repeat(1025))).rejects.toThrow("Invalid Case.dev skill cursor");
+		expect(calls).not.toContain("resources/read");
+	});
+
 	test("falls back to a direct public URI after the org listing ends", async () => {
 		const { client, calls } = fixture({ publicFallback: true });
 		const entry = await client.resolveSkillSlug("intake");
