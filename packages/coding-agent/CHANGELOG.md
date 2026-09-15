@@ -6,6 +6,11 @@
 
 - Case.dev models come only from the live gateway catalog fetched at boot. The packaged `casemark/core-large` and `casemark/core-mini` definitions (hard-coded 200k / 128k windows) are removed; the `casedev` and `casemark-core` providers are both populated from one catalog response, and an offline, empty or failed fetch leaves no Case.dev models and reports it as a startup warning. The catalog parser owns context window, output cap (records without either are dropped, not defaulted), image input via `modalities.input` before capability tags, cache-read pricing and `compat.supportsDeveloperRole = false` for every gateway model. Where a record publishes a two-tier `pricing.input_tiers` ladder whose second tier costs more, `contextWindow` is capped at the boundary (OpenAI GPT-5.x/6 at 272k, Gemini and Grok at 200k) so auto-compaction keeps requests under the long-context price cliff. `parseCaseDevModelsResponse`, `fetchCaseDevModels` and `effectiveContextWindow` are exported and `@casemark/linc` is aliased in the extension loader so sandbox extensions can import the parser ([#61](https://github.com/CaseMark/linc/pull/61)).
 
+### Fixed
+
+- Fixed large tool results crossing the auto-compaction threshold being sent to the provider before compaction. Linc now compacts between tool execution and the next assistant response in the same run, and restores interactive progress when that run resumes (CD-1553; ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+- Fixed silent context overflow on a completed response compacting with a retry that `agent.continue()` then rejected with `Cannot continue from message role: assistant`. The overflow path now compacts without retrying when the response stopped normally (ported from upstream pi).
+
 ## [0.79.16] - 2026-09-04
 
 ### Fixed
