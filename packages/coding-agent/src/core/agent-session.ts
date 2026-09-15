@@ -22,9 +22,11 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	BeforeToolCallResult,
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
+
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@earendil-works/pi-ai";
 import {
 	clampThinkingLevel,
@@ -260,6 +262,17 @@ const MAX_RETRY_DELAY_MS = 60_000;
 // AgentSession Class
 // ============================================================================
 
+/** JSON with object keys sorted at every level, so equal arguments compare equal regardless of key order. */
+function stableStringify(value: unknown): string {
+	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+	const record = value as Record<string, unknown>;
+	return `{${Object.keys(record)
+		.sort()
+		.map((k) => `${JSON.stringify(k)}:${stableStringify(record[k])}`)
+		.join(",")}}`;
+}
+
 export class AgentSession {
 	readonly agent: Agent;
 	readonly sessionManager: SessionManager;
@@ -349,6 +362,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentStopHooks();
 		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
@@ -408,8 +422,119 @@ export class AgentSession {
 	 * registered tool execution to the extension context. Tool call and tool result interception now
 	 * happens here instead of in wrappers.
 	 */
+	/**
+	 * User-facing notice when the tool loop guard ends a run. Delivered through the
+	 * extension UI channel (RPC `extension_ui_request` / notify), which hosts already
+	 * render as a runtime notice, so no host needs to know the rule to show it.
+	 */
+	static readonly TOOL_LOOP_GUARD_NOTICE =
+		"This task was stopped because it kept repeating a step without making progress. Your work so far is saved. Send a message to continue.";
+
+	/**
+	 * Tool loop guard (CD-1554). Nothing else bounds a run once it starts: C3's budget
+	 * gate runs at send time and the provider keeps answering. A model that re-issues
+	 * one tool call with byte-identical arguments is not making progress, whether the
+	 * tool ran, reported an error, or never ran because the arguments failed validation
+	 * (the Sep 4 subagent loop returned "invalid parameters" as a normal result 3,526
+	 * times; with the schema fix the same call now fails validation instead).
+	 *
+	 * Rule: the run stops when the trailing streak of identical tool calls reaches
+	 * `maxIdenticalCalls`. Two hooks share one streak count, both stateless over the
+	 * transcript already in agent state:
+	 * - `beforeToolCall` blocks the Nth identical call before it executes, so a valid
+	 *   call is not run a fifth time, and marks the batch terminating.
+	 * - `shouldStopAfterTurn` ends the run after any turn whose trailing streak has
+	 *   reached N, which also covers calls the loop rejected before the hook
+	 *   (argument validation, unknown tool) and calls that ran in a mixed batch.
+	 * A user message resets the streak, so a user re-asking is never counted.
+	 */
+	private static toolCallKey(name: string, args: unknown): string {
+		return `${name}\u0000${stableStringify(args)}`;
+	}
+
+	/**
+	 * Length of the trailing run of identical tool calls in agent state, walking back
+	 * from the newest assistant tool call to the first different one or a user message.
+	 * `skipThroughToolCallId` starts counting after that call (its predecessors), and
+	 * `key` fixes what "identical" means instead of taking it from the newest call.
+	 */
+	private _trailingIdenticalToolCalls(options: { skipThroughToolCallId?: string; key?: string } = {}): number {
+		let key = options.key;
+		let streak = 0;
+		let skipping = options.skipThroughToolCallId !== undefined;
+		const messages = this.agent.state.messages;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === "user") break;
+			if (message.role !== "assistant") continue;
+			const content = (message as AssistantMessage).content;
+			for (let j = content.length - 1; j >= 0; j--) {
+				const block = content[j];
+				if (block.type !== "toolCall") continue;
+				if (skipping) {
+					if (block.id === options.skipThroughToolCallId) skipping = false;
+					continue;
+				}
+				const blockKey = AgentSession.toolCallKey(block.name, block.arguments);
+				if (key === undefined) key = blockKey;
+				if (blockKey !== key) return streak;
+				streak++;
+			}
+		}
+		return streak;
+	}
+
+	private _checkToolLoopGuard(toolCall: {
+		id: string;
+		name: string;
+		arguments: unknown;
+	}): BeforeToolCallResult | undefined {
+		const settings = this.settingsManager.getToolLoopGuardSettings();
+		if (!settings.enabled) return undefined;
+
+		// The call itself is already in state (message_end precedes execution); count
+		// the identical calls immediately before it.
+		const identicalBefore = this._trailingIdenticalToolCalls({
+			skipThroughToolCallId: toolCall.id,
+			key: AgentSession.toolCallKey(toolCall.name, toolCall.arguments),
+		});
+		if (identicalBefore + 1 < settings.maxIdenticalCalls) return undefined;
+
+		return {
+			block: true,
+			terminate: true,
+			reason:
+				`Tool loop guard: "${toolCall.name}" has now been called ${identicalBefore + 1} times in a row ` +
+				"with identical arguments and is not making progress. The run has been stopped.",
+		};
+	}
+
+	/** True when the trailing identical streak has reached the configured limit. */
+	private _toolLoopGuardTripped(): boolean {
+		const settings = this.settingsManager.getToolLoopGuardSettings();
+		return settings.enabled && this._trailingIdenticalToolCalls() >= settings.maxIdenticalCalls;
+	}
+
+	/**
+	 * End the run after any turn whose trailing identical streak has reached the limit.
+	 * Catches the calls `beforeToolCall` never sees: argument-validation failures and
+	 * unknown tools are rejected by the loop before the hook runs.
+	 */
+	private _installAgentStopHooks(): void {
+		const previous = this.agent.shouldStopAfterTurn;
+		this.agent.shouldStopAfterTurn = async (context, signal) => {
+			if (previous && (await previous(context, signal))) return true;
+			return this._toolLoopGuardTripped();
+		};
+	}
+
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = async ({ toolCall, args }) => {
+			const guard = this._checkToolLoopGuard(toolCall);
+			if (guard) {
+				return guard;
+			}
+
 			const runner = this._extensionRunner;
 			if (!runner.hasHandlers("tool_call")) {
 				return undefined;
@@ -566,6 +691,11 @@ export class AgentSession {
 
 		// Emit to extensions first
 		await this._emitExtensionEvent(event);
+
+		// The tool loop guard ended this run: tell the host before the terminal event lands.
+		if (event.type === "agent_end" && this._toolLoopGuardTripped()) {
+			this._extensionRunner.getUIContext().notify(AgentSession.TOOL_LOOP_GUARD_NOTICE, "warning");
+		}
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
