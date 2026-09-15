@@ -425,6 +425,9 @@ export class AgentSession {
 	static readonly TOOL_LOOP_GUARD_NOTICE =
 		"This task was stopped because it kept repeating a step without making progress. Your work so far is saved. Send a message to continue.";
 
+	/** Prefix of the error result a guard-blocked call returns; how a batch is recognised as guard-ended. */
+	static readonly TOOL_LOOP_GUARD_REASON_PREFIX = "Tool loop guard: ";
+
 	/**
 	 * Tool loop guard (CD-1554). Nothing else bounds a run once it starts: C3's budget
 	 * gate runs at send time and the provider keeps answering. A model that re-issues
@@ -469,14 +472,46 @@ export class AgentSession {
 
 		if (identicalBefore + 1 < settings.maxIdenticalCalls) return undefined;
 
-		this._extensionRunner.getUIContext().notify(AgentSession.TOOL_LOOP_GUARD_NOTICE, "warning");
 		return {
 			block: true,
 			terminate: true,
 			reason:
-				`Blocked: "${toolCall.name}" has now been called ${identicalBefore + 1} times in a row with identical arguments ` +
-				"and is not making progress. The run has been stopped.",
+				`${AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX}"${toolCall.name}" has now been called ${identicalBefore + 1} times in a row ` +
+				"with identical arguments and is not making progress. The run has been stopped.",
 		};
+	}
+
+	/**
+	 * True when the run that just ended was ended by the guard: the last tool batch
+	 * consists only of guard-blocked results. The loop terminates a batch only when
+	 * every result in it terminates, so a mixed batch (one blocked call alongside
+	 * calls that ran) continues the run and must not announce a stop. Read from the
+	 * transcript at agent_end, so the notice is accurate and sent exactly once.
+	 */
+	private _toolLoopGuardEndedRun(): boolean {
+		const messages = this.agent.state.messages;
+		const results: Array<{ isError?: boolean; content: unknown }> = [];
+		let i = messages.length - 1;
+		for (; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === "toolResult") {
+				results.unshift(message as { isError?: boolean; content: unknown });
+			} else if (message.role === "assistant") {
+				break;
+			} else {
+				return false;
+			}
+		}
+		if (i < 0 || results.length === 0) return false;
+		const callCount = (messages[i] as AssistantMessage).content.filter((c) => c.type === "toolCall").length;
+		if (callCount !== results.length) return false;
+		return results.every((result) => {
+			if (!result.isError || !Array.isArray(result.content)) return false;
+			const text = (result.content as Array<{ type?: string; text?: string }>)
+				.map((c) => (c.type === "text" ? (c.text ?? "") : ""))
+				.join("");
+			return text.startsWith(AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX);
+		});
 	}
 
 	private _installAgentToolHooks(): void {
@@ -582,6 +617,11 @@ export class AgentSession {
 
 		// Emit to extensions first
 		await this._emitExtensionEvent(event);
+
+		// The tool loop guard ended this run: tell the host before the terminal event lands.
+		if (event.type === "agent_end" && this._toolLoopGuardEndedRun()) {
+			this._extensionRunner.getUIContext().notify(AgentSession.TOOL_LOOP_GUARD_NOTICE, "warning");
+		}
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);

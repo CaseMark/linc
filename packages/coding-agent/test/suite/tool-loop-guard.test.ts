@@ -71,9 +71,59 @@ describe("tool loop guard", () => {
 			.map((c) => c.text ?? "")
 			.join("");
 		expect(blockedText).toContain('"echo" has now been called 5 times in a row');
+		expect(blockedText.startsWith(AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX)).toBe(true);
 		expect(harness.eventsOfType("tool_execution_end").at(-1)?.result).toHaveProperty("terminate", true);
 
 		expect(notices).toEqual([{ message: AgentSession.TOOL_LOOP_GUARD_NOTICE, type: "warning" }]);
+	});
+
+	it("sends one notice for a parallel batch that is entirely identical calls", async () => {
+		executed.length = 0;
+		const harness = await createHarness({ tools: [echoTool] });
+		harnesses.push(harness);
+		const notices = captureNotices(harness);
+		harness.setResponses([
+			...identicalCalls(4),
+			fauxAssistantMessage(
+				[
+					fauxToolCall("echo", { text: "same" }),
+					fauxToolCall("echo", { text: "same" }),
+					fauxToolCall("echo", { text: "same" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("should not run"),
+		]);
+
+		await harness.session.prompt("loop");
+
+		// All three calls in the fifth batch are blocked; the run ends; the host hears about it once.
+		expect(executed).toHaveLength(4);
+		expect(getAssistantTexts(harness)).not.toContain("should not run");
+		expect(harness.session.messages.filter((m) => m.role === "toolResult" && m.isError)).toHaveLength(3);
+		expect(notices).toHaveLength(1);
+	});
+
+	it("does not announce a stop when the blocked call shares its batch with a call that ran", async () => {
+		executed.length = 0;
+		const harness = await createHarness({ tools: [echoTool] });
+		harnesses.push(harness);
+		const notices = captureNotices(harness);
+		harness.setResponses([
+			...identicalCalls(4),
+			fauxAssistantMessage([fauxToolCall("echo", { text: "same" }), fauxToolCall("echo", { text: "other" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("carried on"),
+		]);
+
+		await harness.session.prompt("loop");
+
+		// The identical call is blocked, the other ran, so the batch does not terminate and the run continues.
+		expect(executed).toHaveLength(5);
+		expect(getAssistantTexts(harness)).toContain("carried on");
+		expect(harness.session.messages.filter((m) => m.role === "toolResult" && m.isError)).toHaveLength(1);
+		expect(notices).toEqual([]);
 	});
 
 	it("treats argument key order as identical", async () => {
