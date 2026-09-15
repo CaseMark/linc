@@ -2779,6 +2779,19 @@ export class InteractiveMode {
 				this.ui.requestRender();
 				break;
 
+			case "turn_start":
+				// A run that compacted between turns resumes here with no working loader
+				// and terminal progress switched off by compaction_end. Restore both.
+				if (this.settingsManager.getShowTerminalProgress()) {
+					this.ui.terminal.setProgress(true);
+				}
+				if (this.workingVisible && !this.loadingAnimation) {
+					this.loadingAnimation = this.createWorkingLoader();
+					this.statusContainer.addChild(this.loadingAnimation);
+					this.ui.requestRender();
+				}
+				break;
+
 			case "queue_update":
 				this.updatePendingMessagesDisplay();
 				this.ui.requestRender();
@@ -2964,7 +2977,8 @@ export class InteractiveMode {
 				this.defaultEditor.onEscape = () => {
 					this.session.abortCompaction();
 				};
-				this.statusContainer.clear();
+				// Mid-run compaction replaces the working loader; turn_start restores it.
+				this.stopWorkingLoader();
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
 				const label =
 					event.reason === "manual"
@@ -3930,10 +3944,14 @@ export class InteractiveMode {
 				await this.session.prompt(message.text);
 			}
 
-			// Send first prompt (starts streaming)
-			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
-				restoreQueue(error);
-			});
+			// Start a prompt when idle, or queue it into a run still finishing compaction.
+			// Mid-run compaction ends with willRetry=false while the agent is still
+			// streaming; without streamingBehavior prompt() rejects and the input is lost.
+			const promptPromise = this.session
+				.prompt(firstPrompt.text, { streamingBehavior: firstPrompt.mode })
+				.catch((error) => {
+					restoreQueue(error);
+				});
 
 			// Queue remaining messages
 			for (const message of rest) {

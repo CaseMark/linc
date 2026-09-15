@@ -7,6 +7,11 @@
 - Added a tool loop guard (CD-1554): the fifth consecutive tool call with byte-identical arguments is blocked and the run ends after the current tool batch, with a warning notice to the host through the extension UI channel. Configurable via `toolLoopGuard.enabled` and `toolLoopGuard.maxIdenticalCalls`. See [Settings](docs/settings.md#tool-loop-guard).
 - Added `terminate` to extension `tool_call` results so a blocked call can end the run (ported from upstream pi [#7715](https://github.com/earendil-works/pi/pull/7715)).
 
+### Fixed
+
+- Fixed large tool results crossing the auto-compaction threshold being sent to the provider before compaction. Linc now compacts between tool execution and the next assistant response in the same run, and restores interactive progress when that run resumes (CD-1553; ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+- Fixed silent context overflow on a completed response compacting with a retry that `agent.continue()` then rejected with `Cannot continue from message role: assistant`. The overflow path now compacts without retrying when the response stopped normally (ported from upstream pi).
+
 ## [0.79.16] - 2026-09-04
 
 ### Fixed
