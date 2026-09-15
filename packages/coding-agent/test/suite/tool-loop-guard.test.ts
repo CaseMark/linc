@@ -71,7 +71,7 @@ describe("tool loop guard", () => {
 			.map((c) => c.text ?? "")
 			.join("");
 		expect(blockedText).toContain('"echo" has now been called 5 times in a row');
-		expect(blockedText.startsWith(AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX)).toBe(true);
+		expect(blockedText.startsWith("Tool loop guard:")).toBe(true);
 		expect(harness.eventsOfType("tool_execution_end").at(-1)?.result).toHaveProperty("terminate", true);
 
 		expect(notices).toEqual([{ message: AgentSession.TOOL_LOOP_GUARD_NOTICE, type: "warning" }]);
@@ -124,6 +124,24 @@ describe("tool loop guard", () => {
 		expect(getAssistantTexts(harness)).toContain("carried on");
 		expect(harness.session.messages.filter((m) => m.role === "toolResult" && m.isError)).toHaveLength(1);
 		expect(notices).toEqual([]);
+	});
+
+	it("stops a run that repeats a call whose arguments fail validation, which never reaches the hook", async () => {
+		executed.length = 0;
+		const harness = await createHarness({ tools: [echoTool] });
+		harnesses.push(harness);
+		const notices = captureNotices(harness);
+		// `text` is required; the loop rejects these before beforeToolCall runs.
+		harness.setResponses([...identicalCalls(7, { n: 1 }), fauxAssistantMessage("should not run")]);
+
+		await harness.session.prompt("loop");
+
+		expect(executed).toHaveLength(0);
+		expect(harness.faux.state.callCount).toBe(5);
+		expect(harness.session.messages.filter((m) => m.role === "toolResult" && m.isError)).toHaveLength(5);
+		expect(getAssistantTexts(harness)).not.toContain("should not run");
+		expect(harness.session.isStreaming).toBe(false);
+		expect(notices).toEqual([{ message: AgentSession.TOOL_LOOP_GUARD_NOTICE, type: "warning" }]);
 	});
 
 	it("treats argument key order as identical", async () => {

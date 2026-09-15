@@ -362,6 +362,7 @@ export class AgentSession {
 		// (session persistence, extensions, auto-compaction, retry logic)
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
+		this._installAgentStopHooks();
 		this._installAgentNextTurnRefresh();
 
 		this._buildRuntime({
@@ -429,20 +430,60 @@ export class AgentSession {
 	static readonly TOOL_LOOP_GUARD_NOTICE =
 		"This task was stopped because it kept repeating a step without making progress. Your work so far is saved. Send a message to continue.";
 
-	/** Prefix of the error result a guard-blocked call returns; how a batch is recognised as guard-ended. */
-	static readonly TOOL_LOOP_GUARD_REASON_PREFIX = "Tool loop guard: ";
-
 	/**
 	 * Tool loop guard (CD-1554). Nothing else bounds a run once it starts: C3's budget
 	 * gate runs at send time and the provider keeps answering. A model that re-issues
-	 * one tool call with byte-identical arguments is not making progress, whether or not
-	 * the tool reports an error (the Sep 4 subagent loop returned "invalid parameters" as
-	 * a normal result 3,526 times). The Nth consecutive identical call is blocked and the
-	 * run ends after the current tool batch.
+	 * one tool call with byte-identical arguments is not making progress, whether the
+	 * tool ran, reported an error, or never ran because the arguments failed validation
+	 * (the Sep 4 subagent loop returned "invalid parameters" as a normal result 3,526
+	 * times; with the schema fix the same call now fails validation instead).
 	 *
-	 * Stateless: it reads the trailing tool calls already in agent state. A user message
-	 * resets the streak, so a user re-asking is never counted against the model.
+	 * Rule: the run stops when the trailing streak of identical tool calls reaches
+	 * `maxIdenticalCalls`. Two hooks share one streak count, both stateless over the
+	 * transcript already in agent state:
+	 * - `beforeToolCall` blocks the Nth identical call before it executes, so a valid
+	 *   call is not run a fifth time, and marks the batch terminating.
+	 * - `shouldStopAfterTurn` ends the run after any turn whose trailing streak has
+	 *   reached N, which also covers calls the loop rejected before the hook
+	 *   (argument validation, unknown tool) and calls that ran in a mixed batch.
+	 * A user message resets the streak, so a user re-asking is never counted.
 	 */
+	private static toolCallKey(name: string, args: unknown): string {
+		return `${name}\u0000${stableStringify(args)}`;
+	}
+
+	/**
+	 * Length of the trailing run of identical tool calls in agent state, walking back
+	 * from the newest assistant tool call to the first different one or a user message.
+	 * `skipThroughToolCallId` starts counting after that call (its predecessors), and
+	 * `key` fixes what "identical" means instead of taking it from the newest call.
+	 */
+	private _trailingIdenticalToolCalls(options: { skipThroughToolCallId?: string; key?: string } = {}): number {
+		let key = options.key;
+		let streak = 0;
+		let skipping = options.skipThroughToolCallId !== undefined;
+		const messages = this.agent.state.messages;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === "user") break;
+			if (message.role !== "assistant") continue;
+			const content = (message as AssistantMessage).content;
+			for (let j = content.length - 1; j >= 0; j--) {
+				const block = content[j];
+				if (block.type !== "toolCall") continue;
+				if (skipping) {
+					if (block.id === options.skipThroughToolCallId) skipping = false;
+					continue;
+				}
+				const blockKey = AgentSession.toolCallKey(block.name, block.arguments);
+				if (key === undefined) key = blockKey;
+				if (blockKey !== key) return streak;
+				streak++;
+			}
+		}
+		return streak;
+	}
+
 	private _checkToolLoopGuard(toolCall: {
 		id: string;
 		name: string;
@@ -451,71 +492,40 @@ export class AgentSession {
 		const settings = this.settingsManager.getToolLoopGuardSettings();
 		if (!settings.enabled) return undefined;
 
-		const key = `${toolCall.name}\u0000${stableStringify(toolCall.arguments)}`;
-		let identicalBefore = 0;
-		let reachedCurrent = false;
-		const messages = this.agent.state.messages;
-		outer: for (let i = messages.length - 1; i >= 0; i--) {
-			const message = messages[i];
-			if (message.role === "user") break;
-			if (message.role !== "assistant") continue;
-			const content = (message as AssistantMessage).content;
-			for (let j = content.length - 1; j >= 0; j--) {
-				const block = content[j];
-				if (block.type !== "toolCall") continue;
-				// The current call is already in state (message_end precedes execution);
-				// skip it and anything issued after it in the same batch.
-				if (!reachedCurrent) {
-					if (block.id === toolCall.id) reachedCurrent = true;
-					continue;
-				}
-				if (`${block.name}\u0000${stableStringify(block.arguments)}` !== key) break outer;
-				identicalBefore++;
-			}
-		}
-
+		// The call itself is already in state (message_end precedes execution); count
+		// the identical calls immediately before it.
+		const identicalBefore = this._trailingIdenticalToolCalls({
+			skipThroughToolCallId: toolCall.id,
+			key: AgentSession.toolCallKey(toolCall.name, toolCall.arguments),
+		});
 		if (identicalBefore + 1 < settings.maxIdenticalCalls) return undefined;
 
 		return {
 			block: true,
 			terminate: true,
 			reason:
-				`${AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX}"${toolCall.name}" has now been called ${identicalBefore + 1} times in a row ` +
+				`Tool loop guard: "${toolCall.name}" has now been called ${identicalBefore + 1} times in a row ` +
 				"with identical arguments and is not making progress. The run has been stopped.",
 		};
 	}
 
+	/** True when the trailing identical streak has reached the configured limit. */
+	private _toolLoopGuardTripped(): boolean {
+		const settings = this.settingsManager.getToolLoopGuardSettings();
+		return settings.enabled && this._trailingIdenticalToolCalls() >= settings.maxIdenticalCalls;
+	}
+
 	/**
-	 * True when the run that just ended was ended by the guard: the last tool batch
-	 * consists only of guard-blocked results. The loop terminates a batch only when
-	 * every result in it terminates, so a mixed batch (one blocked call alongside
-	 * calls that ran) continues the run and must not announce a stop. Read from the
-	 * transcript at agent_end, so the notice is accurate and sent exactly once.
+	 * End the run after any turn whose trailing identical streak has reached the limit.
+	 * Catches the calls `beforeToolCall` never sees: argument-validation failures and
+	 * unknown tools are rejected by the loop before the hook runs.
 	 */
-	private _toolLoopGuardEndedRun(): boolean {
-		const messages = this.agent.state.messages;
-		const results: Array<{ isError?: boolean; content: unknown }> = [];
-		let i = messages.length - 1;
-		for (; i >= 0; i--) {
-			const message = messages[i];
-			if (message.role === "toolResult") {
-				results.unshift(message as { isError?: boolean; content: unknown });
-			} else if (message.role === "assistant") {
-				break;
-			} else {
-				return false;
-			}
-		}
-		if (i < 0 || results.length === 0) return false;
-		const callCount = (messages[i] as AssistantMessage).content.filter((c) => c.type === "toolCall").length;
-		if (callCount !== results.length) return false;
-		return results.every((result) => {
-			if (!result.isError || !Array.isArray(result.content)) return false;
-			const text = (result.content as Array<{ type?: string; text?: string }>)
-				.map((c) => (c.type === "text" ? (c.text ?? "") : ""))
-				.join("");
-			return text.startsWith(AgentSession.TOOL_LOOP_GUARD_REASON_PREFIX);
-		});
+	private _installAgentStopHooks(): void {
+		const previous = this.agent.shouldStopAfterTurn;
+		this.agent.shouldStopAfterTurn = async (context, signal) => {
+			if (previous && (await previous(context, signal))) return true;
+			return this._toolLoopGuardTripped();
+		};
 	}
 
 	private _installAgentToolHooks(): void {
@@ -683,7 +693,7 @@ export class AgentSession {
 		await this._emitExtensionEvent(event);
 
 		// The tool loop guard ended this run: tell the host before the terminal event lands.
-		if (event.type === "agent_end" && this._toolLoopGuardEndedRun()) {
+		if (event.type === "agent_end" && this._toolLoopGuardTripped()) {
 			this._extensionRunner.getUIContext().notify(AgentSession.TOOL_LOOP_GUARD_NOTICE, "warning");
 		}
 
