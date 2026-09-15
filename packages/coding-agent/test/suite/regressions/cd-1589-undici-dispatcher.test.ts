@@ -9,24 +9,37 @@ import { configureHttpDispatcher } from "../../../src/core/http-dispatcher.ts";
 import { createHarness } from "../harness.ts";
 
 let originalDispatcher: ReturnType<typeof getGlobalDispatcher>;
+let restoreGlobals: (() => void) | undefined;
 const servers: Server[] = [];
 const sockets = new Set<Duplex>();
 
+function preserveChangedGlobals(operation: () => void): () => void {
+	const before = Object.getOwnPropertyDescriptors(globalThis);
+	operation();
+	const after = Object.getOwnPropertyDescriptors(globalThis);
+	const changed = [...new Set([...Reflect.ownKeys(before), ...Reflect.ownKeys(after)])].filter((key) => {
+		const previous = Reflect.get(before, key) as PropertyDescriptor | undefined;
+		const current = Reflect.get(after, key) as PropertyDescriptor | undefined;
+		return ["value", "get", "set", "writable", "enumerable", "configurable"].some(
+			(field) => !Object.is(previous && Reflect.get(previous, field), current && Reflect.get(current, field)),
+		);
+	});
+	return () => {
+		for (const key of changed) {
+			const descriptor = Reflect.get(before, key) as PropertyDescriptor | undefined;
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else if (!Reflect.deleteProperty(globalThis, key)) throw new Error(`Cannot restore global ${String(key)}`);
+		}
+	};
+}
+
+function configureFixtureDispatcher(timeoutMs: number): void {
+	restoreGlobals = preserveChangedGlobals(() => configureHttpDispatcher(timeoutMs));
+}
+
 beforeEach(() => {
 	originalDispatcher = getGlobalDispatcher();
-	for (const name of [
-		"fetch",
-		"Headers",
-		"Response",
-		"Request",
-		"FormData",
-		"WebSocket",
-		"CloseEvent",
-		"ErrorEvent",
-		"MessageEvent",
-		"EventSource",
-	])
-		vi.stubGlobal(name, (globalThis as unknown as Record<string, unknown>)[name]);
+	restoreGlobals = undefined;
 	for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy"])
 		vi.stubEnv(name, "");
 });
@@ -42,7 +55,7 @@ afterEach(async () => {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
 	servers.length = 0;
-	vi.unstubAllGlobals();
+	restoreGlobals?.();
 	vi.unstubAllEnvs();
 });
 
@@ -56,6 +69,25 @@ async function listen(server: Server): Promise<number> {
 }
 
 describe("CD-1589 upgraded HTTP dispatcher", () => {
+	test("global cleanup restores descriptors and removes newly installed globals", () => {
+		const existing = Symbol("existing fixture global");
+		const added = Symbol("new fixture global");
+		const descriptor = { value: "original", writable: true, configurable: true, enumerable: false };
+		Object.defineProperty(globalThis, existing, descriptor);
+		try {
+			const restore = preserveChangedGlobals(() => {
+				Object.defineProperty(globalThis, existing, { ...descriptor, value: "changed", enumerable: true });
+				Object.defineProperty(globalThis, added, { value: "new", configurable: true });
+			});
+			restore();
+			expect(Object.getOwnPropertyDescriptor(globalThis, existing)).toEqual(descriptor);
+			expect(Object.hasOwn(globalThis, added)).toBe(false);
+		} finally {
+			Reflect.deleteProperty(globalThis, existing);
+			Reflect.deleteProperty(globalThis, added);
+		}
+	});
+
 	for (const proxied of [false, true]) {
 		test(`agent tool reads compressed JSON ${proxied ? "through an authenticated loopback proxy" : "directly"}`, async () => {
 			let receivedAuthorization: string | undefined;
@@ -84,7 +116,7 @@ describe("CD-1589 upgraded HTTP dispatcher", () => {
 				const proxyPort = await listen(proxy);
 				vi.stubEnv("http_proxy", `http://fixture-user:fixture-pass@127.0.0.1:${proxyPort}`);
 			}
-			configureHttpDispatcher(1_000);
+			configureFixtureDispatcher(1_000);
 			const harness = await createHarness({
 				tools: [
 					{
@@ -124,7 +156,7 @@ describe("CD-1589 upgraded HTTP dispatcher", () => {
 
 	test("configured header idle timeout rejects a stalled loopback response", async () => {
 		const port = await listen(createServer(() => {}));
-		configureHttpDispatcher(20);
+		configureFixtureDispatcher(20);
 		await expect(request(`http://127.0.0.1:${port}/stall`)).rejects.toMatchObject({
 			code: "UND_ERR_HEADERS_TIMEOUT",
 		});
