@@ -295,6 +295,13 @@ export {
 	type ProjectTrustStoreEntry,
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
+// Case.dev gateway catalog (shared with the sandbox extension so one parser owns model metadata)
+export {
+	type CaseDevModel,
+	effectiveContextWindow,
+	fetchCaseDevModels,
+	parseCaseDevModelsResponse,
+} from "./linc/casedev-models.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
