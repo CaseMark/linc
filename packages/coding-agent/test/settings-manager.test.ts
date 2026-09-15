@@ -398,3 +398,28 @@ describe("SettingsManager", () => {
 		});
 	});
 });
+
+describe("tool loop guard settings", () => {
+	it("defaults to enabled with five identical calls", () => {
+		expect(SettingsManager.inMemory().getToolLoopGuardSettings()).toEqual({ enabled: true, maxIdenticalCalls: 5 });
+	});
+
+	it("reads overrides and rejects thresholds that cannot form a streak", () => {
+		expect(
+			SettingsManager.inMemory({
+				toolLoopGuard: { enabled: false, maxIdenticalCalls: 3 },
+			}).getToolLoopGuardSettings(),
+		).toEqual({
+			enabled: false,
+			maxIdenticalCalls: 3,
+		});
+		expect(
+			SettingsManager.inMemory({ toolLoopGuard: { maxIdenticalCalls: 1 } }).getToolLoopGuardSettings()
+				.maxIdenticalCalls,
+		).toBe(5);
+		expect(
+			SettingsManager.inMemory({ toolLoopGuard: { maxIdenticalCalls: 7.9 } }).getToolLoopGuardSettings()
+				.maxIdenticalCalls,
+		).toBe(7);
+	});
+});

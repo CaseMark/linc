@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a tool loop guard (CD-1554): the fifth consecutive tool call with byte-identical arguments is blocked and the run ends after the current tool batch, with a warning notice to the host through the extension UI channel. Configurable via `toolLoopGuard.enabled` and `toolLoopGuard.maxIdenticalCalls`. See [Settings](docs/settings.md#tool-loop-guard).
+- Added `terminate` to extension `tool_call` results so a blocked call can end the run (ported from upstream pi [#7715](https://github.com/earendil-works/pi/pull/7715)).
+
 ## [0.79.16] - 2026-09-04
 
 ### Fixed

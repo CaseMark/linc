@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `terminate` to `BeforeToolCallResult`: a blocked tool call can hint that the agent should stop after the current tool batch, under the same all-terminating batch rule as tool results (ported from upstream pi [#7715](https://github.com/earendil-works/pi/pull/7715)).
+
 ## [0.79.11] - 2026-08-06
 
 ## [0.79.9] - 2026-07-22
