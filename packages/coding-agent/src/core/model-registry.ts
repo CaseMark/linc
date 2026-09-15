@@ -25,7 +25,8 @@ import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { getAgentDir } from "../config.ts";
-import { CASEMARK_CORE_MODELS, DEFAULT_CASEDEV_MODELS, fetchCaseDevModels } from "../linc/casedev-models.ts";
+import { CASEMARK_CORE_PROVIDER_ID } from "../linc/casedev-auth.ts";
+import { fetchCaseDevModels } from "../linc/casedev-models.ts";
 import { warnDeprecation } from "../utils/deprecation.ts";
 import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
@@ -409,7 +410,8 @@ export class ModelRegistry {
 	private providerRequestConfigs: Map<string, ProviderRequestConfig> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
-	private caseDevModels: Model<Api>[] = DEFAULT_CASEDEV_MODELS;
+	/** Case.dev gateway models, populated only by the live catalog fetch at boot. */
+	private caseDevModels: Model<Api>[] = [];
 	private loadError: string | undefined = undefined;
 	readonly authStorage: AuthStorage;
 	private modelsJsonPath: string | undefined;
@@ -448,27 +450,30 @@ export class ModelRegistry {
 	}
 
 	/**
-	 * Refresh Case.dev-hosted models from the live Case.dev model catalog.
-	 *
-	 * The registry stays usable if the network is unavailable: callers receive
-	 * a warning string and the packaged Case.dev defaults remain in place.
+	 * Load Case.dev-hosted models from the live Case.dev model catalog. This is the
+	 * only source for the casedev and casemark-core providers: nothing about those
+	 * models is packaged, so a boot that cannot reach the catalog has none of them
+	 * and says so in the returned warning.
 	 */
 	async refreshCaseDevModels(fetchFn: typeof fetch = fetch): Promise<string | undefined> {
 		if (process.env.PI_OFFLINE === "1") {
-			return undefined;
+			return "PI_OFFLINE=1: Case.dev model catalog not fetched; Case.dev models are unavailable this session.";
 		}
 
 		try {
 			const models = await fetchCaseDevModels(fetchFn);
 			if (models.length === 0) {
-				return "Case.dev model catalog returned no language models; using packaged Case.dev models.";
+				return "Case.dev model catalog returned no language models; Case.dev models are unavailable this session.";
 			}
-			this.caseDevModels = models;
+			this.caseDevModels = [
+				...models,
+				...models.map((model) => ({ ...model, provider: CASEMARK_CORE_PROVIDER_ID })),
+			];
 			this.refresh();
 			return undefined;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			return `Failed to fetch Case.dev models: ${message}. Using packaged Case.dev models.`;
+			return `Failed to fetch Case.dev models: ${message}. Case.dev models are unavailable this session.`;
 		}
 	}
 
@@ -493,11 +498,7 @@ export class ModelRegistry {
 			// Keep built-in models even if custom models failed to load
 		}
 
-		const builtInModels = [
-			...CASEMARK_CORE_MODELS,
-			...this.caseDevModels,
-			...this.loadBuiltInModels(overrides, modelOverrides),
-		];
+		const builtInModels = [...this.caseDevModels, ...this.loadBuiltInModels(overrides, modelOverrides)];
 		let combined = this.mergeCustomModels(builtInModels, customModels);
 
 		// Let OAuth providers modify their models (e.g., update baseUrl)
