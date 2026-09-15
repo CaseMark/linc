@@ -10,6 +10,7 @@ import {
 	createAgentSessionServices,
 } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type {
 	ExtensionFactory,
@@ -47,6 +48,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		const runtimeOptions = {
 			agentDir: tempDir,
 			authStorage,
+			modelRegistry: ModelRegistry.inMemory(authStorage),
 			model: faux.getModel(),
 			resourceLoaderOptions: {
 				extensionFactories: [extensionFactory],
