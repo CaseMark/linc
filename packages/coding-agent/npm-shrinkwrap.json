@@ -9,19 +9,30 @@
 			"version": "0.79.16",
 			"license": "MIT",
 			"dependencies": {
+				"@anthropic-ai/sdk": "0.91.1",
+				"@aws-sdk/client-bedrock-runtime": "3.1048.0",
 				"@earendil-works/pi-agent-core": "^0.79.10",
 				"@earendil-works/pi-ai": "^0.79.10",
 				"@earendil-works/pi-tui": "^0.79.10",
+				"@google/genai": "1.52.0",
+				"@mistralai/mistralai": "2.2.1",
 				"@silvia-odwyer/photon-node": "0.3.4",
+				"@smithy/node-http-handler": "4.7.3",
 				"chalk": "5.6.2",
 				"cross-spawn": "7.0.6",
 				"diff": "8.0.4",
+				"get-east-asian-width": "1.6.0",
 				"glob": "13.0.6",
 				"highlight.js": "10.7.3",
 				"hosted-git-info": "9.0.3",
+				"http-proxy-agent": "7.0.2",
+				"https-proxy-agent": "7.0.6",
 				"ignore": "7.0.5",
 				"jiti": "2.7.0",
+				"marked": "15.0.12",
 				"minimatch": "10.2.5",
+				"openai": "6.26.0",
+				"partial-json": "0.1.7",
 				"proper-lockfile": "4.1.2",
 				"typebox": "1.1.38",
 				"undici": "8.10.2",
@@ -475,7 +486,7 @@
 		},
 		"node_modules/@earendil-works/pi-agent-core": {
 			"version": "0.79.10",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.79.10.tgz",
+			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@earendil-works/pi-ai": "^0.79.10",
@@ -489,7 +500,7 @@
 		},
 		"node_modules/@earendil-works/pi-ai": {
 			"version": "0.79.10",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.79.10.tgz",
+			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.91.1",
@@ -512,7 +523,7 @@
 		},
 		"node_modules/@earendil-works/pi-tui": {
 			"version": "0.79.10",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-tui/-/pi-tui-0.79.10.tgz",
+			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"get-east-asian-width": "1.6.0",
