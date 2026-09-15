@@ -91,6 +91,8 @@ export interface CreateAgentSessionResult {
 	extensionsResult: LoadExtensionsResult;
 	/** Warning if session was restored with a different model than saved */
 	modelFallbackMessage?: string;
+	/** Warning if the Case.dev model catalog could not be loaded (Case.dev models are then unavailable) */
+	caseDevModelsWarning?: string;
 }
 
 // Re-exports
@@ -174,6 +176,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const modelsPath = options.agentDir ? join(agentDir, "models.json") : undefined;
 	const authStorage = options.authStorage ?? AuthStorage.create(authPath);
 	const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsPath);
+	// Case.dev models exist only in the live gateway catalog (CD-1557); nothing is
+	// packaged. Load it before model selection, as createAgentSessionServices()
+	// does. A caller-supplied registry is theirs to populate, so it is not refetched.
+	const caseDevModelsWarning = options.modelRegistry ? undefined : await modelRegistry.refreshCaseDevModels();
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
 	const sessionManager = options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
@@ -397,5 +403,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		session,
 		extensionsResult,
 		modelFallbackMessage,
+		caseDevModelsWarning,
 	};
 }
