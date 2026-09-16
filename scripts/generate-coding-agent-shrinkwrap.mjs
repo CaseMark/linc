@@ -241,8 +241,16 @@ function markBundledClosure(shrinkwrapPackages, internalNames) {
 		}
 		bundled.add(lockPath);
 
-		for (const dependencyName of Object.keys(packageDependencies(shrinkwrapPackages[lockPath]))) {
+		const entry = shrinkwrapPackages[lockPath];
+		for (const dependencyName of Object.keys(packageDependencies(entry))) {
 			queue.push(resolveExternalDependency(shrinkwrapPackages, dependencyName, lockPath));
+		}
+		// npm places a required peer next to the package that wants it, so a peer of a
+		// bundled package dedupes into linc's node_modules and is classified as bundled
+		// too. Optional peers that are not installed are skipped like npm skips them.
+		for (const [peerName, meta] of Object.entries(entry.peerDependencies ?? {}).map(([name]) => [name, entry.peerDependenciesMeta?.[name]])) {
+			if (meta?.optional && !isInstalled(shrinkwrapPackages, peerName, lockPath)) continue;
+			queue.push(resolveExternalDependency(shrinkwrapPackages, peerName, lockPath));
 		}
 	}
 
@@ -256,6 +264,15 @@ function markBundledClosure(shrinkwrapPackages, internalNames) {
 	}
 
 	return bundled;
+}
+
+function isInstalled(lockPackages, packageName, fromLockPath) {
+	try {
+		resolveExternalDependency(lockPackages, packageName, fromLockPath);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function validateShrinkwrap(shrinkwrap, internalNames) {
