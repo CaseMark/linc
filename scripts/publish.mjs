@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BUNDLED_PI_PACKAGES, bundlePiPackages, cleanBundledPiPackages } from "./bundle-pi-packages.mjs";
+import { BUNDLED_PI_PACKAGES, bundledDependencyClosure, bundlePiPackages, cleanBundledPiPackages } from "./bundle-pi-packages.mjs";
 
 const packages = [
 	{ directory: "packages/coding-agent", name: "@casemark/linc" },
@@ -27,6 +27,8 @@ function run(command, args, options = {}) {
 		cwd: options.cwd,
 		encoding: "utf8",
 		stdio: options.capture ? ["inherit", "pipe", "pipe"] : "inherit",
+		// `npm pack --json` lists every bundled file; the default 1 MiB buffer truncates it.
+		maxBuffer: 256 * 1024 * 1024,
 	});
 
 	if (result.status !== 0) {
@@ -72,6 +74,35 @@ function validatePack(directory) {
 	}
 	const bundledFileCount = packed.files.filter((file) => file.path.startsWith("node_modules/@earendil-works/")).length;
 	console.log(`  bundled ${BUNDLED_PI_PACKAGES.length} pi packages (${bundledFileCount} files)`);
+
+	// The bundle must be self-contained: npm never fetches a bundled package's dependencies
+	// that dedupe into this package's node_modules (see scripts/bundle-pi-packages.mjs).
+	// Every inBundle shrinkwrap entry has to be in the tarball, and nothing else under
+	// node_modules may ride along (a stray nested install would ship the wrong version).
+	const closure = bundledDependencyClosure();
+	const bundledPaths = new Set([...closure.map((entry) => entry.lockPath), ...BUNDLED_PI_PACKAGES.map((pkg) => `node_modules/${pkg.name}`)]);
+	for (const lockPath of bundledPaths) {
+		if (!paths.has(`${lockPath}/package.json`)) {
+			throw new Error(`${packed.filename} is missing bundled dependency ${lockPath} (npm-shrinkwrap.json marks it inBundle)`);
+		}
+	}
+	const stray = [...paths].filter((path) => path.startsWith("node_modules/") && !packageDirOf(path, bundledPaths));
+	if (stray.length > 0) {
+		throw new Error(`${packed.filename} bundles files outside the shrinkwrap's inBundle entries:\n  ${stray.slice(0, 10).join("\n  ")}`);
+	}
+	const closureFileCount = packed.files.filter((file) => file.path.startsWith("node_modules/") && !file.path.startsWith("node_modules/@earendil-works/")).length;
+	console.log(`  bundled ${closure.length} dependency packages of the pi packages (${closureFileCount} files)`);
+}
+
+/** Longest bundled package path that `path` lives under, or undefined for a stray file. */
+function packageDirOf(path, bundledPaths) {
+	let best;
+	for (const lockPath of bundledPaths) {
+		if (path.startsWith(`${lockPath}/`) && (!best || lockPath.length > best.length)) {
+			best = lockPath;
+		}
+	}
+	return best;
 }
 
 function isPublished(name, version) {

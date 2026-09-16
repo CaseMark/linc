@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `npm install @casemark/linc` from the registry left the bundled pi packages without their runtime dependencies: `openai`, `partial-json` and the rest were absent after install, and the sandbox image build failed on 0.79.17 with `Cannot find package 'openai'`. npm never fetches a dependency of a bundled package that dedupes into the bundling package's own `node_modules`; it expects the bundle to carry it. The tarball now bundles the whole runtime dependency closure of `pi-agent-core`, `pi-ai` and `pi-tui` (the shrinkwrap flags those entries `inBundle`, `scripts/bundle-pi-packages.mjs` copies exactly them and checks their versions), and `scripts/publish.mjs` refuses a tarball that is missing any of them or that carries anything else under `node_modules`. 0.79.17 also packed an example extension's nested `@anthropic-ai/sdk` 0.52.0 into the bundle by accident; the example now pins the same SDK version as `pi-ai`.
+
 ## [0.79.17] - 2026-09-15
 
 ### Fixed
