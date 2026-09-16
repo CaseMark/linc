@@ -355,21 +355,6 @@ export async function putFileToPresignedUrl(params: {
 	});
 }
 
-// Mirrors casedev's SINGLE_PUT_MAX_FILE_SIZE_BYTES (apps/router/server/utils/vault/upload-constraints.ts).
-// The presign route rejects larger files too; checking here fails before any
-// placeholder object is created and gives the agent a message it can act on.
-export const VAULT_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-// Above this the upload works but the deliverable is probably the whole
-// matter re-zipped; nudge toward smaller parts.
-export const VAULT_UPLOAD_LARGE_FILE_BYTES = 500 * 1024 * 1024;
-
-export function formatByteSize(bytes: number): string {
-	if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1).replace(/\.0$/, "")} GB`;
-	if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
-	if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-	return `${bytes} bytes`;
-}
-
 export async function uploadCaseDevVaultFile(
 	ctx: ExtensionContext,
 	params: CaseDevVaultUploadParams,
@@ -377,15 +362,6 @@ export async function uploadCaseDevVaultFile(
 	const fileStats = await stat(params.filePath);
 	const contentType = params.contentType ?? "application/octet-stream";
 	const filename = params.name ?? basename(params.filePath);
-	if (!fileStats.isFile()) {
-		throw new Error(`Cannot upload ${filename}: ${params.filePath} is not a regular file.`);
-	}
-	if (fileStats.size > VAULT_UPLOAD_MAX_FILE_BYTES) {
-		throw new Error(
-			`Refusing to upload ${filename}: ${formatByteSize(fileStats.size)} exceeds the ${formatByteSize(VAULT_UPLOAD_MAX_FILE_BYTES)} single-file vault upload limit. ` +
-				"Split the deliverable into smaller parts (for example one archive per top-level folder) and upload each part separately.",
-		);
-	}
 	const vaultPath = `/vault/${encodeURIComponent(params.vaultId)}`;
 	const upload = await caseDevApiRequest<Record<string, unknown>>(ctx, "POST", `${vaultPath}/upload`, {
 		body: {
@@ -455,14 +431,8 @@ export async function uploadCaseDevVaultFile(
 		vaultId: params.vaultId,
 		objectId,
 		filename,
-		sizeBytes: fileStats.size,
 		upload,
 		confirm,
 		ingest,
-		...(fileStats.size > VAULT_UPLOAD_LARGE_FILE_BYTES
-			? {
-					note: `Uploaded ${formatByteSize(fileStats.size)}. Deliverables this large are slow to download and often duplicate files already in the matter; prefer several smaller archives (for example one per top-level folder) when the user can work with them.`,
-				}
-			: {}),
 	};
 }

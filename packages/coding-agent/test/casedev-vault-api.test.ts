@@ -10,8 +10,6 @@ import {
 	readCaseDevVaultObjectText,
 	searchCaseDevVault,
 	uploadCaseDevVaultFile,
-	VAULT_UPLOAD_LARGE_FILE_BYTES,
-	VAULT_UPLOAD_MAX_FILE_BYTES,
 } from "../src/linc/casedev-vault-api.ts";
 
 function createContext(cwd: string) {
@@ -400,23 +398,9 @@ describe("Case.dev vault REST API helper", () => {
 		);
 	});
 
-	it("refuses files over the single-PUT limit before creating a vault placeholder", async () => {
-		const filePath = join(cwd, "whole-matter.zip");
-		// Sparse: extends the file without allocating disk.
-		await writeFile(filePath, "");
-		await truncate(filePath, VAULT_UPLOAD_MAX_FILE_BYTES + 1);
-		const fetchMock = vi.fn();
-		vi.stubGlobal("fetch", fetchMock);
-
-		await expect(
-			uploadCaseDevVaultFile(createContext(cwd), { vaultId: "vault-1", filePath, ingest: false }),
-		).rejects.toThrow(/whole-matter\.zip: 5 GB exceeds the 5 GB single-file vault upload limit.*smaller parts/);
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it("streams large deliverables at constant memory and returns a note nudging toward smaller parts", async () => {
+	it("streams large deliverables at constant memory", async () => {
 		const filePath = join(cwd, "organized.zip");
-		const sizeBytes = VAULT_UPLOAD_LARGE_FILE_BYTES + 1;
+		const sizeBytes = 500 * 1024 * 1024;
 		// Sparse file: 500 MB of zeros with no disk allocation.
 		await writeFile(filePath, "");
 		await truncate(filePath, sizeBytes);
@@ -435,14 +419,13 @@ describe("Case.dev vault REST API helper", () => {
 		const sampler = setInterval(() => {
 			peak = Math.max(peak, process.memoryUsage().arrayBuffers);
 		}, 5);
-		let result: { sizeBytes: number; note?: string };
 		try {
-			result = (await uploadCaseDevVaultFile(createContext(cwd), {
+			await uploadCaseDevVaultFile(createContext(cwd), {
 				vaultId: "vault-1",
 				filePath,
 				contentType: "application/zip",
 				ingest: false,
-			})) as { sizeBytes: number; note?: string };
+			});
 		} finally {
 			clearInterval(sampler);
 			await put.close();
@@ -451,8 +434,6 @@ describe("Case.dev vault REST API helper", () => {
 		expect(put.requests[0].bytes).toBe(sizeBytes);
 		expect(put.requests[0].headers["content-length"]).toBe(String(sizeBytes));
 		expect(peak - baseline).toBeLessThan(64 * 1024 * 1024);
-		expect(result.sizeBytes).toBe(sizeBytes);
-		expect(result.note).toMatch(/Uploaded 500 MB\..*smaller archives/);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	}, 30_000);
 });
