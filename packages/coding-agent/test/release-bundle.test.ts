@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -7,6 +7,12 @@ import { afterAll, describe, expect, it } from "vitest";
 const codingAgentDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(codingAgentDir, "../..");
 const bundleScript = join(repoRoot, "scripts/bundle-pi-packages.mjs");
+const shrinkwrap = JSON.parse(readFileSync(join(codingAgentDir, "npm-shrinkwrap.json"), "utf8")) as {
+	packages: Record<string, { version?: string; inBundle?: boolean; resolved?: string }>;
+};
+const inBundlePaths = Object.entries(shrinkwrap.packages)
+	.filter(([lockPath, entry]) => lockPath && entry.inBundle === true)
+	.map(([lockPath]) => lockPath);
 const workspaceDists = ["packages/agent/dist", "packages/ai/dist", "packages/tui/dist"].map((p) => join(repoRoot, p));
 const built = workspaceDists.every((dir) => existsSync(dir));
 
@@ -18,7 +24,12 @@ function node(args: string[], cwd: string) {
 
 function npmPackDryRun(cwd: string): Set<string> {
 	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-	const result = spawnSync(npm, ["pack", "--dry-run", "--ignore-scripts", "--json"], { cwd, encoding: "utf8" });
+	// The JSON lists every bundled file; the default 1 MiB buffer truncates it.
+	const result = spawnSync(npm, ["pack", "--dry-run", "--ignore-scripts", "--json"], {
+		cwd,
+		encoding: "utf8",
+		maxBuffer: 256 * 1024 * 1024,
+	});
 	if (result.status !== 0) throw new Error(`npm pack --dry-run failed:\n${result.stderr}`);
 	const packed = JSON.parse(result.stdout)[0] as { files: Array<{ path: string }> };
 	return new Set(packed.files.map((f) => f.path));
@@ -36,7 +47,9 @@ describe.skipIf(!built)("release bundle: pi workspace packages ride inside the l
 	it("npm pack includes the bundled packages after the bundle step, and none before it", () => {
 		node([bundleScript, "--clean"], repoRoot);
 		const before = npmPackDryRun(codingAgentDir);
-		expect([...before].some((p) => p.startsWith("node_modules/@earendil-works/"))).toBe(false);
+		// Nothing under node_modules rides along by itself: a nested install here would be
+		// packed as a bundled dependency (0.79.17 shipped an example's @anthropic-ai/sdk 0.52.0).
+		expect([...before].some((p) => p.startsWith("node_modules/"))).toBe(false);
 
 		node([bundleScript], repoRoot);
 		const after = npmPackDryRun(codingAgentDir);
@@ -50,5 +63,52 @@ describe.skipIf(!built)("release bundle: pi workspace packages ride inside the l
 		expect([...after].some((p) => /node_modules\/@earendil-works\/pi-tui\/native\/.*\.node$/.test(p))).toBe(true);
 		// Source and tests stay out.
 		expect([...after].some((p) => /node_modules\/@earendil-works\/[^/]+\/(src|test)\//.test(p))).toBe(false);
+	});
+
+	it("bundles the pi packages' whole runtime dependency closure, and nothing else under node_modules", () => {
+		node([bundleScript], repoRoot);
+		const after = npmPackDryRun(codingAgentDir);
+
+		// npm never fetches a bundled package's dependencies that dedupe into this package's
+		// node_modules, so every inBundle shrinkwrap entry has to be inside the tarball.
+		expect(inBundlePaths.length).toBeGreaterThan(3);
+		for (const lockPath of [
+			"node_modules/openai",
+			"node_modules/partial-json",
+			"node_modules/typebox",
+			"node_modules/@anthropic-ai/sdk",
+		]) {
+			expect(inBundlePaths).toContain(lockPath);
+		}
+		for (const lockPath of inBundlePaths) {
+			expect(after.has(`${lockPath}/package.json`), `${lockPath} missing from the tarball`).toBe(true);
+			expect(
+				shrinkwrap.packages[lockPath].resolved,
+				`${lockPath} is bundled and must not resolve to the registry`,
+			).toBeUndefined();
+		}
+
+		// Anything else under node_modules is a stray nested install, not part of the bundle.
+		const packageDirOf = (path: string) =>
+			inBundlePaths.filter((lockPath) => path.startsWith(`${lockPath}/`)).sort((a, b) => b.length - a.length)[0];
+		const stray = [...after].filter((p) => p.startsWith("node_modules/") && !packageDirOf(p));
+		expect(stray).toEqual([]);
+
+		// The copies are the versions the shrinkwrap pins, taken from the repo root install.
+		for (const lockPath of ["node_modules/openai", "node_modules/@anthropic-ai/sdk"]) {
+			const copied = JSON.parse(readFileSync(join(codingAgentDir, lockPath, "package.json"), "utf8")) as {
+				version: string;
+			};
+			expect(copied.version).toBe(shrinkwrap.packages[lockPath].version);
+		}
+	});
+
+	it("--clean removes every copy it made", () => {
+		node([bundleScript], repoRoot);
+		expect(existsSync(join(codingAgentDir, "node_modules/openai"))).toBe(true);
+		node([bundleScript, "--clean"], repoRoot);
+		expect(existsSync(join(codingAgentDir, "node_modules/openai"))).toBe(false);
+		expect(existsSync(join(codingAgentDir, "node_modules/@earendil-works/pi-ai"))).toBe(false);
+		expect(existsSync(join(codingAgentDir, "node_modules/.linc-bundle-manifest.json"))).toBe(false);
 	});
 });

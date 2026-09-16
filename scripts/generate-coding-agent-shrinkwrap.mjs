@@ -194,6 +194,7 @@ function addInternalWorkspace(shrinkwrapPackages, addedPaths, queue, name, works
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
 	// Shipped inside the tarball by scripts/bundle-pi-packages.mjs, never fetched: the
 	// registry copies under these names are upstream pi's and lack CaseMark's changes.
+	// markBundledClosure() flags everything they depend on the same way.
 	entry.inBundle = true;
 
 	shrinkwrapPackages[outputPath] = sortedPackageEntry(entry);
@@ -217,6 +218,44 @@ function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue,
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
 		queue.push({ name: dependencyName, from: lockPath });
 	}
+}
+
+/**
+ * Flag the runtime dependency closure of the bundled pi packages as `inBundle`.
+ *
+ * npm treats any dependency of a bundled package that dedupes into the bundling
+ * package's own node_modules as part of the bundle (arborist `Node.getBundler`), so it
+ * is never fetched from the registry. A shrinkwrap that listed openai, partial-json and
+ * the rest as registry-resolved therefore installed @casemark/linc without them
+ * (0.79.17). Everything reachable from pi-agent-core, pi-ai and pi-tui has to ride
+ * inside the tarball; scripts/bundle-pi-packages.mjs copies exactly these entries.
+ */
+function markBundledClosure(shrinkwrapPackages, internalNames) {
+	const queue = [...internalNames].map((name) => `node_modules/${name}`);
+	const bundled = new Set();
+
+	while (queue.length > 0) {
+		const lockPath = queue.shift();
+		if (bundled.has(lockPath)) {
+			continue;
+		}
+		bundled.add(lockPath);
+
+		for (const dependencyName of Object.keys(packageDependencies(shrinkwrapPackages[lockPath]))) {
+			queue.push(resolveExternalDependency(shrinkwrapPackages, dependencyName, lockPath));
+		}
+	}
+
+	for (const lockPath of bundled) {
+		const entry = { ...shrinkwrapPackages[lockPath], inBundle: true };
+		// Bundled entries are unpacked from the tarball, not downloaded; npm's own
+		// lockfiles carry no resolved/integrity for them.
+		delete entry.resolved;
+		delete entry.integrity;
+		shrinkwrapPackages[lockPath] = sortedPackageEntry(entry);
+	}
+
+	return bundled;
 }
 
 function validateShrinkwrap(shrinkwrap, internalNames) {
@@ -320,6 +359,8 @@ function generateShrinkwrap() {
 		addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, item.name, item.from);
 	}
 
+	const bundled = markBundledClosure(shrinkwrapPackages, internalNames);
+
 	const shrinkwrap = {
 		name: codingAgentPackage.name,
 		version: codingAgentPackage.version,
@@ -329,11 +370,11 @@ function generateShrinkwrap() {
 	};
 
 	validateShrinkwrap(shrinkwrap, internalNames);
-	return shrinkwrap;
+	return { shrinkwrap, bundledCount: bundled.size };
 }
 
 try {
-	const shrinkwrap = generateShrinkwrap();
+	const { shrinkwrap, bundledCount } = generateShrinkwrap();
 	const content = `${JSON.stringify(shrinkwrap, null, "\t")}\n`;
 
 	if (checkOnly) {
@@ -354,7 +395,7 @@ try {
 		const packageCount = Object.keys(shrinkwrap.packages).length - 1;
 		const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
 		console.log(
-			`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
+			`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${bundledCount} bundled, ${platformPackageCount} platform-specific).`,
 		);
 	}
 } catch (error) {
