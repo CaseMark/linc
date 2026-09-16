@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.79.17] - 2026-09-15
+
 ### Fixed
 
 - The published `@casemark/linc` tarball now bundles the `@earendil-works/pi-agent-core`, `pi-ai` and `pi-tui` builds from this repo and declares their runtime dependencies. Those package names belong to upstream pi, whose last 0.79.x publish was 0.79.10, so every install had been fetching upstream's copies from the registry: CaseMark changes to `packages/agent`, `packages/ai` and `packages/tui` compiled and tested locally but never ran in a sandbox. Affected before this release: the 413-as-overflow detection (0.79.15), the fallback chain's 429/5xx trigger (0.79.14), and, had they shipped unbundled, the mid-run compaction hook and the tool loop guard's turn-end stop in this release. `scripts/publish.mjs` bundles before `npm publish` and refuses a tarball that lacks them; the shrinkwrap marks them `inBundle`.
