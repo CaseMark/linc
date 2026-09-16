@@ -504,7 +504,8 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 		{
 			name: "casedev_vault_upload",
 			label: "case.dev vault upload",
-			description: "Upload a local file into a Case.dev vault.",
+			description:
+				"Upload a local file into a Case.dev vault. Single files up to 5 GB; split larger deliverables into parts.",
 			promptSnippet: "Upload a local file into a Case.dev vault.",
 			parameters: vaultUploadSchema,
 			async execute(_toolCallId, params: VaultUploadInput, signal, _onUpdate, ctx) {
@@ -598,7 +599,7 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 			name: "vault_upload",
 			label: "vault_upload",
 			description:
-				"Upload a workspace file to a matter vault. Set storageOnly=true or autoIndex=false for generated deliverables that should land in the matter without ingestion.",
+				"Upload a workspace file to a matter vault. Set storageOnly=true or autoIndex=false for generated deliverables that should land in the matter without ingestion. Single files up to 5 GB; split larger deliverables into parts (for example one archive per top-level folder).",
 			promptSnippet: "Upload a workspace file to a matter vault",
 			parameters: vaultUploadSchema,
 			async execute(_toolCallId, params: VaultUploadInput, signal, _onUpdate, ctx) {

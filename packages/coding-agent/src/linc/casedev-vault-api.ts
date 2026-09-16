@@ -1,5 +1,7 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { basename, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -305,14 +307,85 @@ export async function readCaseDevVaultObjectText(
 	};
 }
 
+/**
+ * PUT a local file to a presigned URL, streaming it from disk.
+ *
+ * Deliberately not `fetch`: the previous implementation (readFile + typed-array
+ * copy + fetch's own copy of buffer bodies) held ~4x the file size in the agent
+ * process and OOM-killed the 4 GB sandbox on 700 MB+ deliverables (CD-1604).
+ * A file-backed Blob body is no better on Node 22 — undici materializes the
+ * whole Blob before writing (measured: live ArrayBuffers == file size). A
+ * ReadableStream body would stream but forces chunked transfer encoding,
+ * which presigned S3 PUTs reject. `http.request` with an explicit
+ * Content-Length and a piped read stream is constant-memory (~50 MB peak at
+ * 3 GB, measured) and honours socket backpressure.
+ */
+export async function putFileToPresignedUrl(params: {
+	url: string;
+	filePath: string;
+	sizeBytes: number;
+	contentType: string;
+	signal?: AbortSignal;
+}): Promise<{ ok: boolean; status: number; etag: string | null }> {
+	const target = new URL(params.url);
+	const request = target.protocol === "http:" ? httpRequest : httpsRequest;
+	return new Promise((resolve, reject) => {
+		const req = request(
+			target,
+			{
+				method: "PUT",
+				headers: { "Content-Type": params.contentType, "Content-Length": String(params.sizeBytes) },
+				signal: params.signal,
+			},
+			(res) => {
+				const status = res.statusCode ?? 0;
+				const etagHeader = res.headers.etag;
+				const etag = Array.isArray(etagHeader) ? (etagHeader[0] ?? null) : (etagHeader ?? null);
+				// Drain the response so the socket is released.
+				res.resume();
+				res.on("end", () => resolve({ ok: status >= 200 && status < 300, status, etag }));
+				res.on("error", reject);
+			},
+		);
+		req.on("error", reject);
+		pipeline(createReadStream(params.filePath), req).catch((error: unknown) => {
+			req.destroy();
+			reject(error);
+		});
+	});
+}
+
+// Mirrors casedev's SINGLE_PUT_MAX_FILE_SIZE_BYTES (apps/router/server/utils/vault/upload-constraints.ts).
+// The presign route rejects larger files too; checking here fails before any
+// placeholder object is created and gives the agent a message it can act on.
+export const VAULT_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
+// Above this the upload works but the deliverable is probably the whole
+// matter re-zipped; nudge toward smaller parts.
+export const VAULT_UPLOAD_LARGE_FILE_BYTES = 500 * 1024 * 1024;
+
+export function formatByteSize(bytes: number): string {
+	if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1).replace(/\.0$/, "")} GB`;
+	if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+	if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${bytes} bytes`;
+}
+
 export async function uploadCaseDevVaultFile(
 	ctx: ExtensionContext,
 	params: CaseDevVaultUploadParams,
 ): Promise<unknown> {
-	const file = await readFile(params.filePath);
 	const fileStats = await stat(params.filePath);
 	const contentType = params.contentType ?? "application/octet-stream";
 	const filename = params.name ?? basename(params.filePath);
+	if (!fileStats.isFile()) {
+		throw new Error(`Cannot upload ${filename}: ${params.filePath} is not a regular file.`);
+	}
+	if (fileStats.size > VAULT_UPLOAD_MAX_FILE_BYTES) {
+		throw new Error(
+			`Refusing to upload ${filename}: ${formatByteSize(fileStats.size)} exceeds the ${formatByteSize(VAULT_UPLOAD_MAX_FILE_BYTES)} single-file vault upload limit. ` +
+				"Split the deliverable into smaller parts (for example one archive per top-level folder) and upload each part separately.",
+		);
+	}
 	const vaultPath = `/vault/${encodeURIComponent(params.vaultId)}`;
 	const upload = await caseDevApiRequest<Record<string, unknown>>(ctx, "POST", `${vaultPath}/upload`, {
 		body: {
@@ -344,10 +417,11 @@ export async function uploadCaseDevVaultFile(
 		throw new Error("Case.dev returned an invalid vault upload response.");
 	}
 
-	const uploadResponse = await fetch(uploadUrl, {
-		method: "PUT",
-		headers: { "Content-Type": contentType },
-		body: new Uint8Array(file),
+	const uploadResponse = await putFileToPresignedUrl({
+		url: uploadUrl,
+		filePath: params.filePath,
+		sizeBytes: fileStats.size,
+		contentType,
 		signal: ctx.signal,
 	});
 	if (!uploadResponse.ok) {
@@ -366,7 +440,7 @@ export async function uploadCaseDevVaultFile(
 		body: {
 			success: true,
 			sizeBytes: fileStats.size,
-			etag: uploadResponse.headers.get("etag") ?? undefined,
+			etag: uploadResponse.etag ?? undefined,
 		},
 		signal: ctx.signal,
 	});
@@ -381,8 +455,14 @@ export async function uploadCaseDevVaultFile(
 		vaultId: params.vaultId,
 		objectId,
 		filename,
+		sizeBytes: fileStats.size,
 		upload,
 		confirm,
 		ingest,
+		...(fileStats.size > VAULT_UPLOAD_LARGE_FILE_BYTES
+			? {
+					note: `Uploaded ${formatByteSize(fileStats.size)}. Deliverables this large are slow to download and often duplicate files already in the matter; prefer several smaller archives (for example one per top-level folder) when the user can work with them.`,
+				}
+			: {}),
 	};
 }
