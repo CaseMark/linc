@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `vault_upload` / `casedev_vault_upload` no longer hold the whole file in memory. The S3 PUT read the file with `readFile`, copied it into a typed array, and `fetch` copied it again, so a 700 MB deliverable peaked at ~4x its size in the agent process and the 4 GB sandbox OOM-killed it mid-tool-call (CD-1604). The PUT now streams from disk through `http.request` with an explicit `Content-Length` (constant ~50 MB peak, measured at 3 GB).
+
 ## [0.79.18] - 2026-09-15
 
 ### Fixed
