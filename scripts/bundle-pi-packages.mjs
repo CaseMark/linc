@@ -79,11 +79,15 @@ export function bundlePiPackages({ log = console.log } = {}) {
 }
 
 export function cleanBundledPiPackages({ log = console.log } = {}) {
-	if (!existsSync(bundleRoot)) return;
-	// Only ever remove real directories we created; a symlink here would be npm's own.
-	if (lstatSync(bundleRoot).isSymbolicLink()) return;
-	rmSync(bundleRoot, { recursive: true, force: true });
-	log(`removed ${bundleRoot.slice(repoRoot.length + 1)}`);
+	// Remove only the three directories this script creates. A symlink at one of these
+	// paths is npm's own workspace link and is left alone; anything else under the scope
+	// is not ours to touch.
+	for (const pkg of BUNDLED_PI_PACKAGES) {
+		const targetDir = bundledPackageDir(pkg.name);
+		if (!existsSync(targetDir) || lstatSync(targetDir).isSymbolicLink()) continue;
+		rmSync(targetDir, { recursive: true, force: true });
+		log(`removed ${targetDir.slice(repoRoot.length + 1)}`);
+	}
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

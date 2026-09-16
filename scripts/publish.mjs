@@ -54,12 +54,21 @@ function validatePack(directory) {
 
 	// The pi workspace builds must ride inside the tarball; the registry copies under
 	// these names are upstream's and lack our changes (see scripts/bundle-pi-packages.mjs).
+	// A package.json alone would also pass with an empty or stale dist, so assert the
+	// built entry points and the pieces each package cannot run without.
 	const paths = new Set(packed.files.map((file) => file.path));
-	for (const pkg of BUNDLED_PI_PACKAGES) {
-		const marker = `node_modules/${pkg.name}/package.json`;
+	const required = BUNDLED_PI_PACKAGES.flatMap((pkg) => [
+		`node_modules/${pkg.name}/package.json`,
+		`node_modules/${pkg.name}/dist/index.js`,
+	]);
+	required.push("node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js");
+	for (const marker of required) {
 		if (!paths.has(marker)) {
-			throw new Error(`${packed.filename} does not bundle ${pkg.name} (missing ${marker})`);
+			throw new Error(`${packed.filename} does not bundle the pi workspace builds (missing ${marker})`);
 		}
+	}
+	if (![...paths].some((path) => /^node_modules\/@earendil-works\/pi-tui\/native\/.*\.node$/.test(path))) {
+		throw new Error(`${packed.filename} bundles pi-tui without its native prebuilds`);
 	}
 	const bundledFileCount = packed.files.filter((file) => file.path.startsWith("node_modules/@earendil-works/")).length;
 	console.log(`  bundled ${BUNDLED_PI_PACKAGES.length} pi packages (${bundledFileCount} files)`);
