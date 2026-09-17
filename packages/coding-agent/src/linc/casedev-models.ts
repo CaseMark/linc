@@ -54,14 +54,15 @@ function readTags(value: unknown): string[] {
 }
 
 /**
- * Gateway records publish `modalities.input` (AI Gateway upstreams); casemark
- * records publish capability tags. Either signal grants image input.
+ * Input modalities come from the record's `modalities.input` and nowhere else.
+ * The gateway publishes it for every model it fronts and the router publishes
+ * it for every CaseMark record (CD-1621); a record without it is text-only.
+ * No tag heuristics: `vision`/`multimodal` tags were the second encoding of
+ * this fact and every reader that inferred from them picked its own default.
  */
-function readInput(record: CaseDevModelRecord, tags: string[]): ("text" | "image")[] {
+function readInput(record: CaseDevModelRecord): ("text" | "image")[] {
 	const modalities = isRecord(record.modalities) ? record.modalities.input : undefined;
-	const image = Array.isArray(modalities)
-		? modalities.includes("image")
-		: tags.includes("multimodal") || tags.includes("vision");
+	const image = Array.isArray(modalities) && modalities.includes("image");
 	return image ? ["text", "image"] : ["text"];
 }
 
@@ -130,7 +131,7 @@ export function toCaseDevModel(record: CaseDevModelRecord, provider: string): Ca
 		provider,
 		baseUrl: getCaseDevLlmBaseUrl(),
 		reasoning: tags.includes("reasoning"),
-		input: readInput(record, tags),
+		input: readInput(record),
 		cost: readPricing(pricing),
 		contextWindow: effectiveContextWindow(contextWindow, pricing),
 		maxTokens,

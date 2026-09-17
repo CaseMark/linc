@@ -50,7 +50,8 @@ describe("casedev catalog parsing", () => {
 			id: "openai/gpt-5.6-sol",
 			context_window: 1050000,
 			max_tokens: 128000,
-			tags: ["reasoning", "vision"],
+			tags: ["reasoning"],
+			modalities: { input: ["text", "image", "pdf"], output: ["text"] },
 			pricing: {
 				input: "0.000002",
 				input_tiers: [
@@ -98,10 +99,12 @@ describe("casedev catalog parsing", () => {
 		expect(effectiveContextWindow(200000, {})).toBe(200000);
 	});
 
-	test("modalities.input wins over tags for image support", () => {
+	test("image support is read from modalities.input only; tags never grant it (CD-1621)", () => {
 		expect(parseOne({ tags: ["vision"], modalities: { input: ["text"] } })?.input).toEqual(["text"]);
 		expect(parseOne({ tags: [], modalities: { input: ["text", "image", "pdf"] } })?.input).toEqual(["text", "image"]);
-		expect(parseOne({ tags: ["multimodal"] })?.input).toEqual(["text", "image"]);
+		expect(parseOne({ tags: ["multimodal"] })?.input).toEqual(["text"]);
+		expect(parseOne({ tags: ["vision"] })?.input).toEqual(["text"]);
+		expect(parseOne({ modalities: null })?.input).toEqual(["text"]);
 	});
 
 	test("records without a usable window or output cap are dropped, not defaulted", () => {
