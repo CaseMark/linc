@@ -914,11 +914,13 @@ describe("agentLoop with AgentMessage", () => {
 			tools: [tool],
 		};
 		let convertedSecondTurnSystemPrompt = "";
+		let prepareCalls = 0;
 		let prepared = false;
 		const config: AgentLoopConfig = {
 			model: createModel(),
 			convertToLlm: identityConverter,
 			prepareNextTurn: async ({ context: currentContext }) => {
+				prepareCalls++;
 				if (prepared) return undefined;
 				prepared = true;
 				return {
@@ -964,7 +966,59 @@ describe("agentLoop with AgentMessage", () => {
 		}
 
 		expect(llmCalls).toBe(2);
+		expect(prepareCalls).toBe(1);
 		expect(convertedSecondTurnSystemPrompt).toBe("second prompt");
+	});
+
+	it("ends the run after a tool batch whose blocked calls all set terminate", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		let executions = 0;
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executions++;
+				return { content: [{ type: "text", text: `echoed: ${params.value}` }], details: { value: params.value } };
+			},
+		};
+		const context: AgentContext = { systemPrompt: "prompt", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			beforeToolCall: async () => ({ block: true, reason: "stop here", terminate: true }),
+		};
+
+		let llmCalls = 0;
+		const events: AgentEvent[] = [];
+		const stream = agentLoop([createUserMessage("echo something")], context, config, undefined, () => {
+			llmCalls++;
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				mockStream.push({
+					type: "done",
+					reason: "toolUse",
+					message: createAssistantMessage(
+						[{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "hello" } }],
+						"toolUse",
+					),
+				});
+			});
+			return mockStream;
+		});
+		for await (const event of stream) {
+			events.push(event);
+		}
+
+		expect(llmCalls).toBe(1);
+		expect(executions).toBe(0);
+		const toolEnd = events.find((e) => e.type === "tool_execution_end");
+		expect(toolEnd && "isError" in toolEnd ? toolEnd.isError : undefined).toBe(true);
+		expect(toolEnd && "result" in toolEnd ? (toolEnd.result as { terminate?: boolean }).terminate : undefined).toBe(
+			true,
+		);
+		expect(events.at(-1)?.type).toBe("agent_end");
 	});
 
 	it("should stop after the current turn when shouldStopAfterTurn returns true", async () => {

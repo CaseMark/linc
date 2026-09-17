@@ -12,6 +12,18 @@ export interface CompactionSettings {
 	keepRecentTokens?: number; // default: 20000
 }
 
+/**
+ * Tool loop guard: ends a run that keeps issuing the same tool call with
+ * byte-identical arguments (CD-1554). Two runaway agent runs on Sep 4 2026
+ * repeated one call 1,824 and 1,065 times before being stopped by hand; no
+ * healthy run in a week of production traffic made the same call even twice
+ * in a row.
+ */
+export interface ToolLoopGuardSettings {
+	enabled?: boolean; // default: true
+	maxIdenticalCalls?: number; // default: 5 — the Nth consecutive identical call is blocked and the run ends
+}
+
 export interface BranchSummarySettings {
 	reserveTokens?: number; // default: 16384 (tokens reserved for prompt + LLM response)
 	skipPrompt?: boolean; // default: false - when true, skips "Summarize branch?" prompt and defaults to no summary
@@ -86,6 +98,7 @@ export interface Settings {
 	followUpMode?: "all" | "one-at-a-time";
 	theme?: string;
 	compaction?: CompactionSettings;
+	toolLoopGuard?: ToolLoopGuardSettings;
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
@@ -766,6 +779,14 @@ export class SettingsManager {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+		};
+	}
+
+	getToolLoopGuardSettings(): { enabled: boolean; maxIdenticalCalls: number } {
+		const max = this.settings.toolLoopGuard?.maxIdenticalCalls;
+		return {
+			enabled: this.settings.toolLoopGuard?.enabled ?? true,
+			maxIdenticalCalls: typeof max === "number" && Number.isFinite(max) && max >= 2 ? Math.floor(max) : 5,
 		};
 	}
 

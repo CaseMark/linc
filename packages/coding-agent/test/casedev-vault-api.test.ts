@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +29,40 @@ function jsonResponse(data: unknown, status = 200): Response {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+}
+
+type PutCapture = {
+	url: string;
+	server: Server;
+	requests: Array<{ headers: Record<string, string | string[] | undefined>; bytes: number; body: string }>;
+	close: () => Promise<void>;
+};
+
+// The S3 PUT no longer goes through fetch (it streams via http.request), so
+// stand up a real local endpoint for it and capture what arrives.
+async function startPutCapture(status = 200): Promise<PutCapture> {
+	const requests: PutCapture["requests"] = [];
+	const server = createServer((req, res) => {
+		const chunks: Buffer[] = [];
+		let bytes = 0;
+		req.on("data", (chunk: Buffer) => {
+			bytes += chunk.length;
+			if (bytes <= 1024) chunks.push(chunk);
+		});
+		req.on("end", () => {
+			requests.push({ headers: req.headers, bytes, body: Buffer.concat(chunks).toString("utf-8") });
+			res.writeHead(status, { etag: '"abc"' });
+			res.end();
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+	const { port } = server.address() as { port: number };
+	return {
+		url: `http://127.0.0.1:${port}/upload?X-Amz-Signature=test`,
+		server,
+		requests,
+		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+	};
 }
 
 describe("Case.dev vault REST API helper", () => {
@@ -271,26 +306,30 @@ describe("Case.dev vault REST API helper", () => {
 	it("uploads, confirms, and ingests a vault file through REST", async () => {
 		const filePath = join(cwd, "note.md");
 		await writeFile(filePath, "# Note\n", "utf-8");
+		const put = await startPutCapture();
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
 				jsonResponse({
 					objectId: "obj-1",
-					uploadUrl: "https://s3.test/upload",
+					uploadUrl: put.url,
 					next_step: "POST /vault/vault-1/ingest/obj-1",
 				}),
 			)
-			.mockResolvedValueOnce(new Response("", { status: 200, headers: { etag: '"abc"' } }))
 			.mockResolvedValueOnce(jsonResponse({ status: "completed" }))
 			.mockResolvedValueOnce(jsonResponse({ status: "processing" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await uploadCaseDevVaultFile(createContext(cwd), {
-			vaultId: "vault-1",
-			filePath,
-			name: "note.md",
-			contentType: "text/markdown",
-		});
+		try {
+			await uploadCaseDevVaultFile(createContext(cwd), {
+				vaultId: "vault-1",
+				filePath,
+				name: "note.md",
+				contentType: "text/markdown",
+			});
+		} finally {
+			await put.close();
+		}
 
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
@@ -305,16 +344,15 @@ describe("Case.dev vault REST API helper", () => {
 				}),
 			}),
 		);
+		// The S3 PUT streams from disk with an explicit Content-Length (presigned
+		// PUTs reject chunked encoding) and never passes through fetch.
+		expect(put.requests).toHaveLength(1);
+		expect(put.requests[0].headers["content-type"]).toBe("text/markdown");
+		expect(put.requests[0].headers["content-length"]).toBe("7");
+		expect(put.requests[0].headers["transfer-encoding"]).toBeUndefined();
+		expect(put.requests[0].body).toBe("# Note\n");
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			2,
-			"https://s3.test/upload",
-			expect.objectContaining({
-				method: "PUT",
-				headers: { "Content-Type": "text/markdown" },
-			}),
-		);
-		expect(fetchMock).toHaveBeenNthCalledWith(
-			3,
 			"https://preview.api.case.dev/vault/vault-1/upload/obj-1/confirm",
 			expect.objectContaining({
 				method: "POST",
@@ -322,9 +360,80 @@ describe("Case.dev vault REST API helper", () => {
 			}),
 		);
 		expect(fetchMock).toHaveBeenNthCalledWith(
-			4,
+			3,
 			"https://preview.api.case.dev/vault/vault-1/ingest/obj-1",
 			expect.objectContaining({ method: "POST" }),
 		);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
+
+	it("reports a failed S3 PUT to confirm and surfaces the status", async () => {
+		const filePath = join(cwd, "note.md");
+		await writeFile(filePath, "# Note\n", "utf-8");
+		const put = await startPutCapture(403);
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ objectId: "obj-1", uploadUrl: put.url }))
+			.mockResolvedValueOnce(jsonResponse({ status: "failed" }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			await expect(
+				uploadCaseDevVaultFile(createContext(cwd), { vaultId: "vault-1", filePath, ingest: false }),
+			).rejects.toThrow("S3 upload failed with status 403");
+		} finally {
+			await put.close();
+		}
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			2,
+			"https://preview.api.case.dev/vault/vault-1/upload/obj-1/confirm",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					success: false,
+					errorCode: "HTTP_403",
+					errorMessage: "S3 upload failed with status 403",
+				}),
+			}),
+		);
+	});
+
+	it("streams large deliverables at constant memory", async () => {
+		const filePath = join(cwd, "organized.zip");
+		const sizeBytes = 500 * 1024 * 1024;
+		// Sparse file: 500 MB of zeros with no disk allocation.
+		await writeFile(filePath, "");
+		await truncate(filePath, sizeBytes);
+		const put = await startPutCapture();
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ objectId: "obj-2", uploadUrl: put.url }))
+			.mockResolvedValueOnce(jsonResponse({ status: "completed" }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		// Regression guard for CD-1604: the old readFile + fetch path held ~4x
+		// the file in ArrayBuffers and OOM-killed the sandbox. Track live
+		// ArrayBuffer memory (not RSS, which lags GC) while the upload runs.
+		const baseline = process.memoryUsage().arrayBuffers;
+		let peak = baseline;
+		const sampler = setInterval(() => {
+			peak = Math.max(peak, process.memoryUsage().arrayBuffers);
+		}, 5);
+		try {
+			await uploadCaseDevVaultFile(createContext(cwd), {
+				vaultId: "vault-1",
+				filePath,
+				contentType: "application/zip",
+				ingest: false,
+			});
+		} finally {
+			clearInterval(sampler);
+			await put.close();
+		}
+
+		expect(put.requests[0].bytes).toBe(sizeBytes);
+		expect(put.requests[0].headers["content-length"]).toBe(String(sizeBytes));
+		expect(peak - baseline).toBeLessThan(64 * 1024 * 1024);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	}, 30_000);
 });

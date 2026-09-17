@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+## [0.79.19] - 2026-09-16
+
+### Fixed
+
+- `vault_upload` / `casedev_vault_upload` no longer hold the whole file in memory. The S3 PUT read the file with `readFile`, copied it into a typed array, and `fetch` copied it again, so a 700 MB deliverable peaked at ~4x its size in the agent process and the 4 GB sandbox OOM-killed it mid-tool-call (CD-1604). The PUT now streams from disk through `http.request` with an explicit `Content-Length` (constant ~50 MB peak, measured at 3 GB).
+
+## [0.79.18] - 2026-09-15
+
+### Fixed
+
+- `npm install @casemark/linc` from the registry left the bundled pi packages without their runtime dependencies: `openai`, `partial-json` and the rest were absent after install, and the sandbox image build failed on 0.79.17 with `Cannot find package 'openai'`. npm never fetches a dependency of a bundled package that dedupes into the bundling package's own `node_modules`; it expects the bundle to carry it. The tarball now bundles the whole runtime dependency closure of `pi-agent-core`, `pi-ai` and `pi-tui` (the shrinkwrap flags those entries `inBundle`, `scripts/bundle-pi-packages.mjs` copies exactly them and checks their versions), and `scripts/publish.mjs` refuses a tarball that is missing any of them or that carries anything else under `node_modules`. 0.79.17 also packed an example extension's nested `@anthropic-ai/sdk` 0.52.0 into the bundle by accident; the example now pins the same SDK version as `pi-ai`.
+
+## [0.79.17] - 2026-09-15
+
+### Fixed
+
+- The published `@casemark/linc` tarball now bundles the `@earendil-works/pi-agent-core`, `pi-ai` and `pi-tui` builds from this repo and declares their runtime dependencies. Those package names belong to upstream pi, whose last 0.79.x publish was 0.79.10, so every install had been fetching upstream's copies from the registry: CaseMark changes to `packages/agent`, `packages/ai` and `packages/tui` compiled and tested locally but never ran in a sandbox. Affected before this release: the 413-as-overflow detection (0.79.15), the fallback chain's 429/5xx trigger (0.79.14), and, had they shipped unbundled, the mid-run compaction hook and the tool loop guard's turn-end stop in this release. `scripts/publish.mjs` bundles before `npm publish` and refuses a tarball that lacks them; the shrinkwrap marks them `inBundle`.
+
+### Added
+
+- Added a tool loop guard (CD-1554): the fifth consecutive tool call with byte-identical arguments is blocked and the run ends after the current tool batch, with a warning notice to the host through the extension UI channel. Configurable via `toolLoopGuard.enabled` and `toolLoopGuard.maxIdenticalCalls`. See [Settings](docs/settings.md#tool-loop-guard).
+- Added `terminate` to extension `tool_call` results so a blocked call can end the run (ported from upstream pi [#7715](https://github.com/earendil-works/pi/pull/7715)).
+
+### Changed
+
+- Case.dev models come only from the live gateway catalog fetched at boot. The packaged `casemark/core-large` and `casemark/core-mini` definitions (hard-coded 200k / 128k windows) are removed; the `casedev` and `casemark-core` providers are both populated from one catalog response, and an offline, empty or failed fetch leaves no Case.dev models and reports it as a startup warning. The catalog parser owns context window, output cap (records without either are dropped, not defaulted), image input via `modalities.input` before capability tags, cache-read pricing and `compat.supportsDeveloperRole = false` for every gateway model. Where a record publishes a two-tier `pricing.input_tiers` ladder whose second tier costs more, `contextWindow` is capped at the boundary (OpenAI GPT-5.x/6 at 272k, Gemini and Grok at 200k) so auto-compaction keeps requests under the long-context price cliff. `parseCaseDevModelsResponse`, `fetchCaseDevModels` and `effectiveContextWindow` are exported and `@casemark/linc` is aliased in the extension loader so sandbox extensions can import the parser ([#61](https://github.com/CaseMark/linc/pull/61)).
+
+### Fixed
+
+- Fixed large tool results crossing the auto-compaction threshold being sent to the provider before compaction. Linc now compacts between tool execution and the next assistant response in the same run, and restores interactive progress when that run resumes (CD-1553; ported from upstream pi [#6879](https://github.com/earendil-works/pi/issues/6879)).
+- Fixed silent context overflow on a completed response compacting with a retry that `agent.continue()` then rejected with `Cannot continue from message role: assistant`. The overflow path now compacts without retrying when the response stopped normally (ported from upstream pi).
+
 ## [0.79.16] - 2026-09-04
 
 ### Fixed

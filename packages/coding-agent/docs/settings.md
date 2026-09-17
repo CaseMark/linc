@@ -99,6 +99,24 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 }
 ```
 
+### Tool Loop Guard
+
+Ends a run that keeps issuing the same tool call with byte-identical arguments. The run stops once the trailing streak of identical calls reaches N, whether those calls ran, were blocked, or were rejected by argument validation before they could run. When the Nth call is valid it is blocked with an error result instead of executing; either way the run ends after that turn and the host receives a warning notice through the extension UI channel (`extension_ui_request` / `notify` in RPC mode) with the text "This task was stopped because it kept repeating a step without making progress. Your work so far is saved. Send a message to continue." A user message resets the streak; a call with different arguments resets it too. The notice is sent only when the run actually ends: a blocked call that shares its tool batch with calls that ran does not end the run (the loop terminates a batch only when every result in it terminates), so the model sees the error result and the run continues without a notice. The guard fires whether or not the tool reports an error, since a tool that answers a malformed call with a normal-looking result is exactly the case that loops forever.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `toolLoopGuard.enabled` | boolean | `true` | Enable the guard |
+| `toolLoopGuard.maxIdenticalCalls` | number | `5` | Consecutive identical calls before the run is stopped. Values below 2 or non-numeric revert to the default |
+
+```json
+{
+  "toolLoopGuard": {
+    "enabled": true,
+    "maxIdenticalCalls": 5
+  }
+}
+```
+
 ### Branch Summary
 
 | Setting | Type | Default | Description |
