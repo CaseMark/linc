@@ -225,9 +225,10 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 		vi.stubEnv("CASEDEV_BASE_URL", "https://api.case.dev");
 		const tools = new Map<string, unknown>();
+		const handlers = new Map<string, unknown>();
 		const pi = {
 			registerTool: (tool: { name: string }) => tools.set(tool.name, tool),
-			on: () => {},
+			on: (name: string, handler: unknown) => handlers.set(name, handler),
 			appendEntry: () => {},
 		};
 		await (skillsMcpExtension as unknown as (api: typeof pi) => void)(pi);
@@ -240,6 +241,16 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 				modelRegistry: { authStorage: { getApiKey } },
 			}),
 		).rejects.toThrow("must match the runtime Case.dev API origin");
+		expect(getApiKey).not.toHaveBeenCalled();
+
+		const beforeStart = handlers.get("before_agent_start") as (event: { systemPrompt: string }) => void;
+		beforeStart({ systemPrompt: "Base" });
+		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://api.case.dev/mcp");
+		await expect(
+			load.execute("call-2", { uri: rootUri }, undefined, undefined, {
+				modelRegistry: { authStorage: { getApiKey } },
+			}),
+		).rejects.toThrow("requires explicit host approval");
 		expect(getApiKey).not.toHaveBeenCalled();
 	});
 

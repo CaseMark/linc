@@ -113,6 +113,29 @@ export function getMcpSkillManifestDigest(entry: McpSkillEntry): string {
 	return `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
 }
 
+export function validateCaseDevSkillsMcpEndpoint(value: string, allowProduction = false): string {
+	let endpoint: URL;
+	try {
+		endpoint = new URL(value);
+	} catch {
+		throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
+	}
+	if (
+		endpoint.protocol !== "https:" ||
+		endpoint.username ||
+		endpoint.password ||
+		endpoint.search ||
+		endpoint.hash ||
+		endpoint.pathname !== "/mcp"
+	) {
+		throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
+	}
+	if (endpoint.hostname === "api.case.dev" && !allowProduction) {
+		throw new Error("Production Case.dev MCP requires explicit host approval");
+	}
+	return endpoint.toString();
+}
+
 export class CaseDevSkillsMcpClient {
 	private readonly endpoint: string;
 	private readonly apiKey: string;
@@ -123,27 +146,8 @@ export class CaseDevSkillsMcpClient {
 	private initialization: Promise<void> | null = null;
 
 	constructor(options: { endpoint: string; apiKey: string; fetcher?: Fetcher; allowProduction?: boolean }) {
-		let endpoint: URL;
-		try {
-			endpoint = new URL(options.endpoint);
-		} catch {
-			throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
-		}
-		if (
-			endpoint.protocol !== "https:" ||
-			endpoint.username ||
-			endpoint.password ||
-			endpoint.search ||
-			endpoint.hash ||
-			endpoint.pathname !== "/mcp"
-		) {
-			throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
-		}
-		if (endpoint.hostname === "api.case.dev" && !options.allowProduction) {
-			throw new Error("Production Case.dev MCP requires explicit host approval");
-		}
 		if (!options.apiKey.trim()) throw new Error("Missing Case.dev runtime API key");
-		this.endpoint = endpoint.toString();
+		this.endpoint = validateCaseDevSkillsMcpEndpoint(options.endpoint, options.allowProduction);
 		this.apiKey = options.apiKey;
 		this.fetcher = options.fetcher ?? fetch;
 	}

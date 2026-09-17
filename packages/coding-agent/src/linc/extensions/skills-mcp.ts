@@ -1,7 +1,12 @@
 import { Type } from "typebox";
 import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
 import { getCaseDevApiKey } from "../casedev-cli.ts";
-import { CaseDevSkillsMcpClient, getMcpSkillManifestDigest, type McpSkillEntry } from "../skills-mcp-client.ts";
+import {
+	CaseDevSkillsMcpClient,
+	getMcpSkillManifestDigest,
+	type McpSkillEntry,
+	validateCaseDevSkillsMcpEndpoint,
+} from "../skills-mcp-client.ts";
 
 const loadSchema = Type.Object(
 	{
@@ -139,6 +144,8 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 		if (!runtimeOrigin || endpointOrigin !== runtimeOrigin) {
 			throw new Error("Case.dev MCP endpoint must match the runtime Case.dev API origin");
 		}
+		const allowProduction = process.env.LINC_MCP_SKILLS_ALLOW_PRODUCTION === "1";
+		validateCaseDevSkillsMcpEndpoint(endpoint, allowProduction);
 		const apiKey = await getCaseDevApiKey(ctx);
 		if (!clientState || clientState.apiKey !== apiKey || clientState.endpoint !== endpoint) {
 			if (clientState?.apiKey !== apiKey) held.clear();
@@ -148,7 +155,7 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 				client: new CaseDevSkillsMcpClient({
 					endpoint,
 					apiKey,
-					allowProduction: process.env.LINC_MCP_SKILLS_ALLOW_PRODUCTION === "1",
+					allowProduction,
 				}),
 			};
 		}
