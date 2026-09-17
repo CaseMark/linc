@@ -1,53 +1,85 @@
 # Release Process
 
-Linc releases are prepared from GitHub Actions and published by the existing tag workflow.
+CaseMark publishes only `@casemark/linc`. The three `@earendil-works/pi-*`
+workspaces retain version 0.79.10 and their existing dependency ranges. Their
+local builds and full runtime dependency closure are bundled into the Linc
+tarball by `scripts/publish.mjs`; they are not published to upstream's npm scope.
+This is an intentional exception to upstream pi's lockstep versioning.
 
-## Automatic Release
+## Prepare a release PR
 
-Every non-release push to `main` automatically runs the `Release` workflow with a `patch` bump.
+1. Audit all changes since the previous release and update the Linc changelog.
+2. Create `release/vX.Y.Z` from current `main` in an isolated worktree.
+3. Use Node 22 and install with `npm ci --ignore-scripts`. Bump only Linc:
 
-1. Merge a release-ready PR to `main`.
-2. Wait for the `Release` workflow to install dependencies, run build/check/test, update versions and changelogs, commit release artifacts, and push the `vX.Y.Z` tag.
-3. Approve the `npm-publish` environment gate in the tag-triggered `npm Publish` workflow.
-4. Verify the package:
+   ```bash
+   npm version X.Y.Z --workspace @casemark/linc --no-git-tag-version --ignore-scripts
+   npm install --package-lock-only --ignore-scripts
+   npm run shrinkwrap:coding-agent
+   ```
+
+4. Turn the Linc `[Unreleased]` section into the dated release section. Build,
+   run `npm run check`, and run `./test.sh` without live-provider credentials.
+   The build regenerates model catalogs from live feeds. Review additions,
+   removals, prices, and limits against those feeds; document removals in the
+   release notes. Do not hand-edit generated catalogs.
+5. Run `node scripts/publish.mjs --dry-run`. Then bundle, pack, and install the
+   actual Linc tarball into an empty directory outside the repo:
+
+   ```bash
+   node scripts/bundle-pi-packages.mjs
+   npm pack --workspace @casemark/linc --ignore-scripts --pack-destination <artifact-dir>
+   node scripts/bundle-pi-packages.mjs --clean
+   npm install --prefix <empty-install-dir> --omit=dev --ignore-scripts <artifact-dir>/casemark-linc-X.Y.Z.tgz
+   ```
+
+   Run bundle tests and packaging sequentially: they mutate the same temporary
+   copies under `packages/coding-agent/node_modules`. Verify the installed Linc
+   version, the bundled pi packages, and the specific shipped JS behavior being
+   released. Checking workspace source alone does not prove the tarball.
+6. Build the Bun binary. From outside the repo, verify Node and Bun version,
+   help, model listing, authenticated print-mode completion, and an interactive
+   completion with the intended default provider. Startup alone is insufficient.
+   Keep credentials out of output and release artifacts. A missing or failed
+   live-turn smoke keeps the release in draft unless Theodore accepts the risk.
+7. Review lockfile and shrinkwrap diffs. Commit `Release vX.Y.Z`, then add a fresh
+   `[Unreleased]` section and commit it. Prepare a local tag on the release
+   commit; if follow-up fixes change the release, ensure the unpushed tag points
+   to the final approved artifacts. Push only the branch and open a PR into main.
+
+Do not use `npm version -ws`, `npm run version:patch`, or `scripts/release.mjs`.
+They still assume upstream lockstep versioning. The automatic `Release` workflow
+calls that script and is not the supported CaseMark release path. Its latest
+attempt for 0.79.20 failed at the lockstep-version check.
+
+## Merge and publish
+
+Theodore merges the release PR **with a merge commit, not squash**, preserving
+the tagged commit. After merge, Theodore pushes `vX.Y.Z`. Agents do not merge,
+enable auto-merge, enqueue PRs, or push the publishing tag.
+
+The tag triggers `Build Binaries` and `npm Publish`. Publishing uses GitHub
+Actions OIDC and the `npm-publish` environment. Approve that environment if
+GitHub requests approval, then verify:
 
 ```bash
 npm view @casemark/linc@X.Y.Z version
 ```
 
-The release workflow ignores the release commits it creates (`Release vX.Y.Z` and `Add [Unreleased] section for next cycle`) so it does not loop after pushing back to `main`.
+Never move a pushed release tag or reuse an already-published npm version.
 
-## Manual Release
+## Roll out to sandboxes
 
-Use the manual path when you need an explicit version or a `minor`/`major` bump.
-
-1. Merge the release-ready changes to `main`.
-2. Open the `Release` workflow in GitHub Actions.
-3. Run the workflow from `main`.
-4. Enter either an explicit version, such as `0.79.0`, or leave the version empty and choose `patch`, `minor`, or `major`.
-5. Wait for the workflow to install dependencies, run build/check/test, update versions and changelogs, commit release artifacts, and push the `vX.Y.Z` tag.
-6. Approve the `npm-publish` environment gate in the tag-triggered `npm Publish` workflow.
-7. Verify the package:
-
-```bash
-npm view @casemark/linc@X.Y.Z version
-```
-
-The `Release` workflow does not publish directly. It pushes the release tag, then `.github/workflows/build-binaries.yml` builds binaries and creates or updates the GitHub release while `.github/workflows/npm-publish.yml` publishes `@casemark/linc` to npm with provenance.
-
-## Required Setup
-
-- The GitHub `npm-publish` environment must exist and should require reviewer approval.
-- npm Trusted Publishing must allow `CaseMark/linc` to publish `@casemark/linc` from `.github/workflows/npm-publish.yml` with the `npm-publish` environment.
-- The repository must allow the release workflow to push release commits and `v*` tags to `main`. If branch protection blocks `GITHUB_TOKEN` pushes, configure the workflow checkout with an approved release bot token.
+Prepare a casedotdev-mono PR into `preview` updating
+`apps/router/server/utils/linc-version.ts`, the local image package manifest,
+and their existing pin assertions. Keep the PR in draft until npm publishes
+the version. Theodore merges it; the preview snapshot workflow then bakes and
+validates the candidate. After the snapshot smoke passes, Theodore promotes
+preview to main to deploy the production snapshot.
 
 ## Recovery
 
-If npm publishing fails after the release tag exists, rerun the `npm Publish` workflow manually with:
-
-- `tag`: the release tag, such as `v0.79.0`
-- `source_ref`: the same tag unless recovering from a known checkout issue
-
-If the release workflow fails before the tag is pushed, fix the issue on `main` and rerun the `Release` workflow. The release script checks that the working tree is clean and that explicit versions are greater than the current version before it changes files.
-
-If binary release creation fails after the release tag exists, rerun the `Build Binaries` workflow manually with the same `tag` and `source_ref` values.
+If publishing fails after the tag exists, inspect the failing job and rerun
+`npm Publish` with the same `tag` and `source_ref`. The publish helper skips a
+version already on npm. If binary publication fails, rerun `Build Binaries`
+with that same tag. Do not invoke the lockstep release script as recovery.
