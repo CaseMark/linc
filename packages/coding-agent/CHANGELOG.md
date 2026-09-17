@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.20] - 2026-09-17
+
+### Fixed
+
+- Case.dev model image support now comes only from `modalities.input`. Models without that field are text-only; `vision` and `multimodal` tags no longer grant image input (CD-1621, [#71](https://github.com/CaseMark/linc/pull/71)).
 
 ## [0.79.19] - 2026-09-16
 
