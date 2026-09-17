@@ -4,6 +4,14 @@
 
 ## [0.79.20] - 2026-09-17
 
+### Changed
+
+- Refreshed generated provider catalogs. OpenRouter pricing and output limits follow its model API, including Nemotron 3 Ultra's 32,768-token output limit and DeepSeek Flash Latest's 943,718-token output limit. See the [release verification](../../docs/release-0.79.20.md) for the exact source checks.
+
+### Removed
+
+- Removed `fireworks/accounts/fireworks/models/mistral-large-3-fp8` from the built-in serverless catalog, following [models.dev #7286](https://github.com/anomalyco/models.dev/pull/7286). Fireworks still offers the model through on-demand deployments, but [does not support serverless access](https://fireworks.ai/models/fireworks/mistral-large-3-fp8). Existing selections of this built-in ID must be changed; on-demand deployments require their own endpoint configuration.
+
 ### Fixed
 
 - Case.dev model image support now comes only from `modalities.input`. Models without that field are text-only; `vision` and `multimodal` tags no longer grant image input (CD-1621, [#71](https://github.com/CaseMark/linc/pull/71)).

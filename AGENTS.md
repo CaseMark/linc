@@ -119,43 +119,23 @@ Attribution:
 
 ## Releasing
 
-**Lockstep versioning**: all packages share one version; every release updates all together. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
+**CaseMark fork exception to upstream lockstep versioning**: release only `@casemark/linc`. Keep `@earendil-works/pi-agent-core`, `pi-ai`, and `pi-tui` at 0.79.10, including their dependency ranges. Those npm names belong to upstream; CaseMark publishes their local builds and runtime dependency closure inside the Linc tarball through `scripts/publish.mjs`. Do not use `npm version -ws`, `npm run version:patch`, or `scripts/release.mjs`: they still assume upstream lockstep versioning. Follow [docs/release.md](docs/release.md) for the release-PR process. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
 
 1. **Update CHANGELOGs**: ask the user whether they ran the `/cl` prompt on the latest commit on `main`. If not, they must run `/cl` first to audit and update each package's `[Unreleased]` section before releasing.
 
-2. **Local smoke test**: build an unpublished release and smoke test from outside the repo (so it can't resolve workspace files):
+2. **Local smoke test**: build an unpublished release, bundle and pack the actual Linc tarball, and install it into an empty directory outside the repo using [docs/release.md](docs/release.md). Verify the installed bundle contains the CaseMark pi builds and the behavior being released. Also build the Bun binary. Verify both Node and Bun version/help, model/account listing, authenticated print-mode completion, and interactive completion with the intended default provider. For interactive checks, use a controlled terminal (tmux or a PTY), submit a prompt, and wait for the model reply before considering the smoke passed. Startup-only checks are insufficient. Failures are release blockers unless the user explicitly accepts the risk.
+
+3. **Prepare a release PR from main**, following [docs/release.md](docs/release.md):
    ```bash
-   npm run release:local -- --out /tmp/pi-local-release --force
-   cd /tmp
-
-   # Node package install smoke tests
-   /tmp/pi-local-release/node/pi --help
-   /tmp/pi-local-release/node/pi --version
-   /tmp/pi-local-release/node/pi --list-models
-   /tmp/pi-local-release/node/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/node/pi
-
-   # Bun binary smoke tests
-   /tmp/pi-local-release/bun/pi --help
-   /tmp/pi-local-release/bun/pi --version
-   /tmp/pi-local-release/bun/pi --list-models
-   /tmp/pi-local-release/bun/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/bun/pi
+   npm version X.Y.Z --workspace @casemark/linc --no-git-tag-version --ignore-scripts
+   npm install --package-lock-only --ignore-scripts
+   npm run shrinkwrap:coding-agent
    ```
-   Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/pi-local-release/node/pi` and `/tmp/pi-local-release/bun/pi` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before considering the interactive smoke test passed. Failures are release blockers unless the user explicitly accepts the risk.
+   Review generated catalog, lockfile, shrinkwrap, and changelog changes, build and validate the packed install, then push the release branch and open a PR into main. Theodore merges with a merge commit and pushes the release tag after approval. Agents must not merge, enable auto-merge, enqueue the PR, or push the publishing tag. A local tag must reference the approved release artifacts, including any release follow-up fixes.
 
-3. **Run the release script**:
-   ```bash
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch    # fixes + additions
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor    # breaking changes
-   ```
-   Use `npm_config_min_release_age=0` only for the release command. The repo's normal npm age gate can otherwise block the release lockfile refresh when the current workspace package version was published recently. Review any lockfile or shrinkwrap diffs the release creates before push.
+4. **CI publishes npm packages**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml` and `.github/workflows/npm-publish.yml`. The latter uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
 
-   The release script bumps all package versions, updates changelogs, regenerates release artifacts, runs `npm run check`, commits `Release vX.Y.Z`, tags `vX.Y.Z`, adds fresh `## [Unreleased]` changelog sections, commits `Add [Unreleased] section for next cycle`, then pushes `main` and the tag. Do not rerun the release script after a tag was pushed.
-
-4. **CI publishes npm packages**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The `publish-npm` job uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
-
-5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
+5. **If CI publish fails**: inspect the failed npm Publish job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Never move a pushed release tag or republish an existing version with different contents.
 
 ## User Override
 
