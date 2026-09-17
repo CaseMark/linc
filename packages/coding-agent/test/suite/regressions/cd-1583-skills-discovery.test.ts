@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("CD-1583 safe remote skill discovery", () => {
-	test("real agent loop advertises only safe tools and discovers, loads, and reads without preloading", async () => {
+	test("real agent loop preserves host tools and discovers, loads, and reads without preloading", async () => {
 		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 		const methods: string[] = [];
@@ -52,13 +52,17 @@ describe("CD-1583 safe remote skill discovery", () => {
 		try {
 			harness.authStorage.setRuntimeApiKey("casedev", "fixture-org-key");
 			await harness.session.bindExtensions({});
-			expect(harness.session.getActiveToolNames().sort()).toEqual([
-				"casedev_skill_discover",
-				"casedev_skill_load",
-				"casedev_skill_read",
-			]);
-			expect(harness.session.systemPrompt).not.toContain("- bash:");
-			expect(harness.session.systemPrompt).not.toContain("- read:");
+			expect(harness.session.getActiveToolNames()).toEqual(
+				expect.arrayContaining([
+					"bash",
+					"read",
+					"casedev_skill_discover",
+					"casedev_skill_load",
+					"casedev_skill_read",
+				]),
+			);
+			expect(harness.session.systemPrompt).toContain("- bash:");
+			expect(harness.session.systemPrompt).toContain("- read:");
 			harness.setResponses([
 				fauxAssistantMessage([fauxToolCall("casedev_skill_discover", {})], { stopReason: "toolUse" }),
 				fauxAssistantMessage([fauxToolCall("casedev_skill_load", { uri })], { stopReason: "toolUse" }),
@@ -81,8 +85,17 @@ describe("CD-1583 safe remote skill discovery", () => {
 				false,
 				false,
 			]);
-			for (const name of harness.session.getActiveToolNames())
+			for (const name of ["casedev_skill_discover", "casedev_skill_load", "casedev_skill_read"])
 				expect(harness.session.getToolDefinition(name)?.executionMode).toBe("sequential");
+			expect(
+				harness.sessionManager
+					.getEntries()
+					.flatMap((entry) =>
+						entry.type === "custom" && entry.customType === "linc.skills-mcp-audit"
+							? [(entry.data as { action: string }).action]
+							: [],
+					),
+			).toEqual(["discover", "load", "read"]);
 		} finally {
 			harness.cleanup();
 		}

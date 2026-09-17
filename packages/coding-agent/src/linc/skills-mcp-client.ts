@@ -6,6 +6,7 @@ const EXTENSION = "io.modelcontextprotocol/skills";
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_SKILL_BYTES = 16 * 1024 * 1024;
 const MAX_RESOURCES = 512;
+const MAX_ERROR_MESSAGE_LENGTH = 200;
 
 export interface McpSkillResource {
 	uri: string;
@@ -25,6 +26,12 @@ type JsonObject = Record<string, unknown>;
 function record(value: unknown): JsonObject {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid MCP response object");
 	return value as JsonObject;
+}
+
+function sanitizedErrorMessage(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const message = value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+	return message ? message.slice(0, MAX_ERROR_MESSAGE_LENGTH) : undefined;
 }
 
 function checkSkillUri(uri: string): void {
@@ -96,6 +103,16 @@ function validateEntry(value: unknown, requestedUri: string): McpSkillEntry {
 	return { uri: requestedUri, frontmatter, resources };
 }
 
+export function getMcpSkillManifestDigest(entry: McpSkillEntry): string {
+	const manifest = {
+		uri: entry.uri,
+		resources: [...entry.resources]
+			.sort((left, right) => (left.uri < right.uri ? -1 : left.uri > right.uri ? 1 : 0))
+			.map(({ uri, digest, size }) => ({ uri, digest, size })),
+	};
+	return `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
+}
+
 export class CaseDevSkillsMcpClient {
 	private readonly endpoint: string;
 	private readonly apiKey: string;
@@ -105,20 +122,25 @@ export class CaseDevSkillsMcpClient {
 	private sessionId: string | null = null;
 	private initialization: Promise<void> | null = null;
 
-	constructor(options: { endpoint: string; apiKey: string; fetcher?: Fetcher }) {
-		const endpoint = new URL(options.endpoint);
+	constructor(options: { endpoint: string; apiKey: string; fetcher?: Fetcher; allowProduction?: boolean }) {
+		let endpoint: URL;
+		try {
+			endpoint = new URL(options.endpoint);
+		} catch {
+			throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
+		}
 		if (
 			endpoint.protocol !== "https:" ||
 			endpoint.username ||
 			endpoint.password ||
 			endpoint.search ||
 			endpoint.hash ||
-			endpoint.pathname !== "/mcp" ||
-			endpoint.hostname === "api.case.dev"
+			endpoint.pathname !== "/mcp"
 		) {
-			throw new Error(
-				"Use an explicit non-production HTTPS Case.dev MCP endpoint without credentials or query parameters",
-			);
+			throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
+		}
+		if (endpoint.hostname === "api.case.dev" && !options.allowProduction) {
+			throw new Error("Production Case.dev MCP requires explicit host approval");
 		}
 		if (!options.apiKey.trim()) throw new Error("Missing Case.dev runtime API key");
 		this.endpoint = endpoint.toString();
@@ -177,9 +199,22 @@ export class CaseDevSkillsMcpClient {
 		} finally {
 			await reader.cancel();
 		}
-		const envelope = record(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+		let envelope: JsonObject;
+		try {
+			envelope = record(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+		} catch {
+			throw new Error(`Case.dev MCP ${method} returned invalid JSON`);
+		}
 		if (envelope.jsonrpc !== "2.0" || envelope.id !== id) throw new Error("Mismatched Case.dev MCP response");
-		if (envelope.error) throw new Error(`Case.dev MCP ${method} returned an error`);
+		if (envelope.error) {
+			const error = record(envelope.error);
+			const code =
+				typeof error.code === "number" || typeof error.code === "string"
+					? ` ${String(error.code).slice(0, 32)}`
+					: "";
+			const message = sanitizedErrorMessage(error.message);
+			throw new Error(`Case.dev MCP ${method} error${code}${message ? `: ${message}` : ""}`);
+		}
 		return record(envelope.result);
 	}
 
@@ -248,15 +283,17 @@ export class CaseDevSkillsMcpClient {
 			throw new Error("Invalid Case.dev skill slug");
 		}
 		let cursor: string | undefined;
+		let publicMatch: McpSkillEntry | undefined;
 		for (let pageNumber = 0; pageNumber < 100; pageNumber++) {
 			const page = await this.listSkills(cursor, signal);
 			const privateMatch = page.skills.find(
 				(entry) => entry.uri.startsWith("skill://case.dev/org/") && entry.frontmatter.name === slug,
 			);
 			if (privateMatch) return privateMatch;
-			if (page.skills.some((entry) => entry.uri.startsWith("skill://case.dev/public/")) || !page.nextCursor) {
-				return this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
-			}
+			publicMatch ??= page.skills.find(
+				(entry) => entry.uri.startsWith("skill://case.dev/public/") && entry.frontmatter.name === slug,
+			);
+			if (!page.nextCursor) return publicMatch ?? this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
 			cursor = page.nextCursor;
 		}
 		throw new Error("Case.dev org skill listing exceeds the pilot page limit");
