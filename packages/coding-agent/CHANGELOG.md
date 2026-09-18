@@ -12,9 +12,9 @@
 
 - Refreshed generated provider catalogs from the live models.dev and OpenRouter feeds. This adds Mistral's `zai-glm-5-3`, OpenRouter's free DeepSeek V4 Flash 0731 and Pareto entries, and updates current OpenRouter prices and limits. See the [release verification](../../docs/release-0.79.21.md) for the complete reviewed delta.
 
-### Removed
+### Breaking Changes
 
-- Removed `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` because their live source catalogs no longer list them. Existing selections of these built-in IDs must be changed.
+- Removed `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` because their live source catalogs no longer list them. Existing selections of these built-in IDs must be changed. Linc now reports a targeted error with the current provider default as a suggested replacement; run `linc --list-models` to choose a different supported model.
 
 ## [0.79.20] - 2026-09-17
 

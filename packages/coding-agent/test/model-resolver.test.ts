@@ -300,6 +300,33 @@ describe("resolveCliModel", () => {
 		expect(result.model?.id).toBe("openai/ghost-model");
 	});
 
+	test.each([
+		["opencode", "union-alpha", "opencode/kimi-k2.6"],
+		["opencode-go", "union-alpha", "opencode-go/kimi-k2.6"],
+		["openrouter", "stealth/union-alpha", "openrouter/moonshotai/kimi-k2.6"],
+	])("reports a replacement for removed built-in model %s/%s", (provider, model, replacement) => {
+		const providerModel = {
+			...mockModels[0],
+			provider,
+			id: replacement.substring(provider.length + 1),
+			name: replacement,
+		};
+		const registry = {
+			getAll: () => [...allModels, providerModel],
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+		const result = resolveCliModel({
+			cliProvider: provider,
+			cliModel: model,
+			modelRegistry: registry,
+		});
+
+		expect(result.model).toBeUndefined();
+		expect(result.error).toContain(`Model "${provider}/${model}" was removed`);
+		expect(result.error).toContain(`Use "${replacement}"`);
+		expect(result.error).toContain("--list-models");
+	});
+
 	test("returns a clear error when there are no models", () => {
 		const registry = {
 			getAll: () => [],

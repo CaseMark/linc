@@ -18,6 +18,12 @@ models, and imported its bundled `skills-mcp.js` without repository dependencies
 bundling step used for Matter and Vault. Without that addition, the external
 extension file would not have carried its `typebox` runtime dependency.
 
+The Linux x64 archive was also built and inspected. Its `pi` executable is an
+x86-64 ELF binary, the archive contains `pi/dist/linc/extensions/skills-mcp.js`,
+the extension imports successfully from the extracted archive, and the bundled
+JavaScript has no bare `typebox` import. The extracted file contains the bounded
+manifest, discovery, and host-side execution-denial paths.
+
 The MCP path is still disabled unless `LINC_MCP_SKILLS_PILOT=1`. Production MCP
 access additionally requires the existing explicit production-host approval; this
 release does not enable any Case.dev or product feature flag.
@@ -32,11 +38,26 @@ release does not enable any Case.dev or product feature flag.
   assertions.
 - macOS ARM64 release archive: passed version, help, model-listing, and bundled
   MCP-extension import checks.
+- Linux x64 release archive: passed archive-content, ELF architecture, bundled
+  MCP-extension import, dependency-closure, and enforcement-path assertions.
+- Removed-model migration diagnostics: all three removed built-in IDs report the
+  current provider default and `--list-models`; resolver tests passed 34/34 and
+  the built CLI exited 1 with the targeted message for `opencode/union-alpha`.
 - `./test.sh`: agent 164 passed; AI 331 passed / 764 skipped; coding-agent 1537
   passed / 44 skipped with one transient `stdout-cleanliness` version assertion;
   TUI 647 passed. The failed file passed all 5 tests immediately when rerun alone.
 
 No provider credential was used during the offline suite or artifact checks.
+
+## Authenticated smoke status
+
+The installed Node tarball and standalone Bun archive both reached the preview
+Case.dev endpoint using the existing C3 Preview credential, but the endpoint
+returned HTTP 401 before a completion. That credential is stale or invalid, so
+this is not a successful authenticated smoke and no completion was billed. The
+release remains draft pending a valid preview credential or Theodore's explicit
+risk acceptance. Production credentials were not used and production flags were
+not changed.
 
 ## Catalog regeneration
 
@@ -77,7 +98,11 @@ output tokens.
 
 OpenRouter no longer lists `stealth/union-alpha`. Its removal, plus the two
 models.dev removals, is called out in the changelog because saved built-in model
-selections may need to change.
+selections must change. The CLI now rejects those three removed built-in IDs with
+a targeted message suggesting the current default for that provider:
+`opencode/kimi-k2.6`, `opencode-go/kimi-k2.6`, or
+`openrouter/moonshotai/kimi-k2.6`. It does not silently remap the selection;
+`linc --list-models` remains the source of current alternatives.
 
 ## Remaining release and rollout gates
 

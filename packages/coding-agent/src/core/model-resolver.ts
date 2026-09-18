@@ -51,6 +51,12 @@ export const defaultModelPerProvider: Record<KnownProvider | string, string> = {
 	"xiaomi-token-plan-sgp": "mimo-v2.5-pro",
 };
 
+const removedBuiltinModelReplacements: Record<string, string> = {
+	"opencode/union-alpha": "opencode/kimi-k2.6",
+	"opencode-go/union-alpha": "opencode-go/kimi-k2.6",
+	"openrouter/stealth/union-alpha": "openrouter/moonshotai/kimi-k2.6",
+};
+
 export interface ScopedModel {
 	model: Model<Api>;
 	/** Thinking level if explicitly specified in pattern (e.g., "model:high"), undefined otherwise */
@@ -424,6 +430,19 @@ export function resolveCliModel(options: {
 
 	if (model) {
 		return { model, thinkingLevel, warning, error: undefined };
+	}
+
+	if (provider) {
+		const removedReference = `${provider}/${pattern}`.toLowerCase();
+		const replacement = removedBuiltinModelReplacements[removedReference];
+		if (replacement) {
+			return {
+				model: undefined,
+				thinkingLevel: undefined,
+				warning,
+				error: `Model "${provider}/${pattern}" was removed from the built-in catalog. Use "${replacement}" or run --list-models to choose another supported model.`,
+			};
+		}
 	}
 
 	// If we inferred a provider from the slash but found no match within that provider,
