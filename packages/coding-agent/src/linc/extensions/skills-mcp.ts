@@ -74,10 +74,14 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 			manifestDigest,
 			executionApproved: approvedManifestDigests.has(manifestDigest),
 		};
-		if (!loadedPolicies.has(skillUri) && loadedPolicies.size >= MAX_LOADED_SKILLS) {
+		const exposureKey = `${skillUri}\n${manifestDigest}`;
+		if (!loadedPolicies.has(exposureKey) && loadedPolicies.size >= MAX_LOADED_SKILLS) {
 			throw new Error(`A session may load at most ${MAX_LOADED_SKILLS} remote skills`);
 		}
-		loadedPolicies.set(skillUri, policy);
+		// Every manifest exposed in the active conversation remains authoritative.
+		// Reloading a URI must not erase an older unapproved version whose
+		// instructions are still present in model context or session history.
+		loadedPolicies.set(exposureKey, policy);
 		return policy;
 	}
 

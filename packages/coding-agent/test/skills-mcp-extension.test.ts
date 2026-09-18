@@ -296,7 +296,52 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		expect(call({ toolName: "bash" })).toBeUndefined();
 	});
 
+	test("retains an older unapproved digest when the same skill URI is reloaded", async () => {
+		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
+		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
+		const oldRoot = root;
+		const approvedRoot = `${root}\nApproved revision.\n`;
+		const skillFor = (content: string) => ({
+			uri: rootUri,
+			frontmatter: { name: "intake", description: "Structure an intake" },
+			resources: [resource(rootUri, content)],
+		});
+		vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", getMcpSkillManifestDigest(skillFor(approvedRoot)));
+		let currentRoot = oldRoot;
+		vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+			const body = JSON.parse(String(init.body)) as { id?: number; method: string; params: { uri?: string } };
+			if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+			const result =
+				body.method === "initialize"
+					? {
+							protocolVersion: "2025-03-26",
+							capabilities: { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } },
+						}
+					: body.method === "skills/get"
+						? { resultType: "complete", skill: skillFor(currentRoot) }
+						: { contents: [{ uri: body.params.uri, text: currentRoot }] };
+			return Response.json({ jsonrpc: "2.0", id: body.id, result });
+		});
+		const tools = new Map<string, unknown>();
+		const handlers = new Map<string, unknown>();
+		const pi = {
+			registerTool: (tool: { name: string }) => tools.set(tool.name, tool),
+			on: (name: string, handler: unknown) => handlers.set(name, handler),
+			appendEntry: vi.fn(),
+		};
+		await (skillsMcpExtension as unknown as (api: typeof pi) => void)(pi);
+		const load = tools.get("casedev_skill_load") as { execute: (...args: unknown[]) => Promise<unknown> };
+		const ctx = { modelRegistry: { authStorage: { getApiKey: async () => "fixture-org-key" } } };
+		await load.execute("old", { uri: rootUri }, undefined, undefined, ctx);
+		currentRoot = approvedRoot;
+		await load.execute("approved", { uri: rootUri }, undefined, undefined, ctx);
+		const call = handlers.get("tool_call") as (event: { toolName: string }) => { block?: boolean } | undefined;
+		expect(call({ toolName: "bash" })).toMatchObject({ block: true });
+	});
+
 	test("restores the execution gate from durable session audit state", async () => {
+		const approvedDigest = `sha256:${"b".repeat(64)}`;
+		vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", approvedDigest);
 		const handlers = new Map<string, unknown>();
 		const pi = {
 			registerTool: () => {},
@@ -317,6 +362,15 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 								action: "load",
 								skillUri: rootUri,
 								manifestDigest: `sha256:${"a".repeat(64)}`,
+							},
+						},
+						{
+							type: "custom",
+							customType: "linc.skills-mcp-audit",
+							data: {
+								action: "load",
+								skillUri: rootUri,
+								manifestDigest: approvedDigest,
 							},
 						},
 					],
