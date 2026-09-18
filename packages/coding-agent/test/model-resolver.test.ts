@@ -5,6 +5,7 @@ import {
 	findInitialModel,
 	parseModelPattern,
 	resolveCliModel,
+	restoreModelFromSession,
 } from "../src/core/model-resolver.ts";
 
 // Mock models for testing
@@ -300,6 +301,62 @@ describe("resolveCliModel", () => {
 		expect(result.model?.id).toBe("openai/ghost-model");
 	});
 
+	test.each([
+		["opencode", "union-alpha", "opencode/kimi-k2.6"],
+		["opencode-go", "union-alpha", "opencode-go/kimi-k2.6"],
+		["openrouter", "stealth/union-alpha", "openrouter/moonshotai/kimi-k2.6"],
+	])("reports a replacement for removed built-in model %s/%s", (provider, model, replacement) => {
+		const providerModel = {
+			...mockModels[0],
+			provider,
+			id: replacement.substring(provider.length + 1),
+			name: replacement,
+		};
+		const registry = {
+			getAll: () => [...allModels, providerModel],
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+		const result = resolveCliModel({
+			cliProvider: provider,
+			cliModel: model,
+			modelRegistry: registry,
+		});
+
+		expect(result.model).toBeUndefined();
+		expect(result.error).toContain(`Model "${provider}/${model}" was removed`);
+		expect(result.error).toContain(`Use "${replacement}"`);
+		expect(result.error).toContain("--list-models");
+	});
+
+	test.each([
+		["opencode", "union-alpha", "opencode/kimi-k2.6"],
+		["opencode-go", "union-alpha", "opencode-go/kimi-k2.6"],
+		["openrouter", "stealth/union-alpha", "openrouter/moonshotai/kimi-k2.6"],
+	])(
+		"does not let removed built-in model %s/%s bypass migration errors with thinking suffixes",
+		(provider, model, replacement) => {
+			const providerModel = {
+				...mockModels[0],
+				provider,
+				id: replacement.substring(provider.length + 1),
+				name: replacement,
+			};
+			const registry = {
+				getAll: () => [...allModels, providerModel],
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliProvider: provider,
+				cliModel: `${model}:high`,
+				modelRegistry: registry,
+			});
+
+			expect(result.model).toBeUndefined();
+			expect(result.error).toContain(`Model "${provider}/${model}" was removed`);
+			expect(result.error).toContain(`Use "${replacement}"`);
+		},
+	);
+
 	test("returns a clear error when there are no models", () => {
 		const registry = {
 			getAll: () => [],
@@ -434,5 +491,50 @@ describe("default model selection", () => {
 
 		expect(result.model?.provider).toBe("vercel-ai-gateway");
 		expect(result.model?.id).toBe("anthropic/claude-opus-4-6");
+	});
+
+	test("findInitialModel migrates a removed saved default to its suggested replacement", async () => {
+		const replacementModel = {
+			...mockModels[0],
+			provider: "opencode",
+			id: "kimi-k2.6",
+			name: "Kimi K2.6",
+		};
+		const registry = {
+			find: () => undefined,
+			getAvailable: async () => [replacementModel],
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		const result = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			defaultProvider: "opencode",
+			defaultModelId: "union-alpha",
+			modelRegistry: registry,
+		});
+
+		expect(result.model).toBe(replacementModel);
+		expect(result.fallbackMessage).toContain("Saved model opencode/union-alpha was removed");
+		expect(result.fallbackMessage).toContain("opencode/kimi-k2.6");
+	});
+
+	test("restoreModelFromSession migrates a removed model to its suggested replacement", async () => {
+		const replacementModel = {
+			...mockModels[0],
+			provider: "openrouter",
+			id: "moonshotai/kimi-k2.6",
+			name: "Kimi K2.6",
+		};
+		const registry = {
+			find: () => undefined,
+			hasConfiguredAuth: () => false,
+			getAvailable: async () => [replacementModel],
+		} as unknown as Parameters<typeof restoreModelFromSession>[4];
+
+		const result = await restoreModelFromSession("openrouter", "stealth/union-alpha", undefined, false, registry);
+
+		expect(result.model).toBe(replacementModel);
+		expect(result.fallbackMessage).toContain("removed model openrouter/stealth/union-alpha");
+		expect(result.fallbackMessage).toContain("openrouter/moonshotai/kimi-k2.6");
 	});
 });

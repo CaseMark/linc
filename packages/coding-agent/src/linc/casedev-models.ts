@@ -2,10 +2,10 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { CASEDEV_PROVIDER_ID } from "./casedev-auth.ts";
 
 const DEFAULT_CASEDEV_API_BASE_URL = "https://api.case.dev";
-// The endpoint is Edge-Config cached (typically <100ms) and this blocks session
-// boot; the sandbox smoke runs the first RPC under `timeout 8`, so a degraded
-// fetch must leave headroom. A timeout leaves the boot without Case.dev models.
-const MODEL_CATALOG_TIMEOUT_MS = 3000;
+// The endpoint is Edge-Config cached, but cold preview and production requests
+// can take several seconds. Leave enough headroom for those cold starts while
+// still bounding session boot when the catalog is unavailable.
+const MODEL_CATALOG_TIMEOUT_MS = 15_000;
 
 export function getCaseDevLlmBaseUrl(): string {
 	const apiBaseUrl = (

@@ -51,6 +51,27 @@ export const defaultModelPerProvider: Record<KnownProvider | string, string> = {
 	"xiaomi-token-plan-sgp": "mimo-v2.5-pro",
 };
 
+const removedBuiltinModelReplacements: Record<string, string> = {
+	"opencode/union-alpha": "opencode/kimi-k2.6",
+	"opencode-go/union-alpha": "opencode-go/kimi-k2.6",
+	"openrouter/stealth/union-alpha": "openrouter/moonshotai/kimi-k2.6",
+};
+
+function getRemovedBuiltinModelReplacement(
+	provider: string,
+	modelId: string,
+): { reference: string; provider: string; modelId: string } | undefined {
+	const reference = removedBuiltinModelReplacements[`${provider}/${modelId}`.toLowerCase()];
+	if (!reference) return undefined;
+
+	const slashIndex = reference.indexOf("/");
+	return {
+		reference,
+		provider: reference.substring(0, slashIndex),
+		modelId: reference.substring(slashIndex + 1),
+	};
+}
+
 export interface ScopedModel {
 	model: Model<Api>;
 	/** Thinking level if explicitly specified in pattern (e.g., "model:high"), undefined otherwise */
@@ -426,6 +447,21 @@ export function resolveCliModel(options: {
 		return { model, thinkingLevel, warning, error: undefined };
 	}
 
+	if (provider) {
+		const lastColonIndex = pattern.lastIndexOf(":");
+		const suffix = lastColonIndex === -1 ? undefined : pattern.substring(lastColonIndex + 1);
+		const removedPattern = suffix && isValidThinkingLevel(suffix) ? pattern.substring(0, lastColonIndex) : pattern;
+		const replacement = getRemovedBuiltinModelReplacement(provider, removedPattern);
+		if (replacement) {
+			return {
+				model: undefined,
+				thinkingLevel: undefined,
+				warning,
+				error: `Model "${provider}/${removedPattern}" was removed from the built-in catalog. Use "${replacement.reference}" or run --list-models to choose another supported model.`,
+			};
+		}
+	}
+
 	// If we inferred a provider from the slash but found no match within that provider,
 	// fall back to matching the full input as a raw model id across all models.
 	// This handles OpenRouter-style IDs like "openai/gpt-4o:extended" where "openai"
@@ -548,23 +584,61 @@ export async function findInitialModel(options: {
 
 	// 4. Try first available model with valid API key
 	const availableModels = await modelRegistry.getAvailable();
+	const removedDefaultReplacement =
+		defaultProvider && defaultModelId
+			? getRemovedBuiltinModelReplacement(defaultProvider, defaultModelId)
+			: undefined;
 
 	if (availableModels.length > 0) {
+		if (removedDefaultReplacement) {
+			const replacementModel = availableModels.find(
+				(candidate) =>
+					candidate.provider === removedDefaultReplacement.provider &&
+					candidate.id === removedDefaultReplacement.modelId,
+			);
+			if (replacementModel) {
+				return {
+					model: replacementModel,
+					thinkingLevel: defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
+					fallbackMessage: `Saved model ${defaultProvider}/${defaultModelId} was removed. Using suggested replacement ${removedDefaultReplacement.reference}.`,
+				};
+			}
+		}
+
 		// Try to find a default model from known providers
 		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
 			const defaultId = defaultModelPerProvider[provider];
 			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
 			if (match) {
-				return { model: match, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+				return {
+					model: match,
+					thinkingLevel: DEFAULT_THINKING_LEVEL,
+					fallbackMessage: removedDefaultReplacement
+						? `Saved model ${defaultProvider}/${defaultModelId} was removed. Suggested replacement ${removedDefaultReplacement.reference} is unavailable; using ${match.provider}/${match.id}.`
+						: undefined,
+				};
 			}
 		}
 
 		// If no default found, use first available
-		return { model: availableModels[0], thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+		const fallbackModel = availableModels[0];
+		return {
+			model: fallbackModel,
+			thinkingLevel: DEFAULT_THINKING_LEVEL,
+			fallbackMessage: removedDefaultReplacement
+				? `Saved model ${defaultProvider}/${defaultModelId} was removed. Suggested replacement ${removedDefaultReplacement.reference} is unavailable; using ${fallbackModel.provider}/${fallbackModel.id}.`
+				: undefined,
+		};
 	}
 
 	// 5. No model found
-	return { model: undefined, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+	return {
+		model: undefined,
+		thinkingLevel: DEFAULT_THINKING_LEVEL,
+		fallbackMessage: removedDefaultReplacement
+			? `Saved model ${defaultProvider}/${defaultModelId} was removed. Suggested replacement: ${removedDefaultReplacement.reference}.`
+			: undefined,
+	};
 }
 
 /**
@@ -591,9 +665,17 @@ export async function restoreModelFromSession(
 
 	// Model not found or no API key - fall back
 	const reason = !restoredModel ? "model no longer exists" : "no auth configured";
+	const removedReplacement = !restoredModel
+		? getRemovedBuiltinModelReplacement(savedProvider, savedModelId)
+		: undefined;
 
 	if (shouldPrintMessages) {
-		console.error(chalk.yellow(`Warning: Could not restore model ${savedProvider}/${savedModelId} (${reason}).`));
+		const replacementMessage = removedReplacement ? ` Suggested replacement: ${removedReplacement.reference}.` : "";
+		console.error(
+			chalk.yellow(
+				`Warning: Could not restore model ${savedProvider}/${savedModelId} (${reason}).${replacementMessage}`,
+			),
+		);
 	}
 
 	// If we already have a model, use it as fallback
@@ -603,7 +685,9 @@ export async function restoreModelFromSession(
 		}
 		return {
 			model: currentModel,
-			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${currentModel.provider}/${currentModel.id}.`,
+			fallbackMessage: removedReplacement
+				? `Could not restore removed model ${savedProvider}/${savedModelId}. Suggested replacement: ${removedReplacement.reference}. Using ${currentModel.provider}/${currentModel.id}.`
+				: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${currentModel.provider}/${currentModel.id}.`,
 		};
 	}
 
@@ -612,8 +696,14 @@ export async function restoreModelFromSession(
 
 	if (availableModels.length > 0) {
 		// Try to find a default model from known providers
-		let fallbackModel: Model<Api> | undefined;
+		let fallbackModel = removedReplacement
+			? availableModels.find(
+					(candidate) =>
+						candidate.provider === removedReplacement.provider && candidate.id === removedReplacement.modelId,
+				)
+			: undefined;
 		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
+			if (fallbackModel) break;
 			const defaultId = defaultModelPerProvider[provider];
 			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
 			if (match) {
@@ -630,13 +720,26 @@ export async function restoreModelFromSession(
 		if (shouldPrintMessages) {
 			console.log(chalk.dim(`Falling back to: ${fallbackModel.provider}/${fallbackModel.id}`));
 		}
+		const usedSuggestedReplacement =
+			removedReplacement &&
+			fallbackModel.provider === removedReplacement.provider &&
+			fallbackModel.id === removedReplacement.modelId;
 
 		return {
 			model: fallbackModel,
-			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${fallbackModel.provider}/${fallbackModel.id}.`,
+			fallbackMessage: usedSuggestedReplacement
+				? `Could not restore removed model ${savedProvider}/${savedModelId}. Using suggested replacement ${fallbackModel.provider}/${fallbackModel.id}.`
+				: removedReplacement
+					? `Could not restore removed model ${savedProvider}/${savedModelId}. Suggested replacement ${removedReplacement.reference} is unavailable; using ${fallbackModel.provider}/${fallbackModel.id}.`
+					: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${fallbackModel.provider}/${fallbackModel.id}.`,
 		};
 	}
 
 	// No models available
-	return { model: undefined, fallbackMessage: undefined };
+	return {
+		model: undefined,
+		fallbackMessage: removedReplacement
+			? `Could not restore removed model ${savedProvider}/${savedModelId}. Suggested replacement: ${removedReplacement.reference}.`
+			: undefined,
+	};
 }

@@ -134,4 +134,34 @@ describe("casedev catalog parsing", () => {
 			expect.objectContaining({ headers: { "x-vercel-protection-bypass": "bypass-secret" } }),
 		);
 	});
+
+	test("fetch allows a cold catalog response beyond the former three-second ceiling", async () => {
+		vi.useFakeTimers();
+		try {
+			const fetchFn = vi.fn(
+				(_url: string | URL | Request, init?: RequestInit) =>
+					new Promise<Response>((resolve, reject) => {
+						const signal = init?.signal;
+						const abort = () => reject(signal?.reason ?? new Error("aborted"));
+						signal?.addEventListener("abort", abort, { once: true });
+						setTimeout(() => {
+							signal?.removeEventListener("abort", abort);
+							resolve(
+								new Response(JSON.stringify({ object: "list", data: [record({})] }), {
+									status: 200,
+									headers: { "content-type": "application/json" },
+								}),
+							);
+						}, 6000);
+					}),
+			);
+
+			const modelsPromise = fetchCaseDevModels(fetchFn as unknown as typeof fetch);
+			await vi.advanceTimersByTimeAsync(6000);
+
+			await expect(modelsPromise).resolves.toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
