@@ -118,3 +118,9 @@ a targeted message suggesting the current default for that provider:
    preview snapshot validation bake the candidate.
 5. Run the isolated end-to-end MCP workflow with the product flag on in preview.
    Production remains off until that smoke and rollback checks pass.
+
+If preview validation fails after publication, revert the Case.dev preview pin to
+the previously published Linc version and rebuild the preview snapshot. npm
+versions are immutable, so rollback changes the pin rather than attempting to
+reuse or overwrite `0.79.21`; the production pin and feature flag remain
+unchanged throughout the preview rollout.
