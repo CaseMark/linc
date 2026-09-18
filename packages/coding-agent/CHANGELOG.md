@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.22] - 2026-09-18
+
+### Changed
+
+- Refreshed OpenRouter metadata for DeepSeek Flash Latest and DeepSeek V4 Flash Latest, including current pricing and DeepSeek Flash Latest's 943,718-token output limit.
+
+### Fixed
+
+- Fixed Case.dev MCP skill loading for catalogs larger than the pagination safety limit. Linc now preserves org-private precedence, then resolves public skills directly with `skills/get` instead of scanning the entire public catalog (CD-1182, [#75](https://github.com/CaseMark/linc/pull/75)).
 
 ## [0.79.21] - 2026-09-17
 
