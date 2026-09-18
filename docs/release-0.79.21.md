@@ -1,8 +1,8 @@
 # Linc 0.79.21 verification
 
 Prepared September 17, 2026 for the CD-1583 Case.dev MCP skills rollout.
-The release remains draft until an authenticated Node and Bun completion smoke is
-completed or Theodore explicitly accepts that risk.
+Authenticated Node and Bun print-mode and interactive completion smokes are
+complete against the preview Case.dev endpoint.
 
 ## MCP skills artifact verification
 
@@ -46,6 +46,11 @@ release does not enable any Case.dev or product feature flag.
   restored sessions surface that guidance and use it when they need to select an
   available fallback. Resolver tests passed 39/39, and the built CLI exited 1
   with the targeted message for `opencode/union-alpha`.
+- Case.dev catalog cold-start regression: preview and production catalog requests
+  were observed taking 3.6-10 seconds, beyond the former 3-second startup ceiling.
+  The ceiling is now 15 seconds, with a fake-timer regression proving a 6-second
+  response succeeds. The focused catalog tests passed 9/9 and `npm run check`
+  passed.
 - `./test.sh`: agent 164 passed; AI 331 passed / 764 skipped; coding-agent 1537
   passed / 44 skipped with one transient `stdout-cleanliness` version assertion;
   TUI 647 passed. The failed file passed all 5 tests immediately when rerun alone.
@@ -54,13 +59,15 @@ No provider credential was used during the offline suite or artifact checks.
 
 ## Authenticated smoke status
 
-The installed Node tarball and standalone Bun archive both reached the preview
-Case.dev endpoint using the existing C3 Preview credential, but the endpoint
-returned HTTP 401 before a completion. That credential is stale or invalid, so
-this is not a successful authenticated smoke and no completion was billed. The
-release remains draft pending a valid preview credential or Theodore's explicit
-risk acceptance. Production credentials were not used and production flags were
-not changed.
+The exact preview tenant credential returned HTTP 200 from `/llm/config`. Against
+that preview endpoint and `casemark/core-large`, both the installed Node tarball
+and standalone Bun archive returned `LINC_SMOKE_OK` in print mode and
+`LINC_INTERACTIVE_OK` from a real controlled-terminal turn. This completes the
+authenticated release gate.
+
+The exact production credential also returned HTTP 200 from the non-billing
+`/llm/config` check. No production completion was run, no production feature flag
+was enabled, and no production deployment was changed.
 
 ## Catalog regeneration
 
@@ -109,14 +116,11 @@ a targeted message suggesting the current default for that provider:
 
 ## Remaining release and rollout gates
 
-1. Complete authenticated print-mode and interactive completion smoke for the
-   installed Node tarball and standalone Bun archive, or record Theodore's risk
-   acceptance.
-2. Theodore merges the release PR with a merge commit and pushes `v0.79.21`.
-3. Approve and verify the npm publication of `@casemark/linc@0.79.21`.
-4. Only after npm publication, merge the separate Case.dev preview pin PR and let
+1. Theodore merges the release PR with a merge commit and pushes `v0.79.21`.
+2. Approve and verify the npm publication of `@casemark/linc@0.79.21`.
+3. Only after npm publication, merge the separate Case.dev preview pin PR and let
    preview snapshot validation bake the candidate.
-5. Run the isolated end-to-end MCP workflow with the product flag on in preview.
+4. Run the isolated end-to-end MCP workflow with the product flag on in preview.
    Production remains off until that smoke and rollback checks pass.
 
 If preview validation fails after publication, revert the Case.dev preview pin to
