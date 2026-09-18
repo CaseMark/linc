@@ -108,22 +108,27 @@ describe("Case.dev MCP skills pilot client", () => {
 		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list", "skills/list", "skills/get"]);
 	});
 
-	test("exhausts listing pages before preferring public over a later private match", async () => {
+	test("uses direct lookup after org-first listing reaches the public catalog", async () => {
 		const calls: string[] = [];
 		let page = 0;
 		const publicUri = "skill://case.dev/public/intake/SKILL.md";
-		const entries = [
+		const listedEntries = [
 			{
-				uri: publicUri,
-				frontmatter: { name: "intake", description: "Public intake" },
-				resources: [resource(publicUri, root)],
+				uri: "skill://case.dev/org/org_test/other/SKILL.md",
+				frontmatter: { name: "other", description: "Other firm skill" },
+				resources: [resource("skill://case.dev/org/org_test/other/SKILL.md", root.replace("intake", "other"))],
 			},
 			{
-				uri: rootUri,
-				frontmatter: { name: "intake", description: "Firm intake" },
-				resources: [resource(rootUri, root)],
+				uri: "skill://case.dev/public/another/SKILL.md",
+				frontmatter: { name: "another", description: "Another public skill" },
+				resources: [resource("skill://case.dev/public/another/SKILL.md", root.replace("intake", "another"))],
 			},
 		];
+		const targetEntry = {
+			uri: publicUri,
+			frontmatter: { name: "intake", description: "Public intake" },
+			resources: [resource(publicUri, root)],
+		};
 		const client = new CaseDevSkillsMcpClient({
 			endpoint: "https://preview.api.case.dev/mcp",
 			apiKey: "fixture-org-key",
@@ -137,17 +142,19 @@ describe("Case.dev MCP skills pilot client", () => {
 								protocolVersion: "2025-03-26",
 								capabilities: { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } },
 							}
-						: {
-								resultType: "complete",
-								skills: [entries[page]],
-								...(page++ === 0 ? { nextCursor: "next" } : {}),
-							};
+						: body.method === "skills/get"
+							? { resultType: "complete", skill: targetEntry }
+							: {
+									resultType: "complete",
+									skills: [listedEntries[page++]],
+									nextCursor: `next-${page}`,
+								};
 				return Response.json({ jsonrpc: "2.0", id: body.id, result });
 			},
 		});
 
-		expect((await client.resolveSkillSlug("intake")).uri).toBe(rootUri);
-		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list", "skills/list"]);
+		expect((await client.resolveSkillSlug("intake")).uri).toBe(publicUri);
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list", "skills/list", "skills/get"]);
 	});
 
 	test("rejects bytes changed since the held manifest", async () => {

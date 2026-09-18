@@ -287,17 +287,24 @@ export class CaseDevSkillsMcpClient {
 			throw new Error("Invalid Case.dev skill slug");
 		}
 		let cursor: string | undefined;
-		let publicMatch: McpSkillEntry | undefined;
 		for (let pageNumber = 0; pageNumber < 100; pageNumber++) {
 			const page = await this.listSkills(cursor, signal);
 			const privateMatch = page.skills.find(
 				(entry) => entry.uri.startsWith("skill://case.dev/org/") && entry.frontmatter.name === slug,
 			);
 			if (privateMatch) return privateMatch;
-			publicMatch ??= page.skills.find(
+			const publicMatch = page.skills.find(
 				(entry) => entry.uri.startsWith("skill://case.dev/public/") && entry.frontmatter.name === slug,
 			);
-			if (!page.nextCursor) return publicMatch ?? this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
+			if (publicMatch) return publicMatch;
+			// Case.dev enumerates every org-private page before the public catalog.
+			// Once a public entry appears, private precedence is settled. Use the
+			// required skills/get method for the selected public URI instead of
+			// walking a catalog that may be intentionally partial or very large.
+			if (page.skills.some((entry) => entry.uri.startsWith("skill://case.dev/public/"))) {
+				return this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
+			}
+			if (!page.nextCursor) return this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
 			cursor = page.nextCursor;
 		}
 		throw new Error("Case.dev org skill listing exceeds the pilot page limit");
