@@ -15,6 +15,12 @@
 ### Breaking Changes
 
 - Removed `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` because their live source catalogs no longer list them. Existing selections of these built-in IDs must be changed. Linc now reports a targeted error with the current provider default as a suggested replacement; run `linc --list-models` to choose a different supported model.
+- Removed `openrouter/mistralai/mistral-large-2512` because OpenRouter no longer lists the non-batch model. Existing selections must change; `openrouter/mistralai/mistral-large` remains available, and `linc --list-models` shows current alternatives.
+
+### Fixed
+
+- Case.dev model discovery now allows up to 15 seconds for cold preview and production catalog responses instead of aborting after 3 seconds and rejecting valid `casedev` model selections.
+- Updated Kimi catalog generation for models.dev's renamed `kimi-code-plan-cn` source, preserving the existing `kimi-coding` provider and its four current models.
 
 ## [0.79.20] - 2026-09-17
 

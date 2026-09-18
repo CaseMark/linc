@@ -75,8 +75,8 @@ The generator source is unchanged. Two consecutive live-feed generations produce
 the same files. SHA-256:
 
 ```text
-63ecd332300ea51dc0088bd3892d3c1218db5c60f7f02c638a69494070de49ea  models.generated.ts
-c19b1e4d0bf7a22455581dbf3a5e4fb43b79c7fbe02e61a00acac9c3f5ad164b  image-models.generated.ts
+7577e3fbfa5015ca5b190aa7a27d575ff0a6b56e7209c778a4831b5491f0ad57  models.generated.ts
+eca804167d721a157c997bc22d76e6f869da35467782eb4b0de1f6b3b2d8ff66  image-models.generated.ts
 ```
 
 The models.dev feed contains Mistral `zai-glm-5-3` with a 1,000,000-token
@@ -90,29 +90,40 @@ output tokens.
 
 | Model | Change | Prices | Limits |
 | --- | --- | --- | --- |
-| `deepseek/deepseek-v4-flash` | Updated | 0.088606 / 0.177212 / 0.0177212 | 1,048,576 / 384,000 |
+| `opencode/gpt-5.6-sol` | Name and prices updated | 4 / 20 / 0.4 | 1,050,000 / 128,000 |
+| `deepseek/deepseek-v4-flash` | Updated | 0.04844 / 0.09688 / 0.009688 | 1,048,576 / 384,000 |
 | `deepseek/deepseek-v4-flash-0731:free` | Added | 0 / 0 / 0 | 1,048,576 / 393,216 |
 | `deepseek/deepseek-v4-flash-vision-exp` | Updated | 0.2156 / 0.6468 / 0.00686 | 1,048,576 / 262,144 |
-| `deepseek/deepseek-v4-pro-0813` | Updated | 1.32 / 3.96 / 0.044 | 1,048,576 / 384,000 |
-| `deepseek/deepseek-v4.1-flash` | Updated | 0.3 / 1.2 / 0.006 | 1,048,576 / 384,000 |
-| `google/gemma-4-26b-a4b-it` | Context updated | 0.09 / 0.3 / 0.05 | 1,000,000 / 235,929 |
-| `moonshotai/kimi-k3` | Updated | 2.1 / 10.95 / 0.23 | 1,048,576 / 943,718 |
+| `deepseek/deepseek-v4-pro-0813` | Updated | 0.57816 / 1.73448 / 0.018396 | 1,048,576 / 393,216 |
+| `deepseek/deepseek-v4.1-flash` | Updated | 0.15 / 0.6 / 0.003 | 1,048,576 / 384,000 |
+| `google/gemma-4-26b-a4b-it` | Context updated | 0.09 / 0.3 / 0.05 | 262,144 / 235,929 |
+| `meta/muse-glimmer-30b` | Prices updated | 0.35 / 1.5 / 0.04 | 131,072 / 117,964 |
+| `mistralai/mistral-large-2512` | Removed | — | — |
+| `moonshotai/kimi-k3` | Updated | 1.95 / 10.92 / 0.2262 | 1,048,576 / 943,718 |
 | `openai/gpt-oss-120b` | Updated | 0.15 / 0.6 / 0.075 | 131,072 / 65,536 |
-| `tencent/hy3` | Updated | 0.132 / 0.528 / 0.033 | 262,144 / 128,000 |
+| `prism-ml/ternary-bonsai-2-27b` | Added | 0.075 / 0.5 / 0 | 262,144 / 32,768 |
+| `tencent/hy3` | Updated | 0.0825 / 0.33 / 0.020625 | 262,144 / 128,000 |
 | `unbiased/pareto` | Added | 2.5 / 7.5 / 0.25 | 262,144 / 131,072 |
-| `z-ai/glm-5.2` | Updated | 0.4875 / 1.56 / 0.091 | 1,048,576 / 163,840 |
-| `~deepseek/deepseek-flash-latest` | Updated | 0.15 / 0.6 / 0.015 | 1,048,576 / 943,718 |
-| `~deepseek/deepseek-pro-latest` | Updated | 0.7 / 2.96 / 0.033 | 1,048,576 / 384,000 |
-| `~deepseek/deepseek-v4-flash-latest` | Updated | 0.0558 / 0.1767 / 0.0088 | 1,310,720 / 943,718 |
-| `~z-ai/glm-latest` | Updated | 0.7735 / 2.431 / 0.127075 | 1,310,720 / 943,718 |
+| `z-ai/glm-5.2` | Updated | 0.5544 / 1.7424 / 0.10296 | 1,048,576 / 131,072 |
+| `~deepseek/deepseek-flash-latest` | Updated | 0.14 / 0.42 / 0.0042 | 1,048,576 / 131,072 |
+| `~deepseek/deepseek-pro-latest` | Updated | 0.57816 / 1.73448 / 0.018396 | 1,048,576 / 393,216 |
+| `~deepseek/deepseek-v4-flash-latest` | Updated | 0.05412 / 0.16236 / 0.001722 | 1,310,720 / 384,000 |
+| `~z-ai/glm-latest` | Updated | 0.8918 / 2.8028 / 0.16562 | 1,310,720 / 131,072 |
+| `vercel-ai-gateway/zai/glm-5.3-flashx` | Added | 0.37 / 1.25 / 0.075 | 1,000,000 / 131,072 |
 
-OpenRouter no longer lists `stealth/union-alpha`. Its removal, plus the two
-models.dev removals, is called out in the changelog because saved built-in model
-selections must change. The CLI now rejects those three removed built-in IDs with
-a targeted message suggesting the current default for that provider:
+OpenRouter no longer lists `stealth/union-alpha` or
+`mistralai/mistral-large-2512`. The Union Alpha removal, plus the two models.dev
+removals, is called out in the changelog because saved built-in model selections
+must change. The CLI now rejects those three removed Union Alpha IDs with a
+targeted message suggesting the current default for that provider:
 `opencode/kimi-k2.6`, `opencode-go/kimi-k2.6`, or
 `openrouter/moonshotai/kimi-k2.6`. It does not silently remap the selection;
 `linc --list-models` remains the source of current alternatives.
+
+models.dev renamed the Kimi coding source to `kimi-code-plan-cn`; the generator
+now reads that source because its API matches Linc's existing `api.kimi.com`
+endpoint. The `kimi-coding` provider remains available with `k3`, `k3-256k`,
+`kimi-for-coding`, and `kimi-for-coding-highspeed`.
 
 ## Remaining release and rollout gates
 
