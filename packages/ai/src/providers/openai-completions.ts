@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { APIError } from "openai/error";
 import type {
 	ChatCompletionAssistantMessageParam,
 	ChatCompletionChunk,
@@ -63,9 +64,39 @@ function readFailedHttpResponse(error: unknown): ProviderResponse | null {
 const STREAM_FAILURE_PATTERNS =
 	/stream ended without finish_reason|premature close|socket hang up|fetch failed|network error|econnreset|econnrefused|etimedout|und_err|terminated/i;
 
+const NON_TRANSIENT_STREAM_ERROR_STATUSES = new Map([
+	["invalid_request_error", 400],
+	["context_length_exceeded", 400],
+	["content_filter", 400],
+	["authentication_error", 401],
+	["invalid_api_key", 401],
+	["insufficient_quota", 402],
+	["permission_error", 403],
+	["not_found_error", 404],
+	["unprocessable_entity_error", 422],
+]);
+
 function readStreamFailureResponse(error: unknown): ProviderResponse | null {
 	if (!(error instanceof Error)) return null;
 	if (typeof (error as { status?: unknown }).status === "number") return null;
+	// The SDK throws APIError(undefined, frame.error, ...) for SSE errors,
+	// even though the initial HTTP response was 200. Classify that existing
+	// exception here; do not scan or buffer successful stream chunks again.
+	if (error instanceof APIError && error.error) {
+		const headers = error.headers ? headersToRecord(error.headers) : {};
+		const detail = error.error as { status?: unknown; status_code?: unknown; code?: unknown; type?: unknown };
+		for (const value of [detail.status, detail.status_code, detail.code]) {
+			const status = typeof value === "string" ? Number(value) : value;
+			if (typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599) {
+				return { status, headers };
+			}
+		}
+		for (const value of [detail.code, detail.type]) {
+			const status = typeof value === "string" ? NON_TRANSIENT_STREAM_ERROR_STATUSES.get(value) : undefined;
+			if (status !== undefined) return { status, headers };
+		}
+		return { status: 599, headers };
+	}
 	const message = `${error.message} ${(error.cause as Error | undefined)?.message ?? ""}`;
 	return STREAM_FAILURE_PATTERNS.test(message) ? { status: 599, headers: {} } : null;
 }
