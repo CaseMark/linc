@@ -128,6 +128,7 @@ BUNDLED_EXTENSIONS_DIR=$(mktemp -d)
 trap 'rm -rf "$BUNDLED_EXTENSIONS_DIR"' EXIT
 bun build \
     ./dist/linc/extensions/matter.js \
+    ./dist/linc/extensions/skills-mcp.js \
     ./dist/linc/extensions/vault.js \
     --target=bun \
     --outdir "$BUNDLED_EXTENSIONS_DIR"

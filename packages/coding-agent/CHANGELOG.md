@@ -1,6 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.21] - 2026-09-17
+
+### Added
+
+- Added an opt-in Case.dev MCP skills loader for CD-1583. With `LINC_MCP_SKILLS_PILOT=1`, Linc can discover org-private and public skills, load a selected skill on demand, and read only files declared by its manifest. The loader verifies bounded manifests and per-file SHA-256 digests, binds production access and host-side execution to explicit approvals, records durable load audit entries, preserves the host's existing tool policy, and is bundled into standalone releases. The path remains disabled by default ([#62](https://github.com/CaseMark/linc/pull/62)).
+
+### Changed
+
+- Refreshed generated provider catalogs from the live models.dev and OpenRouter feeds. This adds Mistral's `zai-glm-5-3`, OpenRouter's free DeepSeek V4 Flash 0731 and Pareto entries, and updates current OpenRouter prices and limits. See the [release verification](../../docs/release-0.79.21.md) for the complete reviewed delta.
+
+### Removed
+
+- Removed `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` because their live source catalogs no longer list them. Existing selections of these built-in IDs must be changed.
 
 ## [0.79.20] - 2026-09-17
 
