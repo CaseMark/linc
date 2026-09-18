@@ -5,6 +5,7 @@ import {
 	findInitialModel,
 	parseModelPattern,
 	resolveCliModel,
+	restoreModelFromSession,
 } from "../src/core/model-resolver.ts";
 
 // Mock models for testing
@@ -490,5 +491,50 @@ describe("default model selection", () => {
 
 		expect(result.model?.provider).toBe("vercel-ai-gateway");
 		expect(result.model?.id).toBe("anthropic/claude-opus-4-6");
+	});
+
+	test("findInitialModel migrates a removed saved default to its suggested replacement", async () => {
+		const replacementModel = {
+			...mockModels[0],
+			provider: "opencode",
+			id: "kimi-k2.6",
+			name: "Kimi K2.6",
+		};
+		const registry = {
+			find: () => undefined,
+			getAvailable: async () => [replacementModel],
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		const result = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			defaultProvider: "opencode",
+			defaultModelId: "union-alpha",
+			modelRegistry: registry,
+		});
+
+		expect(result.model).toBe(replacementModel);
+		expect(result.fallbackMessage).toContain("Saved model opencode/union-alpha was removed");
+		expect(result.fallbackMessage).toContain("opencode/kimi-k2.6");
+	});
+
+	test("restoreModelFromSession migrates a removed model to its suggested replacement", async () => {
+		const replacementModel = {
+			...mockModels[0],
+			provider: "openrouter",
+			id: "moonshotai/kimi-k2.6",
+			name: "Kimi K2.6",
+		};
+		const registry = {
+			find: () => undefined,
+			hasConfiguredAuth: () => false,
+			getAvailable: async () => [replacementModel],
+		} as unknown as Parameters<typeof restoreModelFromSession>[4];
+
+		const result = await restoreModelFromSession("openrouter", "stealth/union-alpha", undefined, false, registry);
+
+		expect(result.model).toBe(replacementModel);
+		expect(result.fallbackMessage).toContain("removed model openrouter/stealth/union-alpha");
+		expect(result.fallbackMessage).toContain("openrouter/moonshotai/kimi-k2.6");
 	});
 });

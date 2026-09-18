@@ -42,8 +42,10 @@ release does not enable any Case.dev or product feature flag.
   MCP-extension import, dependency-closure, and enforcement-path assertions.
 - Removed-model migration diagnostics: all three removed built-in IDs report the
   current provider default and `--list-models`, including when a valid thinking
-  suffix is present; resolver tests passed 37/37 and the built CLI exited 1 with
-  the targeted message for `opencode/union-alpha`.
+  suffix is present. Saved defaults prefer the same suggested replacement;
+  restored sessions surface that guidance and use it when they need to select an
+  available fallback. Resolver tests passed 39/39, and the built CLI exited 1
+  with the targeted message for `opencode/union-alpha`.
 - `./test.sh`: agent 164 passed; AI 331 passed / 764 skipped; coding-agent 1537
   passed / 44 skipped with one transient `stdout-cleanliness` version assertion;
   TUI 647 passed. The failed file passed all 5 tests immediately when rerun alone.
