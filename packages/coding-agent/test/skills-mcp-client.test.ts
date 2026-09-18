@@ -1,0 +1,224 @@
+import { createHash } from "node:crypto";
+import { describe, expect, test } from "vitest";
+import { CaseDevSkillsMcpClient, getMcpSkillManifestDigest } from "../src/linc/skills-mcp-client.ts";
+
+const rootUri = "skill://case.dev/org/org_test/intake/SKILL.md";
+const companionUri = "skill://case.dev/org/org_test/intake/references/checklist.md";
+const root = "---\nname: intake\ndescription: Structure an intake\n---\n\nRead references/checklist.md.\n";
+const companion = "# Checklist\nAsk for the date.\n";
+
+function resource(uri: string, text: string) {
+	return {
+		uri,
+		digest: `sha256:${createHash("sha256").update(text).digest("hex")}`,
+		size: Buffer.byteLength(text),
+	};
+}
+
+function fixture(options: { tamper?: boolean; wrongFrontmatter?: boolean; publicFallback?: boolean } = {}) {
+	const calls: string[] = [];
+	let listCount = 0;
+	const skillUri = options.publicFallback ? "skill://case.dev/public/intake/SKILL.md" : rootUri;
+	const skillCompanionUri = options.publicFallback
+		? "skill://case.dev/public/intake/references/checklist.md"
+		: companionUri;
+	const fetcher = async (_url: string, init: RequestInit): Promise<Response> => {
+		const body = JSON.parse(String(init.body)) as { id?: number; method: string; params: { uri?: string } };
+		calls.push(body.method);
+		if (body.method === "skills/list") listCount++;
+		if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+		const entry = {
+			uri: skillUri,
+			frontmatter: { name: "intake", description: options.wrongFrontmatter ? "Wrong" : "Structure an intake" },
+			resources: [resource(skillUri, root), resource(skillCompanionUri, companion)],
+		};
+		const result =
+			body.method === "initialize"
+				? {
+						protocolVersion: "2025-03-26",
+						capabilities: { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } },
+					}
+				: body.method === "skills/get"
+					? { resultType: "complete", skill: entry }
+					: body.method === "skills/list"
+						? {
+								resultType: "complete",
+								skills: options.publicFallback ? [] : [entry],
+								...(listCount === 1 ? { nextCursor: "public-next" } : {}),
+							}
+						: {
+								contents: [
+									{
+										uri: body.params.uri,
+										text:
+											(body.params.uri === skillUri ? root : companion) + (options.tamper ? "changed" : ""),
+									},
+								],
+							};
+		return Response.json({ jsonrpc: "2.0", id: body.id, result });
+	};
+	return {
+		client: new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			fetcher,
+		}),
+		calls,
+	};
+}
+
+describe("Case.dev MCP skills pilot client", () => {
+	test("holds a complete manifest and reads only requested verified files", async () => {
+		const { client, calls } = fixture();
+		const entry = await client.getSkill(rootUri);
+		expect(entry.resources).toHaveLength(2);
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/get"]);
+		expect(await client.readResource(entry, rootUri)).toBe(root);
+		expect(await client.readResource(entry, companionUri)).toBe(companion);
+		expect(calls).toEqual([
+			"initialize",
+			"notifications/initialized",
+			"skills/get",
+			"resources/read",
+			"resources/read",
+		]);
+	});
+
+	test("resolves a selected slug from org metadata without fetching unrelated bodies", async () => {
+		const { client, calls } = fixture();
+		const entry = await client.resolveSkillSlug("intake");
+		expect(entry.uri).toBe(rootUri);
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list"]);
+	});
+
+	test("discovers one bounded metadata page and rejects unsafe cursors before a request", async () => {
+		const { client, calls } = fixture();
+		const page = await client.listSkills();
+		expect(page.skills[0].uri).toBe(rootUri);
+		expect(page.nextCursor).toBe("public-next");
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list"]);
+		await expect(client.listSkills("x".repeat(1025))).rejects.toThrow("Invalid Case.dev skill cursor");
+		expect(calls).not.toContain("resources/read");
+	});
+
+	test("falls back to a direct public URI after the org listing ends", async () => {
+		const { client, calls } = fixture({ publicFallback: true });
+		const entry = await client.resolveSkillSlug("intake");
+		expect(entry.uri).toBe("skill://case.dev/public/intake/SKILL.md");
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list", "skills/list", "skills/get"]);
+	});
+
+	test("exhausts listing pages before preferring public over a later private match", async () => {
+		const calls: string[] = [];
+		let page = 0;
+		const publicUri = "skill://case.dev/public/intake/SKILL.md";
+		const entries = [
+			{
+				uri: publicUri,
+				frontmatter: { name: "intake", description: "Public intake" },
+				resources: [resource(publicUri, root)],
+			},
+			{
+				uri: rootUri,
+				frontmatter: { name: "intake", description: "Firm intake" },
+				resources: [resource(rootUri, root)],
+			},
+		];
+		const client = new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			fetcher: async (_url, init) => {
+				const body = JSON.parse(String(init.body)) as { id?: number; method: string };
+				calls.push(body.method);
+				if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+				const result =
+					body.method === "initialize"
+						? {
+								protocolVersion: "2025-03-26",
+								capabilities: { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } },
+							}
+						: {
+								resultType: "complete",
+								skills: [entries[page]],
+								...(page++ === 0 ? { nextCursor: "next" } : {}),
+							};
+				return Response.json({ jsonrpc: "2.0", id: body.id, result });
+			},
+		});
+
+		expect((await client.resolveSkillSlug("intake")).uri).toBe(rootUri);
+		expect(calls).toEqual(["initialize", "notifications/initialized", "skills/list", "skills/list"]);
+	});
+
+	test("rejects bytes changed since the held manifest", async () => {
+		const { client } = fixture({ tamper: true });
+		const entry = await client.getSkill(rootUri);
+		await expect(client.readResource(entry, companionUri)).rejects.toThrow("changed during this run");
+	});
+
+	test("rejects SKILL.md frontmatter that differs from the entry", async () => {
+		const { client } = fixture({ wrongFrontmatter: true });
+		const entry = await client.getSkill(rootUri);
+		await expect(client.readResource(entry, rootUri)).rejects.toThrow("frontmatter differs");
+	});
+
+	test("does not request unmanifested resources", async () => {
+		const { client, calls } = fixture();
+		const entry = await client.getSkill(rootUri);
+		await expect(
+			client.readResource(entry, "skill://case.dev/org/org_test/intake/scripts/do-not-run.sh"),
+		).rejects.toThrow("absent from the held skill manifest");
+		expect(calls).not.toContain("resources/read");
+	});
+
+	test("rejects a production fallback or unsafe URI before a request", async () => {
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "https://api.case.dev/mcp", apiKey: "key" })).toThrow(
+			"requires explicit host approval",
+		);
+		expect(
+			() =>
+				new CaseDevSkillsMcpClient({
+					endpoint: "https://api.case.dev/mcp",
+					apiKey: "key",
+					allowProduction: true,
+				}),
+		).not.toThrow();
+		expect(
+			() => new CaseDevSkillsMcpClient({ endpoint: "https://api.case.dev/mcp?key=secret", apiKey: "key" }),
+		).toThrow("explicit HTTPS");
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "not-a-url", apiKey: "key" })).toThrow("explicit HTTPS");
+		const { client, calls } = fixture();
+		await expect(client.getSkill("skill://case.dev/org/org_test/intake/%2e%2e/SKILL.md")).rejects.toThrow(
+			"Invalid Case.dev skill URI segment",
+		);
+		expect(calls).toHaveLength(0);
+	});
+
+	test("surfaces bounded sanitized JSON-RPC diagnostics", async () => {
+		const client = new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			fetcher: async (_url, init) => {
+				const body = JSON.parse(String(init.body)) as { id: number };
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					error: { code: -32600, message: `Denied\n${"x".repeat(500)}`, data: { secret: "do-not-return" } },
+				});
+			},
+		});
+
+		await expect(client.initialize()).rejects.toThrow(/initialize error -32600: Denied x+/);
+		await expect(client.initialize()).rejects.not.toThrow("do-not-return");
+	});
+
+	test("derives a stable content-bound manifest digest", async () => {
+		const { client } = fixture();
+		const entry = await client.getSkill(rootUri);
+		const reversed = { ...entry, resources: [...entry.resources].reverse() };
+		expect(getMcpSkillManifestDigest(reversed)).toBe(getMcpSkillManifestDigest(entry));
+		expect(getMcpSkillManifestDigest({ ...entry, resources: entry.resources.slice(0, 1) })).not.toBe(
+			getMcpSkillManifestDigest(entry),
+		);
+	});
+});
