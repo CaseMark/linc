@@ -433,14 +433,17 @@ export function resolveCliModel(options: {
 	}
 
 	if (provider) {
-		const removedReference = `${provider}/${pattern}`.toLowerCase();
+		const lastColonIndex = pattern.lastIndexOf(":");
+		const suffix = lastColonIndex === -1 ? undefined : pattern.substring(lastColonIndex + 1);
+		const removedPattern = suffix && isValidThinkingLevel(suffix) ? pattern.substring(0, lastColonIndex) : pattern;
+		const removedReference = `${provider}/${removedPattern}`.toLowerCase();
 		const replacement = removedBuiltinModelReplacements[removedReference];
 		if (replacement) {
 			return {
 				model: undefined,
 				thinkingLevel: undefined,
 				warning,
-				error: `Model "${provider}/${pattern}" was removed from the built-in catalog. Use "${replacement}" or run --list-models to choose another supported model.`,
+				error: `Model "${provider}/${removedPattern}" was removed from the built-in catalog. Use "${replacement}" or run --list-models to choose another supported model.`,
 			};
 		}
 	}
