@@ -2,9 +2,19 @@
 
 ## [Unreleased]
 
+## [0.79.23] - 2026-09-21
+
+### Changed
+
+- Refreshed the generated provider catalog from its live sources. This adds 22 model entries and removes 9 entries no longer present upstream; see the [release verification](../../docs/release-0.79.23.md) for the reviewed list.
+
 ### Fixed
 
 - Case.dev MCP skill loads now return each manifest-listed companion file's exact full URI, digest, and size without preloading its content, so agents can pass a verified URI to `casedev_skill_read` instead of guessing from a relative path (CD-1583).
+
+### Removed
+
+- Removed the retired `openrouter/anthropic/claude-opus-4` entry and eight other provider catalog entries absent from their current source feeds. Existing selections of those exact IDs must switch to a listed model; see the [release verification](../../docs/release-0.79.23.md).
 
 ## [0.79.22] - 2026-09-18
 
