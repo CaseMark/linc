@@ -62,6 +62,15 @@ describe("ModelRegistry", () => {
 		return registry.getAll().filter((m) => m.provider === provider);
 	}
 
+	function getAlternateBuiltInModelId(provider: string, excludedId: string): string {
+		const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+		const alternate = getModelsForProvider(registry, provider).find((model) => model.id !== excludedId);
+		if (!alternate) {
+			throw new Error(`Expected ${provider} to have a built-in model other than ${excludedId}`);
+		}
+		return alternate.id;
+	}
+
 	function toShPath(value: string): string {
 		return value.replace(/\\/g, "/").replace(/"/g, '\\"');
 	}
@@ -792,13 +801,14 @@ describe("ModelRegistry", () => {
 		});
 
 		test("multiple model overrides on same provider", () => {
+			const alternateModelId = getAlternateBuiltInModelId("openrouter", "anthropic/claude-sonnet-4");
 			writeRawModelsJson({
 				openrouter: {
 					modelOverrides: {
 						"anthropic/claude-sonnet-4": {
 							compat: { openRouterRouting: { only: ["amazon-bedrock"] } },
 						},
-						"anthropic/claude-opus-4": {
+						[alternateModelId]: {
 							compat: { openRouterRouting: { only: ["anthropic"] } },
 						},
 					},
@@ -809,15 +819,16 @@ describe("ModelRegistry", () => {
 			const models = getModelsForProvider(registry, "openrouter");
 
 			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const alternate = models.find((m) => m.id === alternateModelId);
 
 			const sonnetCompat = sonnet?.compat as OpenAICompletionsCompat | undefined;
-			const opusCompat = opus?.compat as OpenAICompletionsCompat | undefined;
+			const alternateCompat = alternate?.compat as OpenAICompletionsCompat | undefined;
 			expect(sonnetCompat?.openRouterRouting).toEqual({ only: ["amazon-bedrock"] });
-			expect(opusCompat?.openRouterRouting).toEqual({ only: ["anthropic"] });
+			expect(alternateCompat?.openRouterRouting).toEqual({ only: ["anthropic"] });
 		});
 
 		test("model override combined with baseUrl override", () => {
+			const alternateModelId = getAlternateBuiltInModelId("openrouter", "anthropic/claude-sonnet-4");
 			writeRawModelsJson({
 				openrouter: {
 					baseUrl: "https://my-proxy.example.com/v1",
@@ -838,9 +849,9 @@ describe("ModelRegistry", () => {
 			expect(sonnet?.name).toBe("Proxied Sonnet");
 
 			// Other models should have the baseUrl but not the name override
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
-			expect(opus?.baseUrl).toBe("https://my-proxy.example.com/v1");
-			expect(opus?.name).not.toBe("Proxied Sonnet");
+			const alternate = models.find((m) => m.id === alternateModelId);
+			expect(alternate?.baseUrl).toBe("https://my-proxy.example.com/v1");
+			expect(alternate?.name).not.toBe("Proxied Sonnet");
 		});
 
 		test("model override for non-existent model ID is ignored", () => {
