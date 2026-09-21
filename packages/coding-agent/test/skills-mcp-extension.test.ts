@@ -108,6 +108,11 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		expect(loaded.content[0].text).toContain('<remote_skill origin="case.dev"');
 		expect(loaded.content[0].text).toContain("&lt;/remote_skill&gt;");
 		expect(loaded.content[0].text.match(/<\/remote_skill>/g)).toHaveLength(1);
+		expect(loaded.content[0].text).toContain(companionUri);
+		expect(loaded.content[0].text).toContain(resource(companionUri, companion).digest);
+		expect(loaded.content[0].text).toContain('"size":');
+		expect(loaded.content[0].text).not.toContain("Ask for the date.");
+		expect(loaded.content[0].text).toContain("using an exact full URI from supportingResources");
 		expect(methods).toEqual(["skills/get", "resources/read"]);
 		expect(call({ toolName: "bash" })).toMatchObject({ block: true });
 		expect(call({ toolName: "casedev_matter_write" })).toBeUndefined();

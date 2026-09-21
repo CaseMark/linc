@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Case.dev MCP skill loads now return each manifest-listed companion file's exact full URI, digest, and size without preloading its content, so agents can pass a verified URI to `casedev_skill_read` instead of guessing from a relative path (CD-1583).
+
 ## [0.79.22] - 2026-09-18
 
 ### Changed
