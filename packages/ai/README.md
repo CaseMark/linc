@@ -1334,6 +1334,7 @@ Create a new provider file (for example `amazon-bedrock.ts`) that exports:
 - Map chat/tool-capable provider model data to the standardized `Model` interface via `scripts/generate-models.ts`
 - Map image-generation provider model data to the standardized `ImagesModel` interface via `scripts/generate-image-models.ts`
 - Handle provider-specific quirks (pricing format, capability flags, model ID transformations)
+- Express prices in USD per million tokens through `scripts/catalog-price.ts`: `perMillionTokens()` converts a feed's per-token string and every emitted `cost` is passed through `roundCatalogCost()`, which rounds to eight decimal places. Source feeds publish at most seven significant digits, so this removes binary-float noise (`0.21559999999999999`) without changing any billed value, and consecutive generator runs against unchanged feeds are byte-identical. The one known exception is OpenRouter's Gemini cache-write price, a repeating decimal (1/24 USD per million) that serializes as `0.04166667`.
 
 #### 5. Tests (`test/`)
 

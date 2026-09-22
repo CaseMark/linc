@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Generated catalog prices are now rounded to eight decimal places in USD per million tokens, so `models.generated.ts` and `image-models.generated.ts` no longer carry binary-float artifacts such as `0.21559999999999999` or `3.9600000000000004`. Billed values are unchanged and consecutive generator runs are byte-identical (CD-1623).
+
 ## [0.79.23] - 2026-09-21
 
 ### Changed

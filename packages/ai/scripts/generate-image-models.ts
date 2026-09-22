@@ -4,6 +4,7 @@ import { writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import type { ImagesModel } from "../src/types.ts";
+import { perMillionTokens } from "./catalog-price.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,10 +61,10 @@ async function fetchOpenRouterImageModels(): Promise<ImagesModel<"openrouter-ima
 				input,
 				output,
 				cost: {
-					input: parseFloat(model.pricing?.prompt || "0") * 1_000_000,
-					output: parseFloat(model.pricing?.completion || "0") * 1_000_000,
-					cacheRead: parseFloat(model.pricing?.input_cache_read || "0") * 1_000_000,
-					cacheWrite: parseFloat(model.pricing?.input_cache_write || "0") * 1_000_000,
+					input: perMillionTokens(model.pricing?.prompt),
+					output: perMillionTokens(model.pricing?.completion),
+					cacheRead: perMillionTokens(model.pricing?.input_cache_read),
+					cacheWrite: perMillionTokens(model.pricing?.input_cache_write),
 				},
 			});
 		}

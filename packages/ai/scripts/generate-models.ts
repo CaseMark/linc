@@ -9,6 +9,7 @@ import {
 	CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL,
 	CLOUDFLARE_WORKERS_AI_BASE_URL,
 } from "../src/providers/cloudflare.ts";
+import { perMillionTokens, roundCatalogCost } from "./catalog-price.ts";
 import type { AnthropicMessagesCompat, Api, KnownProvider, Model, OpenAICompletionsCompat } from "../src/types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -410,10 +411,10 @@ async function fetchOpenRouterModels(): Promise<Model<any>[]> {
 			}
 
 			// Convert pricing from $/token to $/million tokens
-			const inputCost = parseFloat(model.pricing?.prompt || "0") * 1_000_000;
-			const outputCost = parseFloat(model.pricing?.completion || "0") * 1_000_000;
-			const cacheReadCost = parseFloat(model.pricing?.input_cache_read || "0") * 1_000_000;
-			const cacheWriteCost = parseFloat(model.pricing?.input_cache_write || "0") * 1_000_000;
+			const inputCost = perMillionTokens(model.pricing?.prompt);
+			const outputCost = perMillionTokens(model.pricing?.completion);
+			const cacheReadCost = perMillionTokens(model.pricing?.input_cache_read);
+			const cacheWriteCost = perMillionTokens(model.pricing?.input_cache_write);
 
 			const normalizedModel: Model<any> = {
 				id: modelKey,
@@ -450,14 +451,6 @@ async function fetchAiGatewayModels(): Promise<Model<any>[]> {
 		const data = await response.json();
 		const models: Model<any>[] = [];
 
-		const toNumber = (value: string | number | undefined): number => {
-			if (typeof value === "number") {
-				return Number.isFinite(value) ? value : 0;
-			}
-			const parsed = parseFloat(value ?? "0");
-			return Number.isFinite(parsed) ? parsed : 0;
-		};
-
 		const items = Array.isArray(data.data) ? (data.data as AiGatewayModel[]) : [];
 		for (const model of items) {
 			const tags = Array.isArray(model.tags) ? model.tags : [];
@@ -469,10 +462,10 @@ async function fetchAiGatewayModels(): Promise<Model<any>[]> {
 				input.push("image");
 			}
 
-			const inputCost = toNumber(model.pricing?.input) * 1_000_000;
-			const outputCost = toNumber(model.pricing?.output) * 1_000_000;
-			const cacheReadCost = toNumber(model.pricing?.input_cache_read) * 1_000_000;
-			const cacheWriteCost = toNumber(model.pricing?.input_cache_write) * 1_000_000;
+			const inputCost = perMillionTokens(model.pricing?.input);
+			const outputCost = perMillionTokens(model.pricing?.output);
+			const cacheReadCost = perMillionTokens(model.pricing?.input_cache_read);
+			const cacheWriteCost = perMillionTokens(model.pricing?.input_cache_write);
 
 			models.push({
 				id: model.id,
@@ -2127,11 +2120,13 @@ export const MODELS = {
 				output += `\t\t\tthinkingLevelMap: ${JSON.stringify(model.thinkingLevelMap)},\n`;
 			}
 			output += `\t\t\tinput: [${model.input.map(i => `"${i}"`).join(", ")}],\n`;
+			// Round at emission so models.dev source noise and hand overrides serialize at catalog precision too.
+			const cost = roundCatalogCost(model.cost);
 			output += `\t\t\tcost: {\n`;
-			output += `\t\t\t\tinput: ${model.cost.input},\n`;
-			output += `\t\t\t\toutput: ${model.cost.output},\n`;
-			output += `\t\t\t\tcacheRead: ${model.cost.cacheRead},\n`;
-			output += `\t\t\t\tcacheWrite: ${model.cost.cacheWrite},\n`;
+			output += `\t\t\t\tinput: ${cost.input},\n`;
+			output += `\t\t\t\toutput: ${cost.output},\n`;
+			output += `\t\t\t\tcacheRead: ${cost.cacheRead},\n`;
+			output += `\t\t\t\tcacheWrite: ${cost.cacheWrite},\n`;
 			output += `\t\t\t},\n`;
 			output += `\t\t\tcontextWindow: ${model.contextWindow},\n`;
 			output += `\t\t\tmaxTokens: ${model.maxTokens},\n`;
