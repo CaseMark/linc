@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the release-specific Union Alpha migration shim added in 0.79.21. `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` now follow the generic unknown-model paths: `--model` with an explicit provider resolves to a custom model id with a warning, a restored session that still names one of these IDs falls back to an available model with the standard "could not restore" message, and a saved default that names one falls back to an available model without a named replacement. Run `linc --list-models` to pick a current model (CD-1624).
+
 ## [0.79.23] - 2026-09-21
 
 ### Changed
