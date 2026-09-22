@@ -122,7 +122,7 @@ export const IMAGE_MODELS = {
 				input: 0.3,
 				output: 2.5,
 				cacheRead: 0.03,
-				cacheWrite: 0.0833333333333333,
+				cacheWrite: 0.08333333,
 			},
 		} satisfies ImagesModel<"openrouter-images">,
 		"google/gemini-3-pro-image": {
@@ -136,7 +136,7 @@ export const IMAGE_MODELS = {
 			cost: {
 				input: 2,
 				output: 12,
-				cacheRead: 0.19999999999999998,
+				cacheRead: 0.2,
 				cacheWrite: 0.375,
 			},
 		} satisfies ImagesModel<"openrouter-images">,
@@ -151,7 +151,7 @@ export const IMAGE_MODELS = {
 			cost: {
 				input: 2,
 				output: 12,
-				cacheRead: 0.19999999999999998,
+				cacheRead: 0.2,
 				cacheWrite: 0.375,
 			},
 		} satisfies ImagesModel<"openrouter-images">,
@@ -196,6 +196,21 @@ export const IMAGE_MODELS = {
 			cost: {
 				input: 0.25,
 				output: 1.5,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+		} satisfies ImagesModel<"openrouter-images">,
+		"inclusionai/ming-image-0.1-design": {
+			id: "inclusionai/ming-image-0.1-design",
+			name: "inclusionAI: Ming Image 0.1 Design",
+			api: "openrouter-images",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			input: ["text"],
+			output: ["image"],
+			cost: {
+				input: 0,
+				output: 0,
 				cacheRead: 0,
 				cacheWrite: 0,
 			},
