@@ -10,6 +10,7 @@
 ### Removed
 
 - Removed seven provider catalog entries absent from their current source feeds: `opencode/mimo-v2.5-free`, `openrouter/kwaipilot/kat-coder-pro-v2`, `openrouter/deepseek/deepseek-v4-flash-0731:batch`, `openrouter/deepseek/deepseek-v4-flash-vision-exp:batch`, `openrouter/deepseek/deepseek-v4-pro-0813:batch`, `openrouter/meta/muse-glimmer-30b:batch`, and `openrouter/z-ai/glm-5.2:batch`. Existing selections of these exact IDs must switch to a listed model. The non-batch OpenRouter variants remain available, and `linc --list-models` shows current alternatives.
+- Removed the release-specific Union Alpha migration shim added in 0.79.21. `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` now follow the generic unknown-model paths: `--model` with an explicit provider resolves to a custom model id with a warning, a restored session that still names one of these IDs falls back to an available model with the standard "could not restore" message, and a saved default that names one falls back to an available model without a named replacement. Run `linc --list-models` to pick a current model (CD-1624).
 
 ## [0.79.23] - 2026-09-21
 
