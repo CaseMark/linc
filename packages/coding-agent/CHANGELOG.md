@@ -5,6 +5,11 @@
 ### Changed
 
 - Generated catalog prices are now rounded to eight decimal places in USD per million tokens, so `models.generated.ts` and `image-models.generated.ts` no longer carry binary-float artifacts such as `0.21559999999999999` or `3.9600000000000004`. Billed values are unchanged and consecutive generator runs are byte-identical (CD-1623).
+- Refreshed the generated provider catalog from its live models.dev, OpenRouter, and Vercel AI Gateway sources. This adds 47 entries, including Claude Opus 5.5, GPT-6 Luna and Sol, MiMo v2.6, and OpenRouter batch variants, and reprices 19 OpenRouter and gateway entries. See the pull request for the reviewed per-entry list with source-feed evidence.
+
+### Removed
+
+- Removed seven provider catalog entries absent from their current source feeds: `opencode/mimo-v2.5-free`, `openrouter/kwaipilot/kat-coder-pro-v2`, `openrouter/deepseek/deepseek-v4-flash-0731:batch`, `openrouter/deepseek/deepseek-v4-flash-vision-exp:batch`, `openrouter/deepseek/deepseek-v4-pro-0813:batch`, `openrouter/meta/muse-glimmer-30b:batch`, and `openrouter/z-ai/glm-5.2:batch`. Existing selections of these exact IDs must switch to a listed model. The non-batch OpenRouter variants remain available, and `linc --list-models` shows current alternatives.
 
 ## [0.79.23] - 2026-09-21
 
