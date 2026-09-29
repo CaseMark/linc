@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 	listCaseDevVaults: vi.fn(),
 	getCaseDevVault: vi.fn(),
 	listCaseDevVaultObjects: vi.fn(),
+	listCaseDevVaultObjectsPage: vi.fn(),
 	downloadCaseDevVaultObject: vi.fn(),
 	uploadCaseDevVaultFile: vi.fn(),
 	searchCaseDevVault: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("../src/linc/casedev-vault-api.ts", async (importOriginal) => {
 		listCaseDevVaults: mocks.listCaseDevVaults,
 		getCaseDevVault: mocks.getCaseDevVault,
 		listCaseDevVaultObjects: mocks.listCaseDevVaultObjects,
+		listCaseDevVaultObjectsPage: mocks.listCaseDevVaultObjectsPage,
 		downloadCaseDevVaultObject: mocks.downloadCaseDevVaultObject,
 		uploadCaseDevVaultFile: mocks.uploadCaseDevVaultFile,
 		searchCaseDevVault: mocks.searchCaseDevVault,
@@ -254,6 +256,89 @@ describe("Case.dev vault tools", () => {
 		expect(names).toContain("vault_upload");
 		expect(names).toContain("vault_download");
 		expect(names).toContain("casedev_vault_upload");
+	});
+
+	describe("casedev_vault_object_list", () => {
+		async function listObjects(params: Record<string, unknown>) {
+			process.env.CASE_VAULT_ID = "vault-env";
+			const ctx = createContext({ cwd: "/tmp/linc-test" }) as unknown as ExtensionContext;
+			const result = await getTool("casedev_vault_object_list").execute(
+				"tool-call-1",
+				params,
+				undefined,
+				undefined,
+				ctx,
+			);
+			const first = result.content[0];
+			return first?.type === "text" ? JSON.parse(first.text) : {};
+		}
+
+		beforeEach(() => mocks.listCaseDevVaultObjectsPage.mockReset());
+
+		it("tells the model in plain words when it is not seeing the whole vault", async () => {
+			mocks.listCaseDevVaultObjectsPage.mockResolvedValueOnce({
+				objects: [{ id: "obj-1", filename: "call-001.wav" }],
+				hasMore: true,
+				nextCursor: "cursor-2",
+				total: 3000,
+			});
+
+			const payload = await listObjects({});
+
+			expect(payload).toMatchObject({
+				count: 1,
+				total: 3000,
+				complete: false,
+				has_more: true,
+				next_cursor: "cursor-2",
+			});
+			expect(payload.note).toMatch(/^INCOMPLETE: showing 1 of 3000 objects/);
+			expect(payload.note).toContain('cursor="cursor-2"');
+			expect(payload.note).toContain("casedev_vault_search");
+		});
+
+		it("says nothing extra about a complete listing", async () => {
+			mocks.listCaseDevVaultObjectsPage.mockResolvedValueOnce({
+				objects: [{ id: "obj-1" }, { id: "obj-2" }],
+				hasMore: false,
+				nextCursor: null,
+				total: 2,
+			});
+
+			const payload = await listObjects({});
+
+			expect(payload).toMatchObject({ count: 2, total: 2, complete: true, has_more: false });
+			expect(payload).not.toHaveProperty("note");
+		});
+
+		it("passes paging and the filename filter through, always asking for the total", async () => {
+			mocks.listCaseDevVaultObjectsPage.mockResolvedValueOnce({
+				objects: [],
+				hasMore: false,
+				nextCursor: null,
+				total: 0,
+			});
+
+			await listObjects({ limit: 50, cursor: "cursor-2", query: "depo" });
+
+			expect(mocks.listCaseDevVaultObjectsPage).toHaveBeenCalledWith(expect.anything(), "vault-env", {
+				limit: 50,
+				cursor: "cursor-2",
+				query: "depo",
+				includeTotal: true,
+			});
+		});
+
+		it("describes itself as paged, so the model checks has_more", () => {
+			const tool = getTool("casedev_vault_object_list");
+			expect(tool.description).toContain("INCOMPLETE");
+			expect(Object.keys((tool.parameters as { properties: object }).properties)).toEqual([
+				"vaultId",
+				"limit",
+				"cursor",
+				"query",
+			]);
+		});
 	});
 
 	it("uploads storage-only deliverables with CASE_VAULT_ID through REST", async () => {

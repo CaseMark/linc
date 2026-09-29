@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import {
 	downloadCaseDevVaultObject,
+	listCaseDevVaultObjects,
+	listCaseDevVaultObjectsPage,
 	listCaseDevVaults,
 	readCaseDevVaultObjectText,
 	searchCaseDevVault,
@@ -108,11 +110,132 @@ describe("Case.dev vault REST API helper", () => {
 			{ id: "vault-1", name: "Alpha", totalObjects: 2 },
 		]);
 
-		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault", {
+		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault?limit=200", {
 			method: "GET",
 			headers: { Authorization: "Bearer sk_case_test" },
 			body: undefined,
 			signal: undefined,
+		});
+	});
+
+	it("follows vault list cursors to the end, asking for full pages", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({
+					vaults: [{ id: "vault-1", name: "Alpha" }],
+					pagination: { limit: 200, has_more: true, next_cursor: "c1" },
+				}),
+			)
+			.mockResolvedValueOnce(
+				jsonResponse({
+					vaults: [{ id: "vault-2", name: "Beta" }],
+					pagination: { limit: 200, has_more: false, next_cursor: null },
+				}),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const vaults = await listCaseDevVaults(createContext(cwd));
+
+		expect(vaults.map((vault) => vault.id)).toEqual(["vault-1", "vault-2"]);
+		expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+			"https://preview.api.case.dev/vault?limit=200",
+			"https://preview.api.case.dev/vault?limit=200&cursor=c1",
+		]);
+	});
+
+	describe("vault objects", () => {
+		const objectsUrl = "https://preview.api.case.dev/vault/vault-1/objects";
+		const page = (ids: string[], pagination?: object, extra: object = {}) =>
+			jsonResponse({
+				vaultId: "vault-1",
+				objects: ids.map((id) => ({ id, filename: `${id}.pdf` })),
+				count: ids.length,
+				...(pagination ? { pagination } : {}),
+				...extra,
+			});
+
+		it("lists every object across pages for callers that need the whole vault", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(page(["a", "b"], { limit: 200, has_more: true, next_cursor: "c1" }))
+				.mockResolvedValueOnce(page(["c"], { limit: 200, has_more: false, next_cursor: null }));
+			vi.stubGlobal("fetch", fetchMock);
+
+			const objects = await listCaseDevVaultObjects(createContext(cwd), "vault-1");
+
+			expect(objects.map((object) => object.id)).toEqual(["a", "b", "c"]);
+			expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+				`${objectsUrl}?limit=200`,
+				`${objectsUrl}?limit=200&cursor=c1`,
+			]);
+		});
+
+		it("takes a response without pagination as the whole vault, in one request", async () => {
+			// What a Case.dev that predates paging returns: it ignores limit.
+			const fetchMock = vi.fn().mockResolvedValueOnce(page(["a", "b", "c"]));
+			vi.stubGlobal("fetch", fetchMock);
+
+			await expect(listCaseDevVaultObjects(createContext(cwd), "vault-1")).resolves.toHaveLength(3);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		});
+
+		it("stops instead of looping when a cursor does not advance", async () => {
+			const stuck = () => page(["a"], { limit: 200, has_more: true, next_cursor: "same" });
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValueOnce(stuck()).mockResolvedValueOnce(stuck()).mockResolvedValue(stuck()),
+			);
+
+			await expect(listCaseDevVaultObjects(createContext(cwd), "vault-1")).rejects.toThrow(
+				"pagination did not advance",
+			);
+		});
+
+		it("reports an incomplete page with its cursor and the total across pages", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(
+					page(
+						["a", "b"],
+						{ limit: 2, has_more: true, next_cursor: "c1" },
+						{ totals: { objects: 5, totalBytes: 9 } },
+					),
+				);
+			vi.stubGlobal("fetch", fetchMock);
+
+			const result = await listCaseDevVaultObjectsPage(createContext(cwd), "vault-1", {
+				limit: 2,
+				query: "depo",
+				includeTotal: true,
+			});
+
+			expect(result).toMatchObject({ hasMore: true, nextCursor: "c1", total: 5 });
+			expect(result.objects.map((object) => object.id)).toEqual(["a", "b"]);
+			expect(fetchMock.mock.calls[0][0]).toBe(`${objectsUrl}?limit=2&query=depo&include_totals=true`);
+		});
+
+		it("filters by filename itself when Case.dev does not page yet", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValueOnce(
+					jsonResponse({
+						objects: [
+							{ id: "a", filename: "Deposition.pdf" },
+							{ id: "b", filename: "exhibit.pdf" },
+						],
+					}),
+				),
+			);
+
+			const result = await listCaseDevVaultObjectsPage(createContext(cwd), "vault-1", { query: "depo" });
+
+			expect(result).toEqual({
+				objects: [{ id: "a", filename: "Deposition.pdf" }],
+				hasMore: false,
+				nextCursor: null,
+				total: 1,
+			});
 		});
 	});
 
@@ -150,7 +273,7 @@ describe("Case.dev vault REST API helper", () => {
 
 		await listCaseDevVaults(createContext(cwd));
 
-		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault", {
+		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault?limit=200", {
 			method: "GET",
 			headers: {
 				Authorization: "Bearer sk_case_test",
