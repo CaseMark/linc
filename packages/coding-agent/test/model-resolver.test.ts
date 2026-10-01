@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import { getModel, getProviders, type Model } from "@earendil-works/pi-ai";
 import { describe, expect, test } from "vitest";
 import {
 	defaultModelPerProvider,
@@ -487,5 +487,28 @@ describe("default model selection", () => {
 		expect(result.fallbackMessage).toBe(
 			"Could not restore model openrouter/stealth/union-alpha (model no longer exists). Using anthropic/claude-sonnet-4-5.",
 		);
+	});
+});
+
+describe("defaultModelPerProvider", () => {
+	// Providers whose models are registered at runtime, not in the generated catalog.
+	const RUNTIME_PROVIDERS = new Set(["casemark-core", "casedev"]);
+	// Defaults that were already missing from the catalog before CD-1709, with no
+	// obvious successor there. Fix and remove from this list; never add to it.
+	const KNOWN_STALE = new Set(["cerebras", "cloudflare-ai-gateway"]);
+
+	// CI regenerates the catalog from live provider data, so this is the test
+	// that notices when a provider drops its default model. Before CD-1709 the
+	// Fireworks, Together and OpenCode Go defaults pointed at a Kimi K2.6 those
+	// providers no longer served, and nothing failed.
+	test("points every catalogued provider at a model that exists", () => {
+		const catalogued = new Set<string>(getProviders());
+		const missing = Object.entries(defaultModelPerProvider)
+			.filter(([provider]) => !RUNTIME_PROVIDERS.has(provider) && !KNOWN_STALE.has(provider))
+			.filter(([provider]) => catalogued.has(provider))
+			.filter(([provider, id]) => getModel(provider as never, id as never) === undefined)
+			.map(([provider, id]) => `${provider}: ${id}`);
+
+		expect(missing).toEqual([]);
 	});
 });
