@@ -56,10 +56,15 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "high", "xhigh"]);
 	});
 
-	it("includes only high plus off for OpenCode Go Kimi K2.6", () => {
-		const model = getModel("opencode-go", "kimi-k2.6");
-		expect(model).toBeDefined();
-		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "high"]);
+	it("includes only high plus off for an on/off thinking model", () => {
+		// The shape scripts/generate-models.ts gives OpenCode Go's on/off Kimi
+		// thinking. A fixture, because which live model carries it changes with
+		// the catalog (kimi-k2.6 left OpenCode Go in Sep 2026).
+		const model = {
+			...getModel("opencode-go", "kimi-k3")!,
+			thinkingLevelMap: { minimal: null, low: null, medium: null },
+		};
+		expect(getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 	});
 
 	it("includes only high for OpenCode Grok Build", () => {
