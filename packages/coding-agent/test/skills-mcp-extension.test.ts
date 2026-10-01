@@ -118,6 +118,8 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		expect(call({ toolName: "casedev_matter_write" })).toBeUndefined();
 		expect(call({ toolName: "read" })).toBeUndefined();
 		expect(call({ toolName: "casedev_skill_read" })).toBeUndefined();
+		expect(tools.has("casedev_document_create")).toBe(true);
+		expect(call({ toolName: "casedev_document_create" })).toBeUndefined();
 
 		const read = tools.get("casedev_skill_read") as {
 			execute: (...args: unknown[]) => Promise<{ content: Array<{ text: string }> }>;
@@ -149,6 +151,7 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 			"Stop and report the failure",
 		);
 		expect(call({ toolName: "casedev_skill_discover" })).toMatchObject({ block: true });
+		expect(call({ toolName: "casedev_document_create" })).toMatchObject({ block: true });
 		await expect(discover.execute("retry", {}, undefined, undefined, ctx)).rejects.toThrow("failed this turn");
 		expect(methods).toEqual(["skills/list"]);
 		beforeStart({ systemPrompt: "Base" });
@@ -259,7 +262,7 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		expect(getApiKey).not.toHaveBeenCalled();
 	});
 
-	test("allows execution only when host approval matches the exact manifest digest", async () => {
+	test("allows exact host-approved content but blocks execution after its manifest changes", async () => {
 		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 		const skill = {
@@ -268,6 +271,7 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 			resources: [resource(rootUri, root), resource(companionUri, companion)],
 		};
 		vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", getMcpSkillManifestDigest(skill));
+		let currentRoot = root;
 		vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
 			const body = JSON.parse(String(init.body)) as { id?: number; method: string; params: { uri?: string } };
 			if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
@@ -279,7 +283,7 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 						}
 					: body.method === "skills/get"
 						? { resultType: "complete", skill }
-						: { contents: [{ uri: body.params.uri, text: root }] };
+						: { contents: [{ uri: body.params.uri, text: currentRoot }] };
 			return Response.json({ jsonrpc: "2.0", id: body.id, result });
 		});
 		const tools = new Map<string, unknown>();
@@ -299,6 +303,13 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 		expect(loaded.details.executionApproved).toBe(true);
 		const call = handlers.get("tool_call") as (event: { toolName: string }) => { block?: boolean } | undefined;
 		expect(call({ toolName: "bash" })).toBeUndefined();
+		currentRoot = `${root}\nChanged instructions.\n`;
+		skill.resources[0] = resource(rootUri, currentRoot);
+		const changed = await load.execute("changed", { uri: rootUri }, undefined, undefined, {
+			modelRegistry: { authStorage: { getApiKey: async () => "fixture-org-key" } },
+		});
+		expect(changed.details.executionApproved).toBe(false);
+		expect(call({ toolName: "bash" })).toMatchObject({ block: true });
 	});
 
 	test("retains an older unapproved digest when the same skill URI is reloaded", async () => {
