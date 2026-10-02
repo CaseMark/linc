@@ -27,6 +27,33 @@ export interface CaseDevVaultObjectRecord {
 	ingestionStatus?: string;
 }
 
+/** One page of a vault's objects, and whether the listing is complete. */
+export interface CaseDevVaultObjectPage {
+	objects: CaseDevVaultObjectRecord[];
+	/** True when more objects exist beyond this page: the list is incomplete. */
+	hasMore: boolean;
+	nextCursor: string | null;
+	/** Objects matching the filters across every page, when Case.dev reported it. */
+	total?: number;
+}
+
+export interface CaseDevVaultObjectPageParams {
+	/** Objects per page, 1-200. */
+	limit?: number;
+	/** `nextCursor` from the previous page. */
+	cursor?: string;
+	/** Case-insensitive filename substring. */
+	query?: string;
+	/** Ask Case.dev for the total across pages (one extra aggregate). */
+	includeTotal?: boolean;
+}
+
+/** Case.dev's maximum page size for its list endpoints. */
+export const CASEDEV_MAX_PAGE_SIZE = 200;
+
+/** Stops a misbehaving server from paging forever. 1000 x 200 = 200k rows. */
+const MAX_PAGES = 1000;
+
 export interface CaseDevVaultUploadParams {
 	vaultId: string;
 	filePath: string;
@@ -171,12 +198,58 @@ export async function caseDevApiRequest<T = unknown>(
 	return data as T;
 }
 
-export async function listCaseDevVaults(ctx: ExtensionContext): Promise<CaseDevVaultRecord[]> {
-	const data = await caseDevApiRequest(ctx, "GET", "/vault", { signal: ctx.signal });
-	if (!isRecord(data) || !Array.isArray(data.vaults)) {
-		throw new Error("Case.dev returned invalid vault list metadata.");
+interface ListPagination {
+	hasMore: boolean;
+	nextCursor: string | null;
+}
+
+/**
+ * Case.dev list endpoints page with `pagination: { has_more, next_cursor }`.
+ * A response without it comes from a server that does not page, and so holds
+ * the whole list.
+ */
+function readPagination(data: unknown): ListPagination {
+	const pagination = isRecord(data) && isRecord(data.pagination) ? data.pagination : undefined;
+	const nextCursor = typeof pagination?.next_cursor === "string" ? pagination.next_cursor : null;
+	return { hasMore: pagination?.has_more === true && nextCursor !== null, nextCursor };
+}
+
+/**
+ * Fetch every page of a Case.dev list, following cursors to the end. Always
+ * asks for full pages, so a list larger than the server's default page is never
+ * silently cut short once Case.dev bounds its lists by default.
+ */
+async function collectAllPages<T>(
+	fetchPage: (query: URLSearchParams) => Promise<unknown>,
+	readItems: (data: unknown) => T[],
+): Promise<T[]> {
+	const items: T[] = [];
+	const seen = new Set<string>();
+	let cursor: string | null = null;
+	for (let page = 0; page < MAX_PAGES; page += 1) {
+		const query = new URLSearchParams({ limit: String(CASEDEV_MAX_PAGE_SIZE) });
+		if (cursor) query.set("cursor", cursor);
+		const data = await fetchPage(query);
+		items.push(...readItems(data));
+		const { hasMore, nextCursor } = readPagination(data);
+		if (!hasMore) return items;
+		if (seen.has(nextCursor!)) throw new Error("Case.dev pagination did not advance.");
+		seen.add(nextCursor!);
+		cursor = nextCursor;
 	}
-	return data.vaults.map(readVaultRecord).filter((vault): vault is CaseDevVaultRecord => vault !== undefined);
+	throw new Error(`Case.dev list exceeded ${MAX_PAGES} pages.`);
+}
+
+export async function listCaseDevVaults(ctx: ExtensionContext): Promise<CaseDevVaultRecord[]> {
+	return collectAllPages(
+		(query) => caseDevApiRequest(ctx, "GET", `/vault?${query}`, { signal: ctx.signal }),
+		(data) => {
+			if (!isRecord(data) || !Array.isArray(data.vaults)) {
+				throw new Error("Case.dev returned invalid vault list metadata.");
+			}
+			return data.vaults.map(readVaultRecord).filter((vault): vault is CaseDevVaultRecord => vault !== undefined);
+		},
+	);
 }
 
 export async function getCaseDevVault(ctx: ExtensionContext, vaultId: string): Promise<CaseDevVaultRecord> {
@@ -188,14 +261,50 @@ export async function getCaseDevVault(ctx: ExtensionContext, vaultId: string): P
 	return vault;
 }
 
+/** Every object in a vault, across all pages. */
 export async function listCaseDevVaultObjects(
 	ctx: ExtensionContext,
 	vaultId: string,
 ): Promise<CaseDevVaultObjectRecord[]> {
-	const data = await caseDevApiRequest(ctx, "GET", `/vault/${encodeURIComponent(vaultId)}/objects`, {
+	return collectAllPages(
+		(query) =>
+			caseDevApiRequest(ctx, "GET", `/vault/${encodeURIComponent(vaultId)}/objects?${query}`, {
+				signal: ctx.signal,
+			}),
+		collectVaultObjectRecords,
+	);
+}
+
+/**
+ * One page of a vault's objects. For a caller — an agent — that must be told
+ * when it is not seeing the whole vault, rather than handed everything.
+ */
+export async function listCaseDevVaultObjectsPage(
+	ctx: ExtensionContext,
+	vaultId: string,
+	params: CaseDevVaultObjectPageParams = {},
+): Promise<CaseDevVaultObjectPage> {
+	const query = new URLSearchParams({ limit: String(params.limit ?? CASEDEV_MAX_PAGE_SIZE) });
+	if (params.cursor) query.set("cursor", params.cursor);
+	if (params.query) query.set("query", params.query);
+	if (params.includeTotal) query.set("include_totals", "true");
+	const data = await caseDevApiRequest(ctx, "GET", `/vault/${encodeURIComponent(vaultId)}/objects?${query}`, {
 		signal: ctx.signal,
 	});
-	return collectVaultObjectRecords(data);
+	const records = collectVaultObjectRecords(data);
+	if (!isRecord(data) || !isRecord(data.pagination)) {
+		// A Case.dev that predates paging ignored limit, cursor and query and
+		// returned the whole vault, so apply the filename filter here.
+		const needle = params.query?.toLowerCase();
+		const objects = needle
+			? records.filter((object) => (object.filename ?? object.name ?? "").toLowerCase().includes(needle))
+			: records;
+		return { objects, hasMore: false, nextCursor: null, total: objects.length };
+	}
+	const { hasMore, nextCursor } = readPagination(data);
+	const totals = isRecord(data.totals) ? data.totals : undefined;
+	const total = typeof totals?.objects === "number" ? totals.objects : undefined;
+	return { objects: records, hasMore, nextCursor, ...(total === undefined ? {} : { total }) };
 }
 
 export async function searchCaseDevVault(

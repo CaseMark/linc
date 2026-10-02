@@ -4,10 +4,12 @@ import type { ExtensionContext, ToolDefinition } from "../core/extensions/types.
 import { getTextOutput } from "../core/tools/render-utils.ts";
 import type { Theme } from "../modes/interactive/theme/theme.ts";
 import {
+	CASEDEV_MAX_PAGE_SIZE,
 	type CaseDevVaultObjectRecord,
 	downloadCaseDevVaultObject,
 	getCaseDevVault,
 	listCaseDevVaultObjects,
+	listCaseDevVaultObjectsPage,
 	listCaseDevVaults,
 	readCaseDevVaultObjectText,
 	searchCaseDevVault,
@@ -52,6 +54,17 @@ const vaultGetSchema = Type.Object({
 
 const vaultObjectListSchema = Type.Object({
 	vaultId: Type.Optional(Type.String({ description: "Case.dev vault ID. Defaults to the attached vault." })),
+	limit: Type.Optional(
+		Type.Integer({
+			minimum: 1,
+			maximum: CASEDEV_MAX_PAGE_SIZE,
+			description: `Objects per page, 1-${CASEDEV_MAX_PAGE_SIZE}. Defaults to ${CASEDEV_MAX_PAGE_SIZE}.`,
+		}),
+	),
+	cursor: Type.Optional(
+		Type.String({ description: "next_cursor from the previous call, to fetch the next page. Keep query unchanged." }),
+	),
+	query: Type.Optional(Type.String({ description: "Case-insensitive filename substring filter." })),
 });
 
 const vaultSearchSchema = Type.Object({
@@ -215,6 +228,35 @@ function normalizeVaultPath(path: string): string {
 	if (!trimmed || trimmed === "/") return "/";
 	const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 	return withLeadingSlash.replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+}
+
+/**
+ * The payload the model reads for one page. A model handed 200 of 3,000 files
+ * has no other signal that it is not seeing the whole vault, so an incomplete
+ * page says so in plain words, next to the numbers.
+ */
+function describeObjectPage(
+	vaultId: string,
+	page: Awaited<ReturnType<typeof listCaseDevVaultObjectsPage>>,
+	params: VaultObjectListInput,
+) {
+	const count = page.objects.length;
+	const of = page.total === undefined ? "" : ` of ${page.total}`;
+	const filter = params.query ? ` matching "${params.query}"` : "";
+	return {
+		vaultId,
+		objects: page.objects,
+		count,
+		...(page.total === undefined ? {} : { total: page.total }),
+		complete: !page.hasMore,
+		has_more: page.hasMore,
+		next_cursor: page.nextCursor,
+		...(page.hasMore
+			? {
+					note: `INCOMPLETE: showing ${count}${of} objects${filter}. Call casedev_vault_object_list again with cursor="${page.nextCursor}"${params.query ? " and the same query" : ""} for the next page, pass query to filter by filename, or use casedev_vault_search to find content.`,
+				}
+			: {}),
+	};
 }
 
 function objectMatchesPath(object: CaseDevVaultObjectRecord, requestedPath: string): boolean {
@@ -469,17 +511,18 @@ export function createCaseDevVaultTools(): ToolDefinition[] {
 		{
 			name: "casedev_vault_object_list",
 			label: "case.dev vault objects",
-			description: "List objects in a Case.dev vault.",
-			promptSnippet: "List objects in a Case.dev vault.",
+			description: `List objects in a Case.dev vault, oldest first, up to ${CASEDEV_MAX_PAGE_SIZE} per call. If has_more is true the list is INCOMPLETE: fetch the next page with cursor, narrow it with query, or use casedev_vault_search before concluding anything about the whole vault.`,
+			promptSnippet: "List objects in a Case.dev vault (paged; check has_more).",
 			parameters: vaultObjectListSchema,
 			async execute(_toolCallId, params: VaultObjectListInput, signal, _onUpdate, ctx) {
 				const vaultId = resolveVaultId(ctx, params.vaultId);
-				const objects = await listCaseDevVaultObjects({ ...ctx, signal }, vaultId);
-				return jsonResult(["GET", `/vault/${vaultId}/objects`], {
-					vaultId,
-					objects,
-					count: objects.length,
+				const page = await listCaseDevVaultObjectsPage({ ...ctx, signal }, vaultId, {
+					limit: params.limit,
+					cursor: params.cursor,
+					query: params.query,
+					includeTotal: true,
 				});
+				return jsonResult(["GET", `/vault/${vaultId}/objects`], describeObjectPage(vaultId, page, params));
 			},
 			renderCall: (args, theme) => renderCall("case.dev vault objects", args, theme),
 			renderResult,
