@@ -5,6 +5,21 @@ import type { ImagesApi, ImagesModel } from "./types.ts";
 
 export const IMAGE_MODELS = {
 	openrouter: {
+		"black-forest-labs/flux-3-image": {
+			id: "black-forest-labs/flux-3-image",
+			name: "Black Forest Labs: FLUX.3 Image",
+			api: "openrouter-images",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			input: ["text", "image"],
+			output: ["image"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+		} satisfies ImagesModel<"openrouter-images">,
 		"black-forest-labs/flux.2-flex": {
 			id: "black-forest-labs/flux.2-flex",
 			name: "Black Forest Labs: FLUX.2 Flex",
@@ -72,6 +87,21 @@ export const IMAGE_MODELS = {
 			provider: "openrouter",
 			baseUrl: "https://openrouter.ai/api/v1",
 			input: ["image", "text"],
+			output: ["image"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+		} satisfies ImagesModel<"openrouter-images">,
+		"bytedance-seed/seedream-5-0-flash": {
+			id: "bytedance-seed/seedream-5-0-flash",
+			name: "ByteDance Seed: Seedream 5.0 Flash",
+			api: "openrouter-images",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			input: ["text", "image"],
 			output: ["image"],
 			cost: {
 				input: 0,
