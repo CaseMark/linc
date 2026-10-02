@@ -148,6 +148,22 @@ Public feed captures and exported-object comparisons are retained under
 
 ## Release and rollout gates
 
+Final local candidate artifacts were repacked/reinstalled after adding the
+next Unreleased heading. Their installed audit remains zero; installed
+document/policy/version assertions and real Node/Bun replies were rerun.
+
+- Tarball: `/tmp/linc-cd1716-final-artifacts.IC4Uuk/casemark-linc-0.79.24.tgz`;
+  SHA-256 `5799bf97f7837fce29f0785087325841faaf6ce2269f252a707ea9769d4295f3`.
+- macOS ARM64 archive: `/tmp/linc-cd1716-final-artifacts.IC4Uuk/binary/pi-darwin-arm64.tar.gz`;
+  SHA-256 `ca4bc6666694fc43f83ed66e5770b70b68720be90bba5bbc976346019db1c30f`.
+- Installed evidence: `/tmp/linc-cd1716-final-artifacts.IC4Uuk/installed-proof.json`
+  and `audit-installed.json`; full-suite log `/tmp/linc-cd1716-final-tests.log`.
+
+The release PR remains draft until the intended deployment-provider smoke
+or explicit human risk acceptance. Available OpenAI CLI credentials do not
+certify Case.dev's gateway; no credential access is inferred from old task
+history. Rebuild if packaged code/catalogs/notes change after this candidate.
+
 Human review and a merge commit are required before the human publishing-tag
 push. No local npm publish, tag push, image bake, runtime pointer, secret,
 production flag, or deprecated C3 change is authorized by this candidate.
