@@ -122,6 +122,33 @@ describe.skipIf(!built)("release bundle: pi workspace packages ride inside the l
 	);
 
 	it(
+		"CD-1717 bundles only the reviewed protobufjs and ws security versions",
+		() => {
+			const after = bundleAndPack();
+			const rootPackage = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+				overrides: Record<string, unknown>;
+			};
+			for (const [name, version] of Object.entries({ protobufjs: "7.6.5", ws: "8.21.0" })) {
+				expect(rootPackage.overrides[name]).toBe(version);
+				const paths = Object.keys(shrinkwrap.packages).filter(
+					(path) => path === `node_modules/${name}` || path.endsWith(`/node_modules/${name}`),
+				);
+				expect(paths.length).toBeGreaterThan(0);
+				for (const path of paths) {
+					expect(shrinkwrap.packages[path].version).toBe(version);
+					expect(shrinkwrap.packages[path].inBundle).toBe(true);
+					expect(after.has(`${path}/package.json`)).toBe(true);
+					const copied = JSON.parse(readFileSync(join(codingAgentDir, path, "package.json"), "utf8")) as {
+						version: string;
+					};
+					expect(copied.version).toBe(version);
+				}
+			}
+		},
+		TEST_TIMEOUT_MS,
+	);
+
+	it(
 		"--clean removes every copy it made",
 		() => {
 			bundleAndPack();
