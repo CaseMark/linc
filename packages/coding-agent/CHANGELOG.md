@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.25] - 2026-10-02
+
+### Fixed
+
+- Vault and matter inventory helpers now follow Case.dev pagination cursors instead of treating the first page as the complete vault. The model-facing object-list tool supports page size, cursors, filename filtering, and totals, and explicitly marks partial listings as `INCOMPLETE` (CD-1374, [#82](https://github.com/CaseMark/linc/pull/82)).
+
+### Changed
+
+- Refreshed generated chat catalogs from live provider feeds: five entries added, nine retained entries updated, and no entries removed relative to 0.79.24. The image catalog is unchanged. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.25.md) for the source-backed snapshot (CD-1732).
 
 ## [0.79.24] - 2026-10-02
 
