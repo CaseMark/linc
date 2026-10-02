@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Round emitted model and image catalog prices to eight decimal places in USD per million tokens, removing binary-float noise from source-price conversion. OpenRouter's repeating-decimal Gemini cache-write price serializes as `0.04166667` (CD-1623, [#80](https://github.com/CaseMark/linc/pull/80)).
+
 ### Fixed
 
+- Updated catalog-backed Kimi regression fixtures after Fireworks, Together, and OpenCode Go removed their K2.6 entries, so live catalog regeneration no longer breaks test typechecking. Thinking-object tests still cover OpenCode Zen's K2.6 compatibility path; on/off thinking uses an explicit fixture (CD-1709, [#83](https://github.com/CaseMark/linc/pull/83)).
 - OpenAI-completions `onResponse` now fires for HTTP error statuses (429/5xx/529). The OpenAI client rejects those responses, so the success-path hook never saw them.
 
 ## [0.79.11] - 2026-08-06

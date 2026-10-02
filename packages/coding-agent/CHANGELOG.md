@@ -1,15 +1,25 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.24] - 2026-10-02
+
+### Added
+
+- Added `casedev_document_create` to the opt-in MCP skills extension. It creates a new text-based `.docx` from paragraphs, headings, and tables through bounded native code, without shell execution, templates, or automatic remote-skill approval. Deliver files through the existing authorized `vault_upload` tool. The pilot remains off by default; live ESQ-C3 delivery and persistent-workspace certification remain rollout requirements. See [Trusted Word documents](docs/trusted-document-tool.md) (CD-1703, [#84](https://github.com/CaseMark/linc/pull/84)).
 
 ### Changed
 
 - Generated catalog prices are now rounded to eight decimal places in USD per million tokens, so `models.generated.ts` and `image-models.generated.ts` no longer carry binary-float artifacts such as `0.21559999999999999` or `3.9600000000000004`. Billed values are unchanged and consecutive generator runs are byte-identical (CD-1623).
-- Refreshed the generated provider catalog from its live models.dev, OpenRouter, and Vercel AI Gateway sources. This adds 47 entries, including Claude Opus 5.5, GPT-6 Luna and Sol, MiMo v2.6, and OpenRouter batch variants, and reprices 19 OpenRouter and gateway entries. See the pull request for the reviewed per-entry list with source-feed evidence.
+- Refreshed the generated provider catalogs. Compared with 0.79.23, the release snapshot adds 116 chat model entries and five image model entries, removes 37 chat entries, and changes metadata for 309 retained chat entries (including price-rounding-only changes). These are snapshot counts, not a guarantee of live availability. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.24.md) for the final source-backed delta (CD-1623, CD-1709, [#80](https://github.com/CaseMark/linc/pull/80), [#83](https://github.com/CaseMark/linc/pull/83)).
+- After npm publication, the release workflow updates Case.dev's preview Linc version-discovery key by default. Production, both channels, or skipping the update require an explicit workflow-dispatch choice. This version-discovery update does not bake or promote Daytona snapshots (CD-1243, [#19](https://github.com/CaseMark/linc/pull/19)).
+
+### Fixed
+
+- Patched bundled `protobufjs` to 7.6.5 and `ws` to 8.21.0, addressing the installed runtime's high-severity dependency findings. Added bundle-version assertions and isolated packaging tests from concurrent CLI tests (CD-1717, [#86](https://github.com/CaseMark/linc/pull/86)).
+- Fireworks, Together, and OpenCode Go default model selection now uses their catalogued Kimi K3 IDs instead of removed K2.6 IDs. Added a regression check that catalogued provider defaults exist, with explicit exceptions for runtime-populated providers and the pre-existing stale Cerebras/Cloudflare AI Gateway defaults. This does not migrate explicit saved K2.6 selections; use `linc --list-models` to choose an available model (CD-1709, [#83](https://github.com/CaseMark/linc/pull/83)).
 
 ### Removed
 
-- Removed seven provider catalog entries absent from their current source feeds: `opencode/mimo-v2.5-free`, `openrouter/kwaipilot/kat-coder-pro-v2`, `openrouter/deepseek/deepseek-v4-flash-0731:batch`, `openrouter/deepseek/deepseek-v4-flash-vision-exp:batch`, `openrouter/deepseek/deepseek-v4-pro-0813:batch`, `openrouter/meta/muse-glimmer-30b:batch`, and `openrouter/z-ai/glm-5.2:batch`. Existing selections of these exact IDs must switch to a listed model. The non-batch OpenRouter variants remain available, and `linc --list-models` shows current alternatives.
+- Removed 37 chat provider catalog entries relative to 0.79.23, including the Fireworks, Together, and OpenCode Go K2.6 IDs and previously documented batch/free entries. Existing selections of these exact IDs must switch to a listed model; see the [complete removed-ID list](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.24.md#catalog-removals) and run `linc --list-models` for alternatives. No image catalog entries were removed in the release snapshot.
 - Removed the release-specific Union Alpha migration shim added in 0.79.21. `opencode/union-alpha`, `opencode-go/union-alpha`, and `openrouter/stealth/union-alpha` now follow the generic unknown-model paths: `--model` with an explicit provider resolves to a custom model id with a warning, a restored session that still names one of these IDs falls back to an available model with the standard "could not restore" message, and a saved default that names one falls back to an available model without a named replacement. Run `linc --list-models` to pick a current model (CD-1624).
 
 ## [0.79.23] - 2026-09-21
