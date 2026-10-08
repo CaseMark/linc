@@ -46,20 +46,72 @@ released Linc sections are unchanged.
   version/help/model-list checks and read-only authentication selection pass
   outside the repository using isolated configuration directories.
   Other platforms and CI's Bun version still require release CI.
-- **Release blocker:** authenticated print-mode requests using the existing
-  Vercel preview `CASEMARK_API_KEY` fail with HTTP 401 on both Node and Bun.
-  A direct synthetic streaming request to the preview LLM endpoint also returns
-  HTTP 401 (`LLM_ERROR`); catalog enumeration returns 200, which alone does not
-  certify inference authentication. The endpoint's authentication/provider
-  failure has not been attributed to a specific credential or root cause.
-  Real interactive model completion is therefore not certified. The release
-  stays draft unless these smokes pass or Theodore explicitly accepts the risk.
-  No key rotation or production credential is used.
+- The original **HTTP 401 is attributed to the smoke harness**, which mistakenly
+  used preview `CASEMARK_API_KEY` as a Case.dev client credential. Its value does
+  not have the Case.dev API-key format. The corrected harness reads the existing
+  preview `CASE_API_KEY` in memory, sends it only to `preview.api.case.dev`, and
+  uses isolated auth/config directories and a minimal environment. No key is
+  rotated, written into artifacts, or printed; no production credential is used.
+- **Original canary-model live smokes pass:** PanelWorks' staging source default
+  is `openai/gpt-6-luna`, but the current effective staging `C3_MODEL_ID` override
+  is `anthropic/claude-haiku-5.5`. Both the installed Node tarball and Bun binary
+  complete print and controlled-PTY interactive requests through provider
+  `casedev` with GPT-6 Luna. Additional Node/Bun print and interactive checks
+  against the effective Haiku 5.5 staging override also pass. Each returns its
+  expected synthetic marker without model fallback and exits 0.
+  Startup/account-listing alone is not counted.
+- The actual packed `casedev_document_create` schema is also accepted by that
+  preview provider: HTTP 200, expected synthetic reply, `finish_reason: stop`,
+  zero tool calls. `tool_choice: none` prohibits execution; no matter content or
+  remote scripts are involved. This certifies the shipped schema, not merely
+  workspace source.
+- **Known bare-CLI default failure remains:** the Linc resolver's unconfigured
+  Case.dev default is still `casemark/core-large`, not the product's model.
+  A direct synthetic request returns HTTP 502 / `UPSTREAM_PROVIDER_UNAVAILABLE`;
+  scoped preview logs prove Baseten HTTP **410 Gone** for its retired
+  `moonshotai/Kimi-K2.7-Code` route. This pre-existing incident is tracked in
+  [CD-1686](https://linear.app/casemarkai/issue/CD-1686), with new evidence added.
+  Subsequent successful Core Potassium replies after Linc changed the isolated
+  saved default are **not** counted as clean Core Large certification. No default
+  model, provider route or pricing is changed to conceal this failure.
 - Initial print checks accidentally inherited offline mode and unrelated
   provider configuration; their successful markers are excluded from release
-  acceptance. The corrected checks allow only preview Case.dev authentication,
-  isolate config, and do not force a provider/model. Case.dev automatically
-  selects `casemark-core` / `casemark/core-large` in this captured preview catalog.
+  acceptance. The corrected checks allow only preview Case.dev authentication
+  and isolate config. Unconfigured settings automatically selected
+  `casemark-core` / `casemark/core-large`; the product-model checks explicitly
+  configure the product policy in isolated settings, with no CLI overrides.
+  Product certification instead uses the explicitly configured product models
+  above; it does not claim that the standalone CLI default is repaired.
+
+### Live evidence — 2026-10-08
+
+| Shipped runtime / check | Configured provider / model | Result |
+| --- | --- | --- |
+| Installed Node print | `casedev` / `openai/gpt-6-luna` | `CD1763_NODE_RELEASE_OK`, exit 0 |
+| Bun macOS ARM64 print | `casedev` / `openai/gpt-6-luna` | `CD1763_BUN_RELEASE_OK`, exit 0 |
+| Installed Node interactive PTY | `casedev` / `openai/gpt-6-luna` | Actual `CD1763_NODE_INTERACTIVE_OK` assistant reply, `/quit`, exit 0 |
+| Bun macOS ARM64 interactive PTY | `casedev` / `openai/gpt-6-luna` | Actual `CD1763_BUN_INTERACTIVE_OK` assistant reply, `/quit`, exit 0 |
+| Installed Node print, staging override | `casedev` / `anthropic/claude-haiku-5.5` | `CD1763_NODE_RELEASE_OK`, exit 0 |
+| Bun macOS ARM64 print, staging override | `casedev` / `anthropic/claude-haiku-5.5` | `CD1763_BUN_RELEASE_OK`, exit 0 |
+| Installed Node interactive PTY, staging override | `casedev` / `anthropic/claude-haiku-5.5` | Actual `CD1763_NODE_STAGING_INTERACTIVE_OK` assistant reply, `/quit`, exit 0 |
+| Bun macOS ARM64 interactive PTY, staging override | `casedev` / `anthropic/claude-haiku-5.5` | Actual `CD1763_BUN_STAGING_INTERACTIVE_OK` assistant reply, `/quit`, exit 0 |
+| Packed document schema, preview API | `openai/gpt-6-luna` | HTTP 200, `CD1763_SCHEMA_OK`, stop, no tool calls |
+
+API preview deployment: `dpl_6GH7feAGj9haiMPvp6ENpEK2aHkC`, commit
+`89db57c89d3e76f6a32cdf9de0a1586eb67d519c`. Core Large diagnostic request:
+`iad1::9dtwx-1791483265448-3665e88f2638`. Only synthetic instructions were sent.
+Corrected local harness: `/tmp/cd1763-release-preview-auth.mjs`; product settings
+are under `node-product-config`, `bun-product-config`, `node-staging-config` and
+`bun-staging-config` in the artifact directory. These contain model selection/
+telemetry settings, not credentials. Staging policy source blob:
+`337c389f9d64425caba41f38e3ae665add037dc9`; read-only configuration probe:
+`/tmp/cd1763-product-default.mjs`. No staged/customer chat was modified.
+
+Full `npm run check` passes again after this documentation follow-up, with no
+formatter fixes. The two archive hashes below are reverified unchanged; no
+runtime code or packaged artifact changed in this follow-up. Production flags
+are reverified off: API `MCP_SKILLS_ENABLED=0`, API rollout unset, PanelWorks
+pilot and rollout unset. This is **not** full product MCP cutover acceptance.
 
 ## Catalog review
 
@@ -72,8 +124,15 @@ captured source feeds under the existing generator's normalization and source
 selection. Changed models.dev input modalities and reasoning flags also match
 the feed. OpenCode Go Qwen3.7 Plus and Qwen3.8 Max switch from OpenAI-compatible
 completions to Anthropic Messages because their captured upstream SDK metadata
-now declares `@ai-sdk/anthropic`; this is source metadata, not a live turn
-certification for those providers. Three Mistral aliases now advertise image
+now declares `@ai-sdk/anthropic`. The [official OpenCode Go endpoint table](https://docs.opencode.ai/docs/go/#endpoints)
+independently confirms both use `https://opencode.ai/zen/go/v1/messages` and that
+SDK. The Anthropic SDK adds `/v1/messages` to the generated base URL, so dropping
+`/v1` from `baseUrl` avoids duplicating the path. This supports the mapping but is
+**not authenticated live-turn certification**. No existing Go credential is
+available locally; live replies or explicit release-owner risk acceptance remain
+required for this routing change. Do not mislabel a mocked route test as live
+certification or silently revert to a mapping contradicted by provider docs.
+Three Mistral aliases now advertise image
 input. Anthropic Sonnet 4.5 context changes from 1M to 200k. Several other context
 and output limits change; see the retained-entry table.
 
@@ -132,8 +191,17 @@ billing changes. Case.dev model discovery continues to use its live catalog.
 ### Catalog removals
 
 All 11 removed entries are absent from the respective captured tool-capable
-feed. Existing saved selections of these exact IDs require a currently listed
-alternative. No named replacement or migration shim is introduced.
+feed. None is a current `defaultModelPerProvider` selection. Installed-bundle
+verification exercises all 11 missing IDs: saved defaults select an available
+model (currently without a warning), while restored sessions return a visible
+"Could not restore model ... model no longer exists ... Using ..." fallback
+message. The existing 35-test model-resolver suite passes, including saved-default
+and session fallback regressions. An explicit `--provider` / `--model` selection
+may be retained as a custom ID with a warning and can still fail at the provider;
+that case requires choosing a currently served model. No named replacement or
+migration shim is introduced. Local exhaustive check:
+`/tmp/cd1763-retired-model-smoke.mjs` (11 default fallbacks, 11 session messages,
+zero provider calls).
 
 - `opencode/fledge-alpha-free`
 - `opencode-go/space-bunny-free`
@@ -238,6 +306,12 @@ local artifacts, not durable published or CI artifacts.
 
 Human review, a merge commit and a human publishing-tag push are required.
 The agent does not merge, enqueue, publish npm, or push a release tag.
+
+**Draft gates:** product-default live smokes above are green, but the standalone
+CLI Core Large failure and uncertified OpenCode Go route changes are not waived.
+Keep this release draft until those outstanding failures are resolved or the
+release owner explicitly accepts their bounded risks. No such acceptance is
+inferred from a general request to make the PR mergeable.
 
 After npm/binary publication: reviewed Case.dev preview version-pin update,
 candidate snapshot validation, then exact internal-org MCP acceptance covering
