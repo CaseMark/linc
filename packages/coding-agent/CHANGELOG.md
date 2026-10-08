@@ -1,6 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.26] - 2026-10-08
+
+### Changed
+
+- Refreshed generated provider catalogs from live feeds: 38 chat entries added, 63 retained entries updated, and two image entries added relative to 0.79.25. Changes include model limits, price metadata, Mistral image input, and upstream-advertised OpenCode Go API mappings. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.26.md) for source-backed details (CD-1763).
+
+### Fixed
+
+- Fixed the opt-in MCP document tool's filename schema being rejected by provider validators that do not support regex lookaround. The advertised schema now uses a portable pattern while execution still rejects trailing line terminators and unsafe filenames before writing a document (CD-1763, [#89](https://github.com/CaseMark/linc/pull/89)).
+
+### Removed
+
+- Removed 11 chat catalog entries absent from the captured tool-capable source feeds, including retired free/stealth IDs. Existing selections of those exact IDs must switch to a currently listed model; see the [removed-ID list](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.26.md#catalog-removals). No image entries were removed (CD-1763).
 
 ## [0.79.25] - 2026-10-02
 

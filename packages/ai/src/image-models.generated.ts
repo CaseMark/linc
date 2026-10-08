@@ -230,6 +230,21 @@ export const IMAGE_MODELS = {
 				cacheWrite: 0,
 			},
 		} satisfies ImagesModel<"openrouter-images">,
+		"google/gemini-nano-banana-2.1": {
+			id: "google/gemini-nano-banana-2.1",
+			name: "Google: Nano Banana 2.1",
+			api: "openrouter-images",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			input: ["image", "text"],
+			output: ["image", "text"],
+			cost: {
+				input: 1.5,
+				output: 7.5,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+		} satisfies ImagesModel<"openrouter-images">,
 		"inclusionai/ming-image-0.1-design": {
 			id: "inclusionai/ming-image-0.1-design",
 			name: "inclusionAI: Ming Image 0.1 Design",
@@ -848,6 +863,21 @@ export const IMAGE_MODELS = {
 		"sourceful/riverflow-v2.5-pro": {
 			id: "sourceful/riverflow-v2.5-pro",
 			name: "Sourceful: Riverflow V2.5 Pro",
+			api: "openrouter-images",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			input: ["text", "image"],
+			output: ["image"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+		} satisfies ImagesModel<"openrouter-images">,
+		"tencent/hy-image-v3.5-preview": {
+			id: "tencent/hy-image-v3.5-preview",
+			name: "Tencent: Hy Image 3.5 Preview",
 			api: "openrouter-images",
 			provider: "openrouter",
 			baseUrl: "https://openrouter.ai/api/v1",

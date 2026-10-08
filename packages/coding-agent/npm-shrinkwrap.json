@@ -1,12 +1,12 @@
 {
 	"name": "@casemark/linc",
-	"version": "0.79.25",
+	"version": "0.79.26",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
 			"name": "@casemark/linc",
-			"version": "0.79.25",
+			"version": "0.79.26",
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.91.1",
