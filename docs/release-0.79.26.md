@@ -25,8 +25,8 @@ changes only the unconfigured standalone defaults for `casedev` and
 `casemark-core` to the existing first fallback, `casemark/core-potassium`.
 Explicit CLI selections, saved defaults, existing sessions and product model
 overrides are preserved. Eight added regressions cover both providers. The new
-Fixed entry is under Unreleased pending final release-note preparation; this
-candidate remains unpublished. The Core Large backend incident is not repaired
+Fixed entry is now included in the unpublished 0.79.26 release section;
+Unreleased is empty again. The Core Large backend incident is not repaired
 or renamed by this client-default change and remains open in CD-1686.
 
 ## Verification
@@ -162,10 +162,13 @@ now declares `@ai-sdk/anthropic`. The [official OpenCode Go endpoint table](http
 independently confirms both use `https://opencode.ai/zen/go/v1/messages` and that
 SDK. The Anthropic SDK adds `/v1/messages` to the generated base URL, so dropping
 `/v1` from `baseUrl` avoids duplicating the path. This supports the mapping but is
-**not authenticated live-turn certification**. No existing Go credential is
-available locally; live replies or explicit release-owner risk acceptance remain
-required for this routing change. Do not mislabel a mocked route test as live
-certification or silently revert to a mapping contradicted by provider docs.
+**not authenticated live-turn certification**. On 2026-10-08, Dante explicitly
+instructed: "You don't need to test quen." The live-test gate is waived for
+exactly `opencode-go/qwen3.7-plus` and `opencode-go/qwen3.8-max` in this release.
+Their unverified authenticated request/response behavior remains a documented
+bounded risk, not a passed test. No Go credential or new subscription is needed.
+Other release validation, runtime execution approval, and production rollout
+gates are unchanged. No mocked test is represented as live certification.
 Three Mistral aliases now advertise image
 input. Anthropic Sonnet 4.5 context changes from 1M to 200k. Several other context
 and output limits change; see the retained-entry table.
@@ -331,23 +334,31 @@ prices match that feed.
 ## Publication and rollout gates
 
 Candidate tarball SHA-256:
-`35d894c314f84af1a3678ea2ae7f608237e93b6ef771ef6f253713b4f27ac875`.
+`080f4a8548073f637b348ef759858cc3dda1ec0238d5b66e4d5f3acb1c9befd3`.
 macOS ARM64 archive SHA-256:
-`ad6649b19c606eab3dce77bba6071587b4d24039e58f604eed77ac7ec67b0f79`.
-New local artifacts are under `/tmp/linc-cd1763-default-artifacts.THIEy0`.
+`e74e4d062deb0b5fad8b946468b9063a44a3eace7699dfa31499886927e988cf`.
+Final local artifacts are under `/tmp/linc-cd1763-final-artifacts.GLs9HD`.
 Captured catalog sources and original evidence remain under
 `/tmp/linc-cd1763-release-artifacts.uGCLKg`. These are temporary local artifacts,
 not durable published or CI artifacts.
 
+The final release-note repack was installed into a new empty directory. Compared
+with the live-certified default-fix candidate, all 15,335 installed files and all
+929 extracted binary-archive files were checked: only `CHANGELOG.md` differs.
+Runtime JS, dependencies, resources and the compiled Bun executable are
+byte-identical, so the live results above apply to the final runtime payload.
+Final Node/Bun version and help checks pass; unauthenticated model listing
+correctly reports no available models. This metadata-only repack did not perform
+new authenticated provider tests, including the two waived Qwen tests.
+
 Human review, a merge commit and a human publishing-tag push are required.
 The agent does not merge, enqueue, publish npm, or push a release tag.
 
-**Draft gate:** standalone-default and product live smokes above are green.
-OpenCode Go route changes still require authenticated live replies for both
-Qwen models. There is no existing Go credential in the local Linc/OpenCode auth
-stores; its 1Password item location has been requested. No risk waiver, new
-subscription or token creation is authorized or inferred. Keep this release
-draft until certification is complete and final release notes are prepared.
+**Release review:** standalone-default and product live smokes above are green.
+The only waived live tests are the two OpenCode Go Qwen routes specified above,
+at Dante's explicit instruction. Final release-note preparation is complete.
+This candidate can proceed to human review once checks pass; this is not an
+approval, merge, publication or product-cutover claim.
 
 After npm/binary publication: reviewed Case.dev preview version-pin update,
 candidate snapshot validation, then exact internal-org MCP acceptance covering

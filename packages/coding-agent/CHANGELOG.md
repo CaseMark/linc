@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- Unconfigured standalone `casedev` and `casemark-core` sessions now select Core Potassium instead of Core Large's retired backend. Explicit selections, saved defaults, existing sessions, and product model overrides are unchanged; Core Large backend restoration remains tracked separately in CD-1686 (CD-1763).
-
 ## [0.79.26] - 2026-10-08
 
 ### Changed
@@ -15,6 +11,7 @@
 ### Fixed
 
 - Fixed the opt-in MCP document tool's filename schema being rejected by provider validators that do not support regex lookaround. The advertised schema now uses a portable pattern while execution still rejects trailing line terminators and unsafe filenames before writing a document (CD-1763, [#89](https://github.com/CaseMark/linc/pull/89)).
+- Unconfigured standalone `casedev` and `casemark-core` sessions now select Core Potassium instead of Core Large's retired backend. Explicit selections, saved defaults, existing sessions, and product model overrides are unchanged; Core Large backend restoration remains tracked separately in CD-1686 (CD-1763).
 
 ### Removed
 
