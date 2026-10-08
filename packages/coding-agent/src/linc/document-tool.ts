@@ -11,7 +11,8 @@ const documentSchema = Type.Object(
 	{
 		filename: Type.String({
 			description: "New .docx filename in the workspace root, not a path. Existing files are never overwritten.",
-			pattern: "^[A-Za-z0-9][A-Za-z0-9 _().-]{0,119}\\.docx$(?![\\s\\S])",
+			// Provider schema validators reject regex lookaround (CD-1763).
+			pattern: "^[A-Za-z0-9][A-Za-z0-9 _().-]{0,119}\\.docx$",
 		}),
 		blocks: Type.Array(
 			Type.Union([
@@ -178,7 +179,11 @@ export function createDocumentTool(): ToolDefinition<typeof documentSchema, Docu
 		parameters: documentSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			if (!Value.Check(documentSchema, params)) throw new Error("Invalid structured document input");
+			// JavaScript's $ can match before a final line terminator. Keep that
+			// stricter runtime boundary without advertising unsupported lookaround.
+			if (!Value.Check(documentSchema, params) || !params.filename.endsWith(".docx")) {
+				throw new Error("Invalid structured document input");
+			}
 			signal?.throwIfAborted();
 			const bytes = packDocument(documentXml(params));
 			const filePath = join(await realpath(ctx.cwd), params.filename);

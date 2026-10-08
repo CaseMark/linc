@@ -99,6 +99,10 @@ describe("native data-only Word document tool", () => {
 		"folder\\file.docx",
 		".hidden.docx",
 		"x.docx\n",
+		"x.docx\r",
+		"x.docx\r\n",
+		"x.docx\u2028",
+		"x.docx\u2029",
 		"file.py",
 		"x.docx\u0000",
 	])("rejects unsafe filenames: %j", async (filename) => {
