@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Unconfigured standalone `casedev` and `casemark-core` sessions now select Core Potassium instead of Core Large's retired backend. Explicit selections, saved defaults, existing sessions, and product model overrides are unchanged; Core Large backend restoration remains tracked separately in CD-1686 (CD-1763).
+
 ## [0.79.26] - 2026-10-08
 
 ### Changed

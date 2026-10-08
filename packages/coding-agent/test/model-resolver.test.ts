@@ -391,6 +391,53 @@ describe("resolveCliModel", () => {
 });
 
 describe("default model selection", () => {
+	describe.each(["casemark-core", "casedev"])("%s standalone default", (provider) => {
+		const large = { ...mockModels[0], provider, id: "casemark/core-large" };
+		const potassium = { ...large, id: "casemark/core-potassium" };
+		const available = [large, potassium];
+		const registry = {
+			getAll: () => available,
+			getAvailable: async () => available,
+			find: (selectedProvider: string, id: string) =>
+				available.find((model) => model.provider === selectedProvider && model.id === id),
+			hasConfiguredAuth: () => true,
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		test("selects Core Potassium without a saved or explicit model", async () => {
+			expect(defaultModelPerProvider[provider]).toBe(potassium.id);
+			const result = await findInitialModel({ scopedModels: [], isContinuing: false, modelRegistry: registry });
+			expect(result.model).toBe(potassium);
+		});
+
+		test("preserves an explicit Core Large selection", async () => {
+			const result = await findInitialModel({
+				cliProvider: provider,
+				cliModel: large.id,
+				scopedModels: [],
+				isContinuing: false,
+				modelRegistry: registry,
+			});
+			expect(result.model).toBe(large);
+		});
+
+		test("preserves a saved Core Large default", async () => {
+			const result = await findInitialModel({
+				defaultProvider: provider,
+				defaultModelId: large.id,
+				scopedModels: [],
+				isContinuing: false,
+				modelRegistry: registry,
+			});
+			expect(result.model).toBe(large);
+		});
+
+		test("preserves an existing Core Large session", async () => {
+			const result = await restoreModelFromSession(provider, large.id, potassium, false, registry);
+			expect(result.model).toBe(large);
+			expect(result.fallbackMessage).toBeUndefined();
+		});
+	});
+
 	test("openai defaults track current models", () => {
 		expect(defaultModelPerProvider.openai).toBe("gpt-5.4");
 		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.5");

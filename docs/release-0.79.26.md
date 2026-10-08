@@ -9,7 +9,7 @@ release candidate, not live PanelWorks acceptance or production activation.
 ## Changelog audit — 2026-10-08
 
 Dante authorized the repository's `/cl` audit to be performed by the agent.
-The only implementation change since 0.79.25 is [#89](https://github.com/CaseMark/linc/pull/89):
+The original implementation change since 0.79.25 is [#89](https://github.com/CaseMark/linc/pull/89):
 the opt-in native document tool advertises a portable filename regex instead of
 unsupported lookaround, while its runtime validation still rejects trailing
 line terminators and unsafe filenames before any write. Added unit cases and a
@@ -19,6 +19,15 @@ The audit found one missing coding-agent Fixed entry, now included. No new
 feature or cross-package duplication is required. Release housekeeping is
 excluded; existing ai/agent/tui Unreleased entries are unchanged. Previously
 released Linc sections are unchanged.
+
+Dante subsequently authorized fixing the remaining release gates. This follow-up
+changes only the unconfigured standalone defaults for `casedev` and
+`casemark-core` to the existing first fallback, `casemark/core-potassium`.
+Explicit CLI selections, saved defaults, existing sessions and product model
+overrides are preserved. Eight added regressions cover both providers. The new
+Fixed entry is under Unreleased pending final release-note preparation; this
+candidate remains unpublished. The Core Large backend incident is not repaired
+or renamed by this client-default change and remains open in CD-1686.
 
 ## Verification
 
@@ -65,23 +74,24 @@ released Linc sections are unchanged.
   zero tool calls. `tool_choice: none` prohibits execution; no matter content or
   remote scripts are involved. This certifies the shipped schema, not merely
   workspace source.
-- **Known bare-CLI default failure remains:** the Linc resolver's unconfigured
-  Case.dev default is still `casemark/core-large`, not the product's model.
+- **Original bare-CLI default failure was diagnosed:** the previous unconfigured
+  Case.dev default was `casemark/core-large`, not the product's model.
   A direct synthetic request returns HTTP 502 / `UPSTREAM_PROVIDER_UNAVAILABLE`;
   scoped preview logs prove Baseten HTTP **410 Gone** for its retired
   `moonshotai/Kimi-K2.7-Code` route. This pre-existing incident is tracked in
   [CD-1686](https://linear.app/casemarkai/issue/CD-1686), with new evidence added.
   Subsequent successful Core Potassium replies after Linc changed the isolated
-  saved default are **not** counted as clean Core Large certification. No default
-  model, provider route or pricing is changed to conceal this failure.
+  saved default are **not** counted as clean Core Large certification. The
+  authorized standalone-default fix below does not change that backend route,
+  product configuration or pricing, and does not certify Core Large.
 - Initial print checks accidentally inherited offline mode and unrelated
   provider configuration; their successful markers are excluded from release
   acceptance. The corrected checks allow only preview Case.dev authentication
   and isolate config. Unconfigured settings automatically selected
   `casemark-core` / `casemark/core-large`; the product-model checks explicitly
   configure the product policy in isolated settings, with no CLI overrides.
-  Product certification instead uses the explicitly configured product models
-  above; it does not claim that the standalone CLI default is repaired.
+  The original product certification used the explicitly configured models
+  above. The follow-up separately certifies the new standalone default.
 
 ### Live evidence — 2026-10-08
 
@@ -107,11 +117,35 @@ telemetry settings, not credentials. Staging policy source blob:
 `337c389f9d64425caba41f38e3ae665add037dc9`; read-only configuration probe:
 `/tmp/cd1763-product-default.mjs`. No staged/customer chat was modified.
 
-Full `npm run check` passes again after this documentation follow-up, with no
-formatter fixes. The two archive hashes below are reverified unchanged; no
-runtime code or packaged artifact changed in this follow-up. Production flags
-are reverified off: API `MCP_SKILLS_ENABLED=0`, API rollout unset, PanelWorks
-pilot and rollout unset. This is **not** full product MCP cutover acceptance.
+The table above records the original candidate. Follow-up artifacts and evidence
+below supersede its archive hashes. This is **not** full product MCP cutover
+acceptance.
+
+### Standalone-default fix — 2026-10-08
+
+- Model resolver: **43/43 tests pass**, including eight new default/preservation
+  regressions. Full `npm run check` and sequential full `./test.sh` pass with no
+  additional skips or provider credentials. Only coding-agent JS was rebuilt;
+  the already reviewed generated catalogs and bundled pi builds are unchanged.
+- Publish dry run, new packed install and macOS ARM64 binary build pass.
+  Installed resolver, document-tool and MCP-extension JS hashes match the
+  workspace build. Installed runtime audit: **zero findings**. All 11 retired-ID
+  fallback checks and installed document safety checks pass again.
+- Fresh isolated settings contain no default provider/model and use no CLI
+  model override or offline mode. Both Node and Bun automatically select
+  `casemark-core` / `casemark/core-potassium`. Print replies contain
+  `CD1763_NODE_DEFAULT_OK` / `CD1763_BUN_DEFAULT_OK`. Controlled PTYs return
+  actual assistant replies `CD1763_NODE_DEFAULT_INTERACTIVE_OK` /
+  `CD1763_BUN_DEFAULT_INTERACTIVE_OK`, then `/quit` exits 0. The displayed model
+  stays Core Potassium; no fallback occurs. Auth files remain empty.
+- New Node/Bun version/help/model-list checks pass. Product GPT-6 Luna and
+  staging Haiku 5.5 print checks also pass on both rebuilt runtimes without
+  fallback. The new packed document schema passes the preview GPT-6 Luna API
+  again: HTTP 200, expected reply, stop, zero tool calls.
+- Harness: `/tmp/cd1763-default-release-smoke.mjs`; artifacts:
+  `/tmp/linc-cd1763-default-artifacts.THIEy0`; installed bundle:
+  `/tmp/linc-cd1763-default-install.FH2Tzu`. Credentials are used in memory only.
+  No production config, route, key, snapshot or version pin is changed.
 
 ## Catalog review
 
@@ -195,7 +229,7 @@ feed. None is a current `defaultModelPerProvider` selection. Installed-bundle
 verification exercises all 11 missing IDs: saved defaults select an available
 model (currently without a warning), while restored sessions return a visible
 "Could not restore model ... model no longer exists ... Using ..." fallback
-message. The existing 35-test model-resolver suite passes, including saved-default
+message. The expanded 43-test model-resolver suite passes, including saved-default
 and session fallback regressions. An explicit `--provider` / `--model` selection
 may be retained as a custom ID with a warning and can still fail at the provider;
 that case requires choosing a currently served model. No named replacement or
@@ -297,21 +331,23 @@ prices match that feed.
 ## Publication and rollout gates
 
 Candidate tarball SHA-256:
-`f9f7599e10bdcc47d2eed0d9f34fb6bf91e41046f58967a1f282f9db952085ee`.
+`35d894c314f84af1a3678ea2ae7f608237e93b6ef771ef6f253713b4f27ac875`.
 macOS ARM64 archive SHA-256:
-`da2b5b175da5df6811637a5d3e5f5195b6de95198c263956594a145ae512d455`.
-Local evidence is under `/tmp/linc-cd1763-release-artifacts.uGCLKg`; the passing
-suite log is `/tmp/cd1763-release-tests-sequential.log`. These are temporary
-local artifacts, not durable published or CI artifacts.
+`ad6649b19c606eab3dce77bba6071587b4d24039e58f604eed77ac7ec67b0f79`.
+New local artifacts are under `/tmp/linc-cd1763-default-artifacts.THIEy0`.
+Captured catalog sources and original evidence remain under
+`/tmp/linc-cd1763-release-artifacts.uGCLKg`. These are temporary local artifacts,
+not durable published or CI artifacts.
 
 Human review, a merge commit and a human publishing-tag push are required.
 The agent does not merge, enqueue, publish npm, or push a release tag.
 
-**Draft gates:** product-default live smokes above are green, but the standalone
-CLI Core Large failure and uncertified OpenCode Go route changes are not waived.
-Keep this release draft until those outstanding failures are resolved or the
-release owner explicitly accepts their bounded risks. No such acceptance is
-inferred from a general request to make the PR mergeable.
+**Draft gate:** standalone-default and product live smokes above are green.
+OpenCode Go route changes still require authenticated live replies for both
+Qwen models. There is no existing Go credential in the local Linc/OpenCode auth
+stores; its 1Password item location has been requested. No risk waiver, new
+subscription or token creation is authorized or inferred. Keep this release
+draft until certification is complete and final release notes are prepared.
 
 After npm/binary publication: reviewed Case.dev preview version-pin update,
 candidate snapshot validation, then exact internal-org MCP acceptance covering
