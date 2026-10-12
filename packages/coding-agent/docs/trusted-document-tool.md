@@ -23,7 +23,40 @@ The output uses Letter pages, one-inch margins, and 12-point Times New Roman
 body text. Heading levels 1–3 and rectangular text tables are supported. Text
 is literal data, not Markdown or OOXML. Tabs and line breaks are preserved.
 
-## Trust boundary
+## Filling an existing organization template
+
+The same opt-in extension registers `casedev_document_fill_template`. Read
+the mounted `.pi/skills/using-document-templates/references/MANIFEST.json`
+and the selected template's instructions first, then provide its exact slug:
+
+```json
+{
+  "templateSlug": "intake-checklist",
+  "filename": "Filled Intake.docx",
+  "values": [{ "name": "owner", "value": "Fictional QA client" }]
+}
+```
+
+This fills literal `{{owner}}` placeholders, including placeholders split
+across Word runs, in body paragraphs, tables, headers, and footers. Existing
+styles, image bytes, and page geometry are retained. It does not replace the
+source template. Missing, duplicate, or unused values fail visibly.
+
+The renderer is fixed host-owned Python code invoked through `/usr/bin/python3`
+with `-I -S`, no shell, no inherited environment, and no workspace imports.
+Only template bytes and plain string values are passed on stdin. The Case.dev
+Debian image supplies this interpreter; Linux also enforces CPU and address-space
+limits. Execution has a 15-second timeout. Input/output are capped at 16 MiB,
+ZIP entries at 512, each decompressed part at 8 MiB, total decompressed bytes
+at 32 MiB, and supplied UTF-8 text at 256 KiB.
+
+No arbitrary input paths, executable parts, embedded objects, macros, external
+relationships, active Word fields, expressions, loops, or nested textbox
+paragraphs are supported. Those templates fail rather than degrading to a blank
+document. This is **not** certification of every existing customer template or
+script-based workflow. Use `vault_upload` to deliver the returned file afterward.
+
+## New-document trust boundary
 
 - No shell, subprocesses, Python imports, remote scripts, templates, input
   files, caller-provided XML, macros, fields, or external relationships.

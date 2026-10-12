@@ -1,0 +1,194 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import type { ExtensionContext } from "../src/core/extensions/types.ts";
+import { validateDocxFile } from "../src/linc/docx-validate.ts";
+import { createTemplateTool } from "../src/linc/template-tool.ts";
+
+const tool = createTemplateTool();
+type Input = Parameters<typeof tool.execute>[1];
+const directories: string[] = [];
+const namespace = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+const fixture = {
+	"[Content_Types].xml": '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+	"word/document.xml": `<w:document ${namespace}><w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Owner: {{ow</w:t></w:r><w:r><w:t>ner}}; {{owner}}.</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>{{deadline}}</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:body></w:document>`,
+	"word/header1.xml": `<w:hdr ${namespace}><w:p><w:r><w:t>QA {{owner}}</w:t></w:r></w:p></w:hdr>`,
+	"word/footer1.xml": `<w:ftr ${namespace}><w:p><w:r><w:t>Unchanged footer</w:t></w:r></w:p></w:ftr>`,
+	"word/styles.xml": `<w:styles ${namespace}><w:style w:type="paragraph" w:styleId="Normal"/></w:styles>`,
+	"word/media/image1.png": "retained image bytes",
+};
+const input: Input = {
+	templateSlug: "qa-template",
+	filename: "Filled QA.docx",
+	values: [
+		{ name: "owner", value: "José & Co" },
+		{ name: "deadline", value: "Tomorrow\nReview\tNow" },
+	],
+};
+
+function zip(parts: Record<string, string>): Buffer {
+	return execFileSync(
+		"/usr/bin/python3",
+		[
+			"-I",
+			"-S",
+			"-c",
+			`import io,json,sys,zipfile
+b=io.BytesIO()
+with zipfile.ZipFile(b,'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for name,value in json.load(sys.stdin).items(): z.writestr(name,value)
+sys.stdout.buffer.write(b.getvalue())`,
+		],
+		{ input: JSON.stringify(parts) },
+	);
+}
+
+function unzip(bytes: Buffer): Record<string, string> {
+	return JSON.parse(
+		execFileSync(
+			"/usr/bin/python3",
+			[
+				"-I",
+				"-S",
+				"-c",
+				`import io,json,sys,zipfile
+with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+    print(json.dumps({name:z.read(name).decode() for name in z.namelist()}))`,
+			],
+			{ input: bytes },
+		).toString(),
+	);
+}
+
+async function workspace(parts: Record<string, string> = fixture) {
+	const cwd = await realpath(await mkdtemp(join(tmpdir(), "linc-template-test-")));
+	directories.push(cwd);
+	const root = join(cwd, ".pi/skills/using-document-templates");
+	await mkdir(join(root, "assets"), { recursive: true });
+	await mkdir(join(root, "references"));
+	const bytes = zip(parts);
+	await writeFile(join(root, "assets/qa-template.docx"), bytes);
+	await writeFile(
+		join(root, "references/MANIFEST.json"),
+		JSON.stringify({
+			version: 1,
+			templates: [{ slug: input.templateSlug, templatePath: "assets/qa-template.docx" }],
+		}),
+	);
+	return { ctx: { cwd } as ExtensionContext, root, bytes };
+}
+
+afterEach(async () => {
+	await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+describe("bounded trusted template fill", () => {
+	test("fills split/repeated runs, tables and headers while preserving styles, images and geometry", async () => {
+		const { ctx, bytes } = await workspace();
+		const result = await tool.execute("fill", input, undefined, undefined, ctx);
+		const output = await readFile(result.details.filePath);
+		const parts = unzip(output);
+		expect(validateDocxFile(result.details.filePath)).toEqual([]);
+		expect(parts["word/document.xml"]).toContain("José &amp; Co");
+		expect(parts["word/document.xml"]).toContain("<w:rPr><w:b/></w:rPr>");
+		expect(parts["word/document.xml"]).toContain('<w:pgSz w:w="12240" w:h="15840"/>');
+		expect(parts["word/document.xml"]).toContain("<w:br/>");
+		expect(parts["word/document.xml"]).toContain("<w:tab/>");
+		expect(parts["word/header1.xml"]).toContain("QA José &amp; Co");
+		for (const name of ["word/styles.xml", "word/footer1.xml", "word/media/image1.png"])
+			expect(parts[name]).toBe(fixture[name as keyof typeof fixture]);
+		expect(await readFile(join(ctx.cwd, ".pi/skills/using-document-templates/assets/qa-template.docx"))).toEqual(
+			bytes,
+		);
+		expect(result.details).toMatchObject({
+			templateSha256: createHash("sha256").update(bytes).digest("hex"),
+			sha256: createHash("sha256").update(output).digest("hex"),
+			fields: ["deadline", "owner"],
+			dataOnly: true,
+		});
+		expect(result.details).not.toHaveProperty("executionApproved");
+	});
+
+	test("treats code, XML and template-looking values as literal data", async () => {
+		const { ctx } = await workspace();
+		const value = "</w:t><w:instrText>evil</w:instrText> $(touch owned) {{literal}} {% no %}";
+		const result = await tool.execute(
+			"fill",
+			{ ...input, values: [{ name: "owner", value }, input.values[1]!] },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const parts = unzip(await readFile(result.details.filePath));
+		expect(parts["word/document.xml"]).toContain("&lt;w:instrText&gt;evil");
+		expect(parts["word/document.xml"]).not.toContain("<w:instrText>");
+		expect(parts["word/document.xml"]).toContain("{{literal}}");
+		await expect(readFile(join(ctx.cwd, "owned"))).rejects.toThrow();
+	});
+
+	test.each(["../escape.docx", "/tmp/x.docx", "x.docx\n", "file.py", "x.docx\u0000"])(
+		"rejects filename %j",
+		async (filename) => {
+			const { ctx } = await workspace();
+			await expect(tool.execute("fill", { ...input, filename }, undefined, undefined, ctx)).rejects.toThrow(
+				"Invalid",
+			);
+		},
+	);
+
+	test.each<Record<string, string>>([
+		{ "word/embeddings/evil.bin": "active" },
+		{ "../escape": "bad" },
+		{
+			"word/_rels/document.xml.rels":
+				'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship TargetMode="External" Target="https://example.invalid"/></Relationships>',
+		},
+		{
+			"word/document.xml": `<w:document ${namespace}><w:body><w:p><w:r><w:instrText>DDE evil</w:instrText></w:r></w:p></w:body></w:document>`,
+		},
+		{
+			"word/document.xml": `<w:document ${namespace}><w:body><w:p><w:r><w:t>{{owner.upper()}}</w:t></w:r></w:p></w:body></w:document>`,
+		},
+		{ "word/document.xml": '<!DOCTYPE a [<!ENTITY x "evil">]><a/>' },
+		{
+			"word/document.xml": `<w:document ${namespace}><w:body><w:p><w:r><w:delText>{{owner}}</w:delText></w:r></w:p></w:body></w:document>`,
+		},
+		{ "word/bomb.xml": "x".repeat(8 * 1024 * 1024 + 1) },
+	])("rejects unsafe/unsupported template parts", async (extra) => {
+		const { ctx } = await workspace({ ...fixture, ...extra });
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Template fill failed");
+		await expect(readFile(join(ctx.cwd, input.filename))).rejects.toThrow();
+	});
+
+	test("rejects missing, duplicate and unused values", async () => {
+		const { ctx } = await workspace();
+		for (const values of [
+			[input.values[0]!],
+			[...input.values, input.values[0]!],
+			[...input.values, { name: "extra", value: "unused" }],
+		]) {
+			await expect(tool.execute("fill", { ...input, values }, undefined, undefined, ctx)).rejects.toThrow();
+		}
+	});
+
+	test("does not overwrite output or follow a manifest directory symlink", async () => {
+		const { ctx, root } = await workspace();
+		await writeFile(join(ctx.cwd, input.filename), "original");
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("EEXIST");
+		expect(await readFile(join(ctx.cwd, input.filename), "utf8")).toBe("original");
+		await rm(join(root, "references"), { recursive: true });
+		await symlink(ctx.cwd, join(root, "references"));
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("symlink");
+	});
+
+	test("honors cancellation and rejects caller scripts", async () => {
+		const { ctx } = await workspace();
+		await expect(tool.execute("fill", input, AbortSignal.abort(), undefined, ctx)).rejects.toThrow();
+		await expect(
+			tool.execute("fill", { ...input, script: "evil" } as Input, undefined, undefined, ctx),
+		).rejects.toThrow("Invalid");
+	});
+});
