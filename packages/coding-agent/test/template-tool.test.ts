@@ -149,6 +149,17 @@ describe("bounded trusted template fill", () => {
 		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Incomplete");
 	});
 
+	test("refuses additional bibliography triples outside the canonical item1 package", async () => {
+		const additional = Object.fromEntries(
+			Object.entries(bibliography).map(([name, xml]) => [
+				name.replace("1", "2"),
+				xml.replace("itemProps1.xml", "itemProps2.xml"),
+			]),
+		);
+		const { ctx } = await workspace({ ...fixture, ...bibliography, ...additional });
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Unsupported or active");
+	});
+
 	test("fills split/repeated runs, tables and headers while preserving styles, images and geometry", async () => {
 		const { ctx, bytes } = await workspace();
 		const result = await tool.execute("fill", input, undefined, undefined, ctx);

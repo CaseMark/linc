@@ -65,7 +65,7 @@ def read_template(slug):
 
 def allowed_part(name):
     return name in ('[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'docProps/app.xml', 'docProps/custom.xml') or bool(re.fullmatch(
-        r'word/(document|styles|stylesWithEffects|numbering|settings|webSettings|fontTable|footnotes|endnotes|comments|commentsExtended|people)\.xml|word/(header|footer)\d+\.xml|word/theme/theme\d+\.xml|word/_rels/[A-Za-z0-9_.-]+\.rels|word/media/[A-Za-z0-9_.-]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)|docProps/thumbnail\.(png|jpg|jpeg)|customXml/(item|itemProps)[1-9][0-9]*\.xml|customXml/_rels/item[1-9][0-9]*\.xml\.rels', name))
+        r'word/(document|styles|stylesWithEffects|numbering|settings|webSettings|fontTable|footnotes|endnotes|comments|commentsExtended|people)\.xml|word/(header|footer)\d+\.xml|word/theme/theme\d+\.xml|word/_rels/[A-Za-z0-9_.-]+\.rels|word/media/[A-Za-z0-9_.-]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)|docProps/thumbnail\.(png|jpg|jpeg)|customXml/(item1|itemProps1)\.xml|customXml/_rels/item1\.xml\.rels', name))
 
 def validate_bibliography(name, root, groups):
     match = re.fullmatch(r'customXml/(item|itemProps)([1-9][0-9]*)\.xml|customXml/_rels/item([1-9][0-9]*)\.xml\.rels', name)
