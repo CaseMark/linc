@@ -48,6 +48,10 @@ Only a manifest slug and plain string values are passed on stdin. The processor
 opens each mounted directory and file relative to pinned directory descriptors
 with no symlink following, so directory replacement cannot redirect its reads.
 Only known passive OOXML part names and raster image formats are accepted.
+The empty built-in APA bibliography metadata shipped by ordinary Word/python-docx
+templates is preserved only with its matching datastore properties and internal
+relationship. Arbitrary or populated custom XML, stylesheet paths and Word data
+bindings remain unsupported.
 Successful fills append slug, template/output hashes and field names (not their
 values) to the existing session audit trail. The Case.dev
 Debian image supplies this interpreter; Linux also enforces CPU and address-space

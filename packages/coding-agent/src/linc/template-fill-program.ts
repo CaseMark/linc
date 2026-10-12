@@ -12,6 +12,9 @@ LIMIT = 16 * 1024 * 1024
 PART_LIMIT = 8 * 1024 * 1024
 WORD = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 RELS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+BIB = 'http://schemas.openxmlformats.org/officeDocument/2006/bibliography'
+DATASTORE = 'http://schemas.openxmlformats.org/officeDocument/2006/customXml'
+CUSTOM_PROPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps'
 
 def fail(message):
     raise ValueError(message)
@@ -62,7 +65,36 @@ def read_template(slug):
 
 def allowed_part(name):
     return name in ('[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'docProps/app.xml', 'docProps/custom.xml') or bool(re.fullmatch(
-        r'word/(document|styles|stylesWithEffects|numbering|settings|webSettings|fontTable|footnotes|endnotes|comments|commentsExtended|people)\.xml|word/(header|footer)\d+\.xml|word/theme/theme\d+\.xml|word/_rels/[A-Za-z0-9_.-]+\.rels|word/media/[A-Za-z0-9_.-]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)|docProps/thumbnail\.(png|jpg|jpeg)', name))
+        r'word/(document|styles|stylesWithEffects|numbering|settings|webSettings|fontTable|footnotes|endnotes|comments|commentsExtended|people)\.xml|word/(header|footer)\d+\.xml|word/theme/theme\d+\.xml|word/_rels/[A-Za-z0-9_.-]+\.rels|word/media/[A-Za-z0-9_.-]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)|docProps/thumbnail\.(png|jpg|jpeg)|customXml/(item1|itemProps1)\.xml|customXml/_rels/item1\.xml\.rels', name))
+
+def validate_bibliography(name, root, groups):
+    match = re.fullmatch(r'customXml/(item|itemProps)([1-9][0-9]*)\.xml|customXml/_rels/item([1-9][0-9]*)\.xml\.rels', name)
+    kind = match.group(1) if match.group(1) else 'rels'
+    index = match.group(2) or match.group(3)
+    groups.setdefault(index, set()).add(kind)
+    # Ordinary Word/python-docx templates carry an empty built-in APA Sources
+    # part. This is not permission for arbitrary custom XML, populated source
+    # data, stylesheet paths, or Word data bindings.
+    if kind == 'item':
+        if root.tag != '{' + BIB + '}Sources' or len(root) or (root.text or '').strip() or root.attrib != {'SelectedStyle': '/APA.XSL', 'StyleName': 'APA'}:
+            fail('Unsupported custom XML bibliography')
+    elif kind == 'itemProps':
+        item_id = root.get('{' + DATASTORE + '}itemID', '')
+        if root.tag != '{' + DATASTORE + '}datastoreItem' or set(root.attrib) != {'{' + DATASTORE + '}itemID'} or not re.fullmatch(r'\{[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}', item_id) or len(root) != 1:
+            fail('Unsupported custom XML properties')
+        refs = root[0]
+        if refs.tag != '{' + DATASTORE + '}schemaRefs' or refs.attrib or len(refs) != 1 or refs[0].tag != '{' + DATASTORE + '}schemaRef' or refs[0].attrib != {'{' + DATASTORE + '}uri': BIB} or len(refs[0]):
+            fail('Unsupported custom XML schema')
+        if any((node.text or '').strip() or (node.tail or '').strip() for node in root.iter()):
+            fail('Unsupported custom XML property content')
+    else:
+        if root.tag != '{' + RELS + '}Relationships' or root.attrib or len(root) != 1:
+            fail('Unsupported custom XML relationships')
+        relationship = root[0]
+        if relationship.tag != '{' + RELS + '}Relationship' or len(relationship) or set(relationship.attrib) != {'Id', 'Type', 'Target'} or not re.fullmatch(r'rId[1-9][0-9]*', relationship.get('Id', '')) or relationship.get('Type') != CUSTOM_PROPS or relationship.get('Target') != 'itemProps' + index + '.xml':
+            fail('Unsupported custom XML relationship target')
+        if any((node.text or '').strip() or (node.tail or '').strip() for node in root.iter()):
+            fail('Unsupported custom XML relationship content')
 
 def plain_text(value):
     for ch in value:
@@ -135,6 +167,7 @@ try:
     parts = []
     seen = set()
     used = {}
+    bibliography = {}
     total = 0
     with zipfile.ZipFile(io.BytesIO(raw)) as source:
         entries = source.infolist()
@@ -161,6 +194,8 @@ try:
                 if '<!' in xml or re.search(r'<\?(?!xml\s)', xml):
                     fail('Template XML declarations are unsupported')
                 root = ET.fromstring(xml)
+                if name.startswith('customXml/'):
+                    validate_bibliography(name, root, bibliography)
                 if name.endswith('.rels'):
                     for relationship in root.iter('{' + RELS + '}Relationship'):
                         if relationship.get('TargetMode', '').lower() == 'external':
@@ -192,6 +227,8 @@ try:
             parts.append((name, data))
     if '[Content_Types].xml' not in seen or 'word/document.xml' not in seen:
         fail('Not a Word template package')
+    if any(kinds != {'item', 'itemProps', 'rels'} for kinds in bibliography.values()):
+        fail('Incomplete custom XML bibliography package')
     if set(used) != set(values):
         fail('Unused template values: ' + ', '.join(sorted(set(values) - set(used))))
     output = io.BytesIO()

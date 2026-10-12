@@ -29,6 +29,14 @@ const input: Input = {
 		{ name: "deadline", value: "Tomorrow\nReview\tNow" },
 	],
 };
+const bibliography = {
+	"customXml/item1.xml":
+		'<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography" SelectedStyle="/APA.XSL" StyleName="APA"/>',
+	"customXml/itemProps1.xml":
+		'<ds:datastoreItem xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml" ds:itemID="{EF278816-EC6F-A645-907D-7F25AECB1D4A}"><ds:schemaRefs><ds:schemaRef ds:uri="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"/></ds:schemaRefs></ds:datastoreItem>',
+	"customXml/_rels/item1.xml.rels":
+		'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps" Target="itemProps1.xml"/></Relationships>',
+};
 
 function zip(parts: Record<string, string>): Buffer {
 	return execFileSync(
@@ -87,6 +95,71 @@ afterEach(async () => {
 });
 
 describe("bounded trusted template fill", () => {
+	test("retains ordinary Word empty APA bibliography metadata without approving arbitrary custom XML", async () => {
+		const { ctx } = await workspace({ ...fixture, ...bibliography });
+		const result = await tool.execute("fill", input, undefined, undefined, ctx);
+		const parts = unzip(await readFile(result.details.filePath));
+		for (const [name, xml] of Object.entries(bibliography)) expect(parts[name]).toBe(xml);
+		expect(parts["word/document.xml"]).toContain("José &amp; Co");
+	});
+
+	test.each([
+		{ "customXml/item1.xml": bibliography["customXml/item1.xml"].replace("/APA.XSL", "https://evil.invalid/a.xsl") },
+		{ "customXml/item1.xml": bibliography["customXml/item1.xml"].replace("/>", "><b:Source/></b:Sources>") },
+		{ "customXml/item1.xml": '<a:Sources xmlns:a="https://evil.invalid"/>' },
+		{
+			"customXml/itemProps1.xml": bibliography["customXml/itemProps1.xml"].replace(
+				'ds:uri="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"',
+				'ds:uri="https://evil.invalid"',
+			),
+		},
+		{
+			"customXml/_rels/item1.xml.rels": bibliography["customXml/_rels/item1.xml.rels"].replace(
+				'Target="itemProps1.xml"',
+				'Target="../evil.xml"',
+			),
+		},
+		{
+			"customXml/_rels/item1.xml.rels": bibliography["customXml/_rels/item1.xml.rels"].replace(
+				'Target="itemProps1.xml"',
+				'Target="itemProps2.xml"',
+			),
+		},
+		{
+			"customXml/_rels/item1.xml.rels": bibliography["customXml/_rels/item1.xml.rels"].replace(
+				'Target="itemProps1.xml"',
+				'TargetMode="External" Target="https://evil.invalid"',
+			),
+		},
+		{
+			"word/document.xml": fixture["word/document.xml"].replace(
+				"<w:body>",
+				'<w:body><w:dataBinding w:xpath="/b:Sources"/>',
+			),
+		},
+		{ "word/document.xml": fixture["word/document.xml"].replace("<w:body>", "<w:body><w:customXml/>") },
+	])("refuses bibliography mutations and active bindings", async (extra) => {
+		const { ctx } = await workspace({ ...fixture, ...bibliography, ...extra });
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Template fill failed");
+		await expect(readFile(join(ctx.cwd, input.filename))).rejects.toThrow();
+	});
+
+	test("refuses orphan bibliography parts", async () => {
+		const { ctx } = await workspace({ ...fixture, "customXml/item1.xml": bibliography["customXml/item1.xml"] });
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Incomplete");
+	});
+
+	test("refuses additional bibliography triples outside the canonical item1 package", async () => {
+		const additional = Object.fromEntries(
+			Object.entries(bibliography).map(([name, xml]) => [
+				name.replace("1", "2"),
+				xml.replace("itemProps1.xml", "itemProps2.xml"),
+			]),
+		);
+		const { ctx } = await workspace({ ...fixture, ...bibliography, ...additional });
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("Unsupported or active");
+	});
+
 	test("fills split/repeated runs, tables and headers while preserving styles, images and geometry", async () => {
 		const { ctx, bytes } = await workspace();
 		const result = await tool.execute("fill", input, undefined, undefined, ctx);
