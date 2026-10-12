@@ -1,10 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.27] - 2026-10-12
+
+### Changed
+
+- Refreshed generated provider catalogs from live feeds: eight chat entries added, 20 removed, and 47 retained entries updated relative to 0.79.26. Image entries are unchanged. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.27.md) for source snapshots, metadata changes, and removed IDs (CD-1795).
 
 ### Fixed
 
-- Case.dev model requests upload runtime images to private, content-addressed storage and send renewable presigned URLs instead of inline bytes. Historical images remain intact, signed URLs are reused until renewal, and native session replay does not depend on an attached Vault. Uploads use bounded concurrency and per-image timeouts, and provider URLs accept trailing slashes (CD-1780).
+- Case.dev model requests upload runtime images to private, content-addressed storage and send renewable presigned URLs instead of inline bytes. Historical images remain intact, signed URLs are reused until renewal, and native session replay does not depend on an attached Vault. Uploads use bounded concurrency and per-image timeouts, and provider URLs accept trailing slashes (CD-1780, [#91](https://github.com/CaseMark/linc/pull/91) by [@maxsonderby](https://github.com/maxsonderby)).
+
+### Removed
+
+- Removed 20 chat catalog entries absent from the captured tool-capable feeds, including retired Qwen variants and two older Anthropic gateway routes. Existing selections of those exact IDs must switch to an available model; see the [removed-ID list](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.27.md#catalog-removals). No image entries were removed (CD-1795).
 
 ## [0.79.26] - 2026-10-08
 
