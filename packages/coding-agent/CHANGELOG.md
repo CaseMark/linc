@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Case.dev model requests upload runtime images to private, content-addressed storage and send renewable presigned URLs instead of inline bytes. Historical images remain intact, signed URLs are reused until renewal, and native session replay does not depend on an attached Vault. Uploads use bounded concurrency and per-image timeouts, and provider URLs accept trailing slashes (CD-1780).
+
 ## [0.79.26] - 2026-10-08
 
 ### Changed

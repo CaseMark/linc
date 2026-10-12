@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
+import { RuntimeImages, usesRuntimeImages } from "../linc/runtime-images.ts";
 import { capImageBytes } from "../utils/image-budget.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
@@ -257,16 +258,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	).filter((name) => !excludedToolNameSet?.has(name));
 
 	let agent: Agent;
+	const runtimeImages = new RuntimeImages();
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
 	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
 		const converted = convertToLlm(messages);
 		// Check setting dynamically so mid-session changes take effect
 		if (!settingsManager.getBlockImages()) {
-			// Every historical image rides along in every request; bound their
-			// total bytes so a conversation full of screenshots cannot push the
-			// request body past proxy limits (413 on api.case.dev).
-			return capImageBytes(converted);
+			// Case.dev images are uploaded at the final payload boundary. Other
+			// transports retain the existing inline-byte limit.
+			return agent?.state.model && usesRuntimeImages(agent.state.model) ? converted : capImageBytes(converted);
 		}
 		// Filter out ImageContent from all messages, replacing with text placeholder
 		return converted.map((msg) => {
@@ -323,6 +324,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			return streamSimple(model, context, {
 				...options,
+				onPayload: async (payload, requestModel) => {
+					const prepared = (await options?.onPayload?.(payload, requestModel)) ?? payload;
+					if (!usesRuntimeImages(requestModel)) return prepared;
+					if (!auth.apiKey) throw new Error("Case.dev authentication is required for runtime images");
+					return runtimeImages.prepare(prepared, {
+						baseUrl: requestModel.baseUrl,
+						apiKey: auth.apiKey,
+						sessionId: sessionManager.getSessionId(),
+						signal: options?.signal,
+					});
+				},
 				apiKey: auth.apiKey,
 				timeoutMs,
 				websocketConnectTimeoutMs,
