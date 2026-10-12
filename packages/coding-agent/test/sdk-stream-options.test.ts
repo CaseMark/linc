@@ -8,12 +8,13 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 describe("createAgentSession stream options", () => {
 	let tempDir: string;
@@ -29,6 +30,7 @@ describe("createAgentSession stream options", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllGlobals();
 		if (tempDir) {
 			rmSync(tempDir, { recursive: true, force: true });
 		}
@@ -149,5 +151,69 @@ describe("createAgentSession stream options", () => {
 		);
 
 		expect(options?.websocketConnectTimeoutMs).toBe(0);
+	});
+
+	it("preserves historical Case.dev images and uploads after the final payload hook", async () => {
+		const model = {
+			...createModel("openai-completions"),
+			provider: "casedev",
+			baseUrl: "https://api.case.dev/llm/v1",
+			input: ["text", "image"] as ("text" | "image")[],
+		};
+		const authStorage = AuthStorage.inMemory();
+		authStorage.setRuntimeApiKey("casedev", "test-api-key");
+		const registry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+		let capturedOptions: SimpleStreamOptions | undefined;
+		registry.registerProvider("casedev", {
+			api: "openai-completions",
+			streamSimple: (_model, _context, opts) => {
+				capturedOptions = opts;
+				return createDoneStream("openai-completions");
+			},
+		});
+		const upload = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						url: "https://storage.test/image",
+						expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+					}),
+				),
+		);
+		vi.stubGlobal("fetch", upload);
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			model,
+			authStorage,
+			modelRegistry: registry,
+			settingsManager: SettingsManager.inMemory(),
+			sessionManager: SessionManager.inMemory(cwd),
+			resourceLoader: createTestResourceLoader(),
+		});
+		try {
+			const data = Buffer.alloc(303_000).toString("base64");
+			const content = Array.from({ length: 30 }, () => ({ type: "image" as const, data, mimeType: "image/png" }));
+			const messages = await session.agent.convertToLlm([{ role: "user", content, timestamp: Date.now() }]);
+			expect(JSON.stringify(messages)).not.toContain("image omitted");
+			expect((messages[0].content as unknown[]).length).toBe(30);
+			const original = { messages: [{ role: "user", content: [{ type: "text", text: "before" }] }] };
+			const rewritten = {
+				messages: [
+					{ role: "user", content: [{ type: "image_url", image_url: { url: `data:image/png;base64,${data}` } }] },
+				],
+			};
+			const hook = vi.fn(() => rewritten);
+			const controller = new AbortController();
+			await session.agent.streamFn(model, { messages: [] }, { onPayload: hook, signal: controller.signal });
+			const result = await capturedOptions?.onPayload?.(original, model);
+			expect(hook).toHaveBeenCalledWith(original, model);
+			expect(JSON.stringify(result)).toContain("https://storage.test/image");
+			expect(JSON.stringify(result)).not.toContain("data:image");
+			expect(upload).toHaveBeenCalledTimes(1);
+		} finally {
+			session.dispose();
+			registry.unregisterProvider("casedev");
+		}
 	});
 });
