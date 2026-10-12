@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { validateDocxFile } from "../src/linc/docx-validate.ts";
+import { TEMPLATE_FILL_PROGRAM } from "../src/linc/template-fill-program.ts";
 import { createTemplateTool } from "../src/linc/template-tool.ts";
 
 const tool = createTemplateTool();
@@ -141,6 +142,13 @@ describe("bounded trusted template fill", () => {
 
 	test.each<Record<string, string>>([
 		{ "word/embeddings/evil.bin": "active" },
+		{ "word/vbaData.xml": "<a/>" },
+		{ "word/oleObject1.xml": "<a/>" },
+		{ "customXml/item1.xml": "<a/>" },
+		{ "word/media/evil.xll": "active" },
+		{ "word/media/evil.xla": "active" },
+		{ "word/media/evil.dylib": "active" },
+		{ "word/media/evil.svg": "<svg/>" },
 		{ "../escape": "bad" },
 		{
 			"word/_rels/document.xml.rels":
@@ -177,11 +185,52 @@ describe("bounded trusted template fill", () => {
 	test("does not overwrite output or follow a manifest directory symlink", async () => {
 		const { ctx, root } = await workspace();
 		await writeFile(join(ctx.cwd, input.filename), "original");
-		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("EEXIST");
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("output already exists");
 		expect(await readFile(join(ctx.cwd, input.filename), "utf8")).toBe("original");
 		await rm(join(root, "references"), { recursive: true });
 		await symlink(ctx.cwd, join(root, "references"));
-		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("symlink");
+		await expect(tool.execute("fill", input, undefined, undefined, ctx)).rejects.toThrow("unsafe");
+	});
+
+	test.each(["assets", "references"])("pins %s through a deterministic directory replacement", async (directory) => {
+		const { ctx, bytes } = await workspace();
+		const target = `.pi/skills/using-document-templates/${directory}`;
+		const trigger = directory === "assets" ? "qa-template.docx" : "MANIFEST.json";
+		// Test-only fault injection at the actual read, after its directory FD was
+		// opened. Production never accepts a program or hook from a caller.
+		const program = TEMPLATE_FILL_PROGRAM.replace(
+			"def read_regular(name, directory, budget):",
+			`def read_regular(name, directory, budget):
+    if name == '${trigger}':
+        os.rename('${target}', '${target}-original')
+        os.symlink('/nonexistent-outside-template', '${target}')`,
+		);
+		const result = JSON.parse(
+			execFileSync("/usr/bin/python3", ["-I", "-S", "-c", program], {
+				cwd: ctx.cwd,
+				env: {},
+				input: JSON.stringify({
+					templateSlug: input.templateSlug,
+					values: Object.fromEntries(input.values.map((field) => [field.name, field.value])),
+				}),
+			}).toString(),
+		) as { templateSha256: string; document: string };
+		expect(result.templateSha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+		expect(unzip(Buffer.from(result.document, "base64"))["word/document.xml"]).toContain("José &amp; Co");
+	});
+
+	test.each(["symlink", "hardlink"])("rejects a template file %s and hides workspace paths", async (kind) => {
+		const { ctx, root } = await workspace();
+		const file = join(root, "assets/qa-template.docx");
+		const original = join(ctx.cwd, "original.docx");
+		await writeFile(original, await readFile(file));
+		await rm(file);
+		if (kind === "symlink") await symlink(original, file);
+		else await link(original, file);
+		const error = await tool.execute("fill", input, undefined, undefined, ctx).catch((error) => error as Error);
+		expect(error).toBeInstanceOf(Error);
+		if (!(error instanceof Error)) throw new Error("Expected refusal");
+		expect(error.message).not.toContain(ctx.cwd);
 	});
 
 	test("honors cancellation and rejects caller scripts", async () => {

@@ -1,7 +1,7 @@
 // Fixed host code, not a caller script. -I -S isolates Python from workspace
 // imports, site hooks, and PYTHON* settings. Only bounded JSON data enters stdin.
 export const TEMPLATE_FILL_PROGRAM = String.raw`
-import base64, io, json, re, resource, sys, zipfile
+import base64, hashlib, io, json, os, re, resource, stat, sys, zipfile
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape, unescape
 
@@ -15,6 +15,54 @@ RELS = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
 def fail(message):
     raise ValueError(message)
+
+def read_regular(name, directory, budget):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > budget:
+            fail('Unsafe or oversized template file')
+        chunks = []
+        total = 0
+        while total <= before.st_size:
+            chunk = os.read(fd, min(65536, before.st_size + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        after = os.fstat(fd)
+        if total != before.st_size or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns:
+            fail('Template changed during read')
+        return b''.join(chunks)
+    finally:
+        os.close(fd)
+
+def read_template(slug):
+    # Every directory is pinned by an FD before opening its child. A rename or
+    # replacement symlink cannot redirect a later read to a different tree.
+    directories = [os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)]
+    try:
+        for name in ('.pi', 'skills', 'using-document-templates'):
+            directories.append(os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directories[-1]))
+        root = directories[-1]
+        references = os.open('references', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+        directories.append(references)
+        manifest = json.loads(read_regular('MANIFEST.json', references, 262144))
+        if not isinstance(manifest, dict) or not isinstance(manifest.get('templates'), list):
+            fail('Invalid injected template manifest')
+        matches = [e for e in manifest['templates'] if isinstance(e, dict) and e.get('slug') == slug]
+        if len(matches) != 1 or not isinstance(matches[0].get('templatePath'), str) or not re.fullmatch(r'assets/[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.docx', matches[0]['templatePath']):
+            fail('Template missing or unsafe in the injected org manifest')
+        assets = os.open('assets', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+        directories.append(assets)
+        return read_regular(matches[0]['templatePath'].split('/')[1], assets, LIMIT)
+    finally:
+        for directory in reversed(directories):
+            os.close(directory)
+
+def allowed_part(name):
+    return name in ('[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'docProps/app.xml', 'docProps/custom.xml') or bool(re.fullmatch(
+        r'word/(document|styles|stylesWithEffects|numbering|settings|webSettings|fontTable|footnotes|endnotes|comments|commentsExtended|people)\.xml|word/(header|footer)\d+\.xml|word/theme/theme\d+\.xml|word/_rels/[A-Za-z0-9_.-]+\.rels|word/media/[A-Za-z0-9_.-]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)|docProps/thumbnail\.(png|jpg|jpeg)', name))
 
 def plain_text(value):
     for ch in value:
@@ -69,7 +117,10 @@ def fill_paragraph(match, values, used):
 
 try:
     request = json.loads(sys.stdin.buffer.read(24 * 1024 * 1024 + 1))
-    raw = base64.b64decode(request['template'], validate=True)
+    slug = request['templateSlug']
+    if not isinstance(slug, str) or not 2 <= len(slug) <= 80 or not re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', slug):
+        fail('Invalid template slug')
+    raw = read_template(slug)
     if len(raw) > LIMIT:
         fail('Template exceeds file size limit')
     values = request['values']
@@ -98,8 +149,8 @@ try:
                 fail('Unsupported encrypted or compressed template')
             if entry.file_size > PART_LIMIT or total + entry.file_size > 32 * 1024 * 1024:
                 fail('Template exceeds decompressed size limit')
-            if name.lower().endswith(('.bin', '.exe', '.dll', '.js', '.py', '.vbs')) or name.startswith(('word/embeddings/', 'word/activeX/')):
-                fail('Active or embedded template content is unsupported')
+            if not allowed_part(name):
+                fail('Unsupported or active template part')
             with source.open(entry) as stream:
                 data = stream.read(PART_LIMIT + 1)
             if len(data) != entry.file_size or len(data) > PART_LIMIT:
@@ -114,9 +165,9 @@ try:
                     for relationship in root.iter('{' + RELS + '}Relationship'):
                         if relationship.get('TargetMode', '').lower() == 'external':
                             fail('External template relationships are unsupported')
-                if any(n.tag in ('{' + WORD + '}instrText', '{' + WORD + '}fldSimple', '{' + WORD + '}object', '{' + WORD + '}altChunk') for n in root.iter()):
+                if any(n.tag in ('{' + WORD + '}' + tag for tag in ('instrText', 'fldSimple', 'fldChar', 'object', 'altChunk', 'dataBinding', 'customXml')) for n in root.iter()):
                     fail('Active template fields are unsupported')
-                if 'macroEnabled' in xml or 'vbaProject' in xml:
+                if any(token in xml.lower() for token in ('macroenabled', 'vbaproject', 'vbadata', 'oleobject', 'activex')):
                     fail('Template macros are unsupported')
                 is_fill_part = name == 'word/document.xml' or re.fullmatch(r'word/(header|footer)\d+\.xml', name)
                 if is_fill_part:
@@ -150,7 +201,10 @@ try:
     result = output.getvalue()
     if len(result) > LIMIT:
         fail('Filled template exceeds file size limit')
-    sys.stdout.write(json.dumps({'document': base64.b64encode(result).decode('ascii'), 'fields': sorted(used)}))
+    sys.stdout.write(json.dumps({'document': base64.b64encode(result).decode('ascii'), 'templateSha256': hashlib.sha256(raw).hexdigest()}))
+except OSError:
+    sys.stderr.write('Template file or directory is missing, inaccessible, or unsafe')
+    sys.exit(1)
 except Exception as error:
     sys.stderr.write(str(error)[:400])
     sys.exit(1)

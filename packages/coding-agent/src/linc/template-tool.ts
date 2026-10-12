@@ -37,41 +37,26 @@ interface TemplateResult {
 	dataOnly: true;
 }
 const MAX_TEMPLATE_BYTES = 16 * 1024 * 1024;
-const TEMPLATE_ROOT = ".pi/skills/using-document-templates";
-
-async function readBoundedFile(path: string, maxBytes: number): Promise<Buffer> {
-	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try {
-		const info = await file.stat();
-		if (!info.isFile() || info.nlink !== 1 || info.size > maxBytes)
-			throw new Error("Unsafe or oversized template file");
-		const bytes = Buffer.alloc(info.size + 1);
-		let offset = 0;
-		while (offset < bytes.length) {
-			const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset);
-			if (!bytesRead) break;
-			offset += bytesRead;
-		}
-		const after = await file.stat();
-		if (offset !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs)
-			throw new Error("Template changed during read");
-		return bytes.subarray(0, offset);
-	} finally {
-		await file.close();
-	}
-}
-
-async function renderTemplate(bytes: Buffer, values: Record<string, string>, signal?: AbortSignal): Promise<Buffer> {
+async function renderTemplate(
+	cwd: string,
+	templateSlug: string,
+	values: Record<string, string>,
+	signal?: AbortSignal,
+): Promise<{ bytes: Buffer; templateSha256: string }> {
 	return new Promise((resolve, reject) => {
 		// This interpreter is part of the Case.dev Debian image. No PATH lookup,
 		// inherited credential env, caller script, workspace import, or shell.
 		const child = execFile(
 			"/usr/bin/python3",
 			["-I", "-S", "-c", TEMPLATE_FILL_PROGRAM],
-			{ env: {}, timeout: 15_000, maxBuffer: 24 * 1024 * 1024, signal, killSignal: "SIGKILL" },
+			{ cwd, env: {}, timeout: 15_000, maxBuffer: 24 * 1024 * 1024, signal, killSignal: "SIGKILL" },
 			(error, stdout, stderr) => {
 				if (error) {
-					reject(new Error(`Template fill failed: ${stderr.trim().slice(0, 400) || error.message}`));
+					reject(
+						new Error(
+							`Template fill failed: ${stderr.trim().slice(0, 400) || "Trusted processor unavailable, cancelled, or budget exceeded"}`,
+						),
+					);
 					return;
 				}
 				try {
@@ -80,25 +65,30 @@ async function renderTemplate(bytes: Buffer, values: Record<string, string>, sig
 						!result ||
 						typeof result !== "object" ||
 						!("document" in result) ||
-						typeof result.document !== "string"
+						typeof result.document !== "string" ||
+						!("templateSha256" in result) ||
+						typeof result.templateSha256 !== "string" ||
+						!/^[a-f0-9]{64}$/.test(result.templateSha256)
 					) {
 						throw new Error("Invalid trusted template result");
 					}
 					const document = Buffer.from(result.document, "base64");
 					if (!document.length || document.length > MAX_TEMPLATE_BYTES)
 						throw new Error("Invalid template output size");
-					resolve(document);
+					resolve({ bytes: document, templateSha256: result.templateSha256 });
 				} catch (failure) {
 					reject(failure);
 				}
 			},
 		);
-		child.stdin?.on("error", reject);
-		child.stdin?.end(JSON.stringify({ template: bytes.toString("base64"), values }));
+		child.stdin?.on("error", () => reject(new Error("Trusted template processor input failed")));
+		child.stdin?.end(JSON.stringify({ templateSlug, values }));
 	});
 }
 
-export function createTemplateTool(): ToolDefinition<typeof templateSchema, TemplateResult> {
+export function createTemplateTool(
+	onFilled?: (result: TemplateResult) => void,
+): ToolDefinition<typeof templateSchema, TemplateResult> {
 	return {
 		name: "casedev_document_fill_template",
 		label: "Fill Word template",
@@ -121,48 +111,20 @@ export function createTemplateTool(): ToolDefinition<typeof templateSchema, Temp
 				if (Object.hasOwn(values, field.name)) throw new Error("Duplicate template field");
 				values[field.name] = field.value;
 			}
-			const cwd = await realpath(ctx.cwd);
-			const root = join(cwd, TEMPLATE_ROOT);
-			if (
-				(await realpath(root)) !== root ||
-				(await realpath(join(root, "assets"))) !== join(root, "assets") ||
-				(await realpath(join(root, "references"))) !== join(root, "references")
-			) {
-				throw new Error("Template directory must not be a symlink");
+			let cwd: string;
+			try {
+				cwd = await realpath(ctx.cwd);
+			} catch {
+				throw new Error("Template workspace is unavailable");
 			}
-			const manifest: unknown = JSON.parse(
-				(await readBoundedFile(join(root, "references/MANIFEST.json"), 262_144)).toString("utf8"),
-			);
-			if (
-				!manifest ||
-				typeof manifest !== "object" ||
-				!("templates" in manifest) ||
-				!Array.isArray(manifest.templates)
-			) {
-				throw new Error("Invalid injected template manifest");
-			}
-			const matches = manifest.templates.filter(
-				(entry: unknown) =>
-					entry && typeof entry === "object" && "slug" in entry && entry.slug === params.templateSlug,
-			);
-			const entry: unknown = matches[0];
-			if (
-				matches.length !== 1 ||
-				!entry ||
-				typeof entry !== "object" ||
-				!("templatePath" in entry) ||
-				typeof entry.templatePath !== "string" ||
-				!/^assets\/[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.docx$/.test(entry.templatePath) ||
-				!entry.templatePath.endsWith(".docx")
-			) {
-				throw new Error("Template missing or unsafe in the injected org manifest");
-			}
-			const template = await readBoundedFile(join(root, entry.templatePath), MAX_TEMPLATE_BYTES);
-			signal?.throwIfAborted();
-			const bytes = await renderTemplate(template, values, signal);
+			const { bytes, templateSha256 } = await renderTemplate(cwd, params.templateSlug, values, signal);
 			signal?.throwIfAborted();
 			const filePath = join(cwd, params.filename);
-			const file = await open(filePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+			const file = await open(filePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600).catch(
+				() => {
+					throw new Error("Template output already exists or cannot be created");
+				},
+			);
 			try {
 				try {
 					await file.writeFile(bytes);
@@ -178,13 +140,14 @@ export function createTemplateTool(): ToolDefinition<typeof templateSchema, Temp
 				filePath,
 				filename: params.filename,
 				templateSlug: params.templateSlug,
-				templateSha256: createHash("sha256").update(template).digest("hex"),
+				templateSha256,
 				contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 				bytes: bytes.length,
 				sha256: createHash("sha256").update(bytes).digest("hex"),
 				fields: Object.keys(values).sort(),
 				dataOnly: true,
 			};
+			onFilled?.(result);
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 		},
 	};

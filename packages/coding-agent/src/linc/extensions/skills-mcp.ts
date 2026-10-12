@@ -64,7 +64,18 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 	// Available only with this explicitly enabled pilot extension. This native
 	// data-only writer does not run skill code or alter manifest approvals.
 	pi.registerTool(createDocumentTool());
-	pi.registerTool(createTemplateTool());
+	pi.registerTool(
+		createTemplateTool((result) =>
+			appendAudit({
+				action: "template_fill",
+				templateSlug: result.templateSlug,
+				templateSha256: result.templateSha256,
+				sha256: result.sha256,
+				fields: result.fields,
+				dataOnly: true,
+			}),
+		),
+	);
 	const held = new Map<string, HeldSkill>();
 	const loadedPolicies = new Map<string, LoadedSkillPolicy>();
 	const approvedManifestDigests = getApprovedManifestDigests();

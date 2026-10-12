@@ -111,6 +111,20 @@ test("CD-1802 fills a real injected template after remote load without approving
 				.map((event) => event.isError),
 		).toEqual([false, true]);
 		expect(shell).not.toHaveBeenCalled();
+		const fills = harness.session.sessionManager
+			.getBranch()
+			.filter(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "linc.skills-mcp-audit" &&
+					(entry.data as Record<string, unknown>)?.action === "template_fill",
+			);
+		expect(fills).toHaveLength(2);
+		for (const entry of fills) {
+			if (entry.type !== "custom") throw new Error("Expected audit entry");
+			expect(entry.data).toMatchObject({ templateSlug: "qa-template", fields: ["owner"], dataOnly: true });
+			expect(entry.data).not.toHaveProperty("values");
+		}
 	} finally {
 		harness.cleanup();
 	}

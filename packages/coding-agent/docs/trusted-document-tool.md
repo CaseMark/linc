@@ -44,7 +44,12 @@ source template. Missing, duplicate, or unused values fail visibly.
 
 The renderer is fixed host-owned Python code invoked through `/usr/bin/python3`
 with `-I -S`, no shell, no inherited environment, and no workspace imports.
-Only template bytes and plain string values are passed on stdin. The Case.dev
+Only a manifest slug and plain string values are passed on stdin. The processor
+opens each mounted directory and file relative to pinned directory descriptors
+with no symlink following, so directory replacement cannot redirect its reads.
+Only known passive OOXML part names and raster image formats are accepted.
+Successful fills append slug, template/output hashes and field names (not their
+values) to the existing session audit trail. The Case.dev
 Debian image supplies this interpreter; Linux also enforces CPU and address-space
 limits. Execution has a 15-second timeout. Input/output are capped at 16 MiB,
 ZIP entries at 512, each decompressed part at 8 MiB, total decompressed bytes
