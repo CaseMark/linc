@@ -3,6 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 
 const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
+const UPLOAD_CONCURRENCY = 4;
 
 export function usesRuntimeImages(model: Model<Api>): boolean {
 	return model.api === "openai-completions" && (model.provider === "casedev" || model.provider === "casemark-core");
@@ -25,18 +26,13 @@ export class RuntimeImages {
 		if (!payload || typeof payload !== "object" || !("messages" in payload) || !Array.isArray(payload.messages)) {
 			return payload;
 		}
-		const endpoint = new URL(options.baseUrl);
-		if (!endpoint.pathname.endsWith("/llm/v1")) throw new Error("Invalid Case.dev inference endpoint");
-		endpoint.pathname = `${endpoint.pathname.slice(0, -"/llm/v1".length)}/linc/v1/images`;
-		endpoint.search = "";
-		endpoint.hash = "";
-		// Bound the entire preparation phase, so earlier URLs cannot expire
-		// while a later upload stalls. Preserve user cancellation throughout.
-		const timeout = AbortSignal.timeout(60_000);
-		const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-		const scope = createHash("sha256")
-			.update(`${endpoint.href}:${options.apiKey}:${options.sessionId}`)
-			.digest("hex");
+		options.signal?.throwIfAborted();
+		let endpoint: URL | undefined;
+		let scope = "";
+		const images = new Map<
+			string,
+			{ sha256: string; mimeType: string; data: string; targets: { url: string }[]; expiresAt: number }
+		>();
 		const messages = [];
 		for (const message of payload.messages as unknown[]) {
 			if (!message || typeof message !== "object" || !("content" in message) || !Array.isArray(message.content)) {
@@ -64,6 +60,17 @@ export class RuntimeImages {
 					content.push(part);
 					continue;
 				}
+				if (!endpoint) {
+					endpoint = new URL(options.baseUrl);
+					const pathname = endpoint.pathname.replace(/\/+$/, "");
+					if (!pathname.endsWith("/llm/v1")) throw new Error("Invalid Case.dev inference endpoint");
+					endpoint.pathname = `${pathname.slice(0, -"/llm/v1".length)}/linc/v1/images`;
+					endpoint.search = "";
+					endpoint.hash = "";
+					scope = createHash("sha256")
+						.update(`${endpoint.href}:${options.apiKey}:${options.sessionId}`)
+						.digest("hex");
+				}
 				const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(source);
 				if (!match) throw new Error("Unsupported inline image format");
 				const [, mimeType, data] = match;
@@ -74,18 +81,45 @@ export class RuntimeImages {
 				}
 				const sha256 = createHash("sha256").update(bytes).digest("hex");
 				const cacheKey = `${scope}:${sha256}:${mimeType}`;
+				const target = { ...part.image_url, url: source };
+				let image = images.get(cacheKey);
+				if (!image) {
+					image = { sha256, mimeType, data, targets: [], expiresAt: 0 };
+					images.set(cacheKey, image);
+				}
+				image.targets.push(target);
+				content.push({ ...part, image_url: target });
+			}
+			messages.push({ ...message, content });
+		}
+		if (!endpoint) return payload;
+		const uploadEndpoint = endpoint;
+		const uploads = [...images];
+		const controller = new AbortController();
+		const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+		let nextImage = 0;
+		const workers = Array.from({ length: Math.min(UPLOAD_CONCURRENCY, uploads.length) }, async () => {
+			while (nextImage < uploads.length) {
+				signal.throwIfAborted();
+				const [cacheKey, image] = uploads[nextImage++];
 				let cached = this.urls.get(cacheKey);
 				if (!cached || cached.expiresAt <= Date.now() + RENEW_BEFORE_MS) {
 					const bypass = process.env.CASEDEV_VERCEL_PROTECTION_BYPASS;
-					const response = await fetch(endpoint, {
+					const response = await fetch(uploadEndpoint, {
 						method: "POST",
 						headers: {
 							Authorization: `Bearer ${options.apiKey}`,
 							"Content-Type": "application/json",
 							...(bypass ? { "x-vercel-protection-bypass": bypass } : {}),
 						},
-						body: JSON.stringify({ sessionId: options.sessionId, sha256, mimeType, data }),
-						signal,
+						body: JSON.stringify({
+							sessionId: options.sessionId,
+							sha256: image.sha256,
+							mimeType: image.mimeType,
+							data: image.data,
+						}),
+						// A large history can take longer than one upload's deadline.
+						signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
 					});
 					// Never include server response bodies: they may contain signed URLs.
 					if (!response.ok) throw new Error(`Runtime image upload failed (${response.status})`);
@@ -102,9 +136,21 @@ export class RuntimeImages {
 					cached = { url: result.url, expiresAt };
 					this.urls.set(cacheKey, cached);
 				}
-				content.push({ ...part, image_url: { ...part.image_url, url: cached.url } });
+				image.expiresAt = cached.expiresAt;
+				for (const target of image.targets) target.url = cached.url;
 			}
-			messages.push({ ...message, content });
+		});
+		try {
+			await Promise.all(workers);
+		} catch (error) {
+			controller.abort();
+			await Promise.allSettled(workers);
+			throw error;
+		}
+		signal.throwIfAborted();
+		// Earlier cached or uploaded URLs must still be usable at dispatch.
+		if (uploads.some(([, image]) => image.expiresAt <= Date.now() + RENEW_BEFORE_MS)) {
+			throw new Error("Runtime image URLs need renewal after a long upload; retry the request");
 		}
 		return { ...payload, messages };
 	}
