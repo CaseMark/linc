@@ -6,6 +6,10 @@
 
 - Added bounded, data-only filling of injected organization DOCX templates by slug to the opt-in MCP skills extension. Literal placeholders (including split Word runs) preserve the template's styling and package assets; executable/unsupported template content fails visibly. Remote execution approval remains unchanged (CD-1802).
 
+### Fixed
+
+- Preserve ordinary Word/python-docx empty APA bibliography metadata when filling organization templates. Only its validated three-part passive package is accepted; arbitrary custom XML, populated sources, external targets and Word data bindings remain blocked (CD-1805).
+
 ## [0.79.27] - 2026-10-12
 
 ### Changed
