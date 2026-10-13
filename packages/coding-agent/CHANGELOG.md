@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- `vault_read_text` now says each `--- Page N ---` marker starts page N, so passages are cited by the nearest marker above them rather than the next one. For documents without page markers it no longer prescribes section or heading citations, which contradicted app citation rules (C3-119).
 - Preserve ordinary Word/python-docx empty APA bibliography metadata when filling organization templates. Only its validated three-part passive package is accepted; arbitrary custom XML, populated sources, external targets and Word data bindings remain blocked (CD-1805).
 
 ## [0.79.27] - 2026-10-12

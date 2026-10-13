@@ -378,7 +378,7 @@ describe("Case.dev vault REST API helper", () => {
 			chars: text.length,
 			pageMarkers: 2,
 		});
-		expect(result.note).toContain("page numbers");
+		expect(result.note).toContain("the nearest marker above it");
 		await expect(readFile(join(cwd, "report.pdf.txt"), "utf-8")).resolves.toBe(text);
 		expect(fetchMock).toHaveBeenCalledWith("https://preview.api.case.dev/vault/vault-1/objects/obj-1/text", {
 			method: "GET",
@@ -386,6 +386,24 @@ describe("Case.dev vault REST API helper", () => {
 			body: undefined,
 			signal: undefined,
 		});
+	});
+
+	it("says an unpaginated document has no page numbers without prescribing a citation style", async () => {
+		const text = "Speaker 1: Notes body without page markers";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => jsonResponse({ text, metadata: { filename: "notes.docx" } })),
+		);
+
+		const result = await readCaseDevVaultObjectText(createContext(cwd), {
+			vaultId: "vault-1",
+			objectId: "obj-notes",
+			outDir: cwd,
+		});
+
+		expect(result.pageMarkers).toBe(0);
+		expect(result.note).toContain("no page numbers to cite");
+		expect(result.note).not.toContain("section or heading");
 	});
 
 	it("writes large extracted text to disk in full with grep-first guidance", async () => {

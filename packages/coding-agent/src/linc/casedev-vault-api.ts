@@ -411,8 +411,8 @@ export async function readCaseDevVaultObjectText(
 		pageMarkers,
 		note:
 			(pageMarkers > 0
-				? "Text contains --- Page N --- markers; cite findings by those page numbers. "
-				: "This document has no page markers; cite findings by section or heading. ") + usage,
+				? "Text contains --- Page N --- markers. Each marker starts page N, so a passage is on the page of the nearest marker above it; cite findings by that page number. "
+				: "This document has no page markers, so it has no page numbers to cite. ") + usage,
 	};
 }
 
