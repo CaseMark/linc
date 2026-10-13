@@ -1,10 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.28] - 2026-10-13
 
 ### Added
 
 - Added bounded, data-only filling of injected organization DOCX templates by slug to the opt-in MCP skills extension. Literal placeholders (including split Word runs) preserve the template's styling and package assets; executable/unsupported template content fails visibly. Remote execution approval remains unchanged (CD-1802).
+
+### Changed
+
+- Refreshed generated provider catalogs from captured live feeds: 54 chat entries added, none removed and 11 retained entries updated relative to the reviewed 0.79.27 candidate. The image catalog is unchanged. Since 0.79.27 was never published, the combined delta from published 0.79.26 is 62 added, 20 removed and 48 updated chat entries; see the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.28.md) for captured sources and removed IDs (CD-1795).
 
 ### Fixed
 
