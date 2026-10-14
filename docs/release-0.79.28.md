@@ -20,6 +20,10 @@ The owner explicitly authorized this audit. All implementation commits since bot
 
 ## Catalog review
 
+### Release-review follow-up — 2026-10-14
+
+The approved documentation follow-up restates the 20 existing removals for direct 0.79.26 upgrades, corrects 0.79.27's publication status, and makes the metadata/availability distinction explicit. Published changelog history is byte-identical. Final CI then regenerated the live catalog without `opencode-go/deepseek-v4-flash`, causing a compile error in a thinking-level test's built-in lookup. The owner approved replacing that one lookup with a typed fixture preserving the same `off`/`high`/`xhigh` assertion and the original `high`/`max` mapping. Runtime code, generated catalogs, dependencies and test skips are unchanged by this fix; the fixture does not assert current provider availability. The focused thinking-level file passes all 14 tests, and full `npm run check` passes with no formatting fixes.
+
 Relative to reviewed local v0.79.27: 1453 → 1507 chat entries; 54 added, 0 removed, 11 retained metadata changes. Image catalog remains 61 entries, unchanged. No retained chat entry changes its API or endpoint. Relative to published v0.79.26: 62 added, 20 removed and 48 changed. All 20 removals were previously documented in 0.79.27 and remain absent from the captured direct source feeds. There are no additional removals in 0.79.28. Generated catalogs are not hand-edited; source feeds are captured with hashes for review. Metadata availability is not authenticated certification of every provider route.
 
 ### Captured sources
