@@ -179,6 +179,20 @@ describe("bounded native PDF tool", () => {
 		expect(fetcher).not.toHaveBeenCalled();
 	});
 
+	test.each(["", "not-a-url", "://bad"])(
+		"reports invalid runtime origin %j before reading credentials",
+		async (runtime) => {
+			vi.stubEnv("CASEDEV_BASE_URL", runtime);
+			vi.stubEnv("CASE_API_URL", "");
+			const ctx = await workspace();
+			await expect(tool.execute("bad", input, undefined, undefined, ctx)).rejects.toThrow(
+				"requires a valid runtime Case.dev API origin",
+			);
+			expect(ctx.modelRegistry.authStorage.getApiKey).not.toHaveBeenCalled();
+			expect(fetcher).not.toHaveBeenCalled();
+		},
+	);
+
 	test.each([401, 429, 500, 302])("does not retry HTTP %i or reflect the response body", async (status) => {
 		fetcher.mockImplementation(async () => new Response("sensitive error body", { status }));
 		const ctx = await workspace();
@@ -192,6 +206,7 @@ describe("bounded native PDF tool", () => {
 		["text/html", "<html>not PDF</html>"],
 		["application/pdf", "not PDF"],
 		["application/pdf", "%PDF-1.3\ntruncated"],
+		["application/pdf", "%PDF-2.0\n%%EOF\n"],
 	])("rejects invalid response %s %s", async (contentType, bytes) => {
 		fetcher.mockImplementation(async () => new Response(bytes, { headers: { "Content-Type": contentType } }));
 		const ctx = await workspace();

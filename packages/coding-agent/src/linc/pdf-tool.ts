@@ -96,7 +96,12 @@ export function createPdfTool(onCreated: (result: PdfResult) => void): ToolDefin
 			const validatedEndpoint = new URL(
 				validateCaseDevSkillsMcpEndpoint(endpoint, process.env.LINC_MCP_SKILLS_ALLOW_PRODUCTION === "1"),
 			);
-			const runtimeOrigin = new URL(process.env.CASEDEV_BASE_URL || process.env.CASE_API_URL || "").origin;
+			let runtimeOrigin: string;
+			try {
+				runtimeOrigin = new URL(process.env.CASEDEV_BASE_URL || process.env.CASE_API_URL || "").origin;
+			} catch {
+				throw new Error("PDF formatter requires a valid runtime Case.dev API origin");
+			}
 			if (validatedEndpoint.origin !== runtimeOrigin) {
 				throw new Error("PDF formatter must match the runtime Case.dev API origin");
 			}

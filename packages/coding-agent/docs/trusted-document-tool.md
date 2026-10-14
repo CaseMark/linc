@@ -55,7 +55,9 @@ conversion, advanced layouts and arbitrary engine workflows remain unsupported.
 Report these limitations before substituting a simpler deliverable.
 
 PDF requests have a 30-second timeout and no automatic retry. Returned bytes
-must have PDF MIME type, header and EOF marker, and fit within 8 MiB. These
+must have PDF MIME type, a version 1.0–1.7 header and EOF marker, and fit within
+8 MiB. A formatter upgrade to PDF 2.0 requires revalidation rather than silently
+expanding this boundary. These
 checks identify the trusted formatter's output; they are not a sanitizer for
 arbitrary third-party PDFs. Output is exclusively created in the canonical
 workspace root with mode 0600. Creation appends only output hash and byte count
