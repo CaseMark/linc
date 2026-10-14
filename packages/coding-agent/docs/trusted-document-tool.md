@@ -1,4 +1,4 @@
-# Trusted Word documents in the MCP skills pilot
+# Trusted documents in the MCP skills pilot
 
 `casedev_document_create` is registered only by the opt-in `skills-mcp`
 extension. It turns structured text into a new `.docx` using built-in Linc
@@ -22,6 +22,46 @@ Supported blocks:
 The output uses Letter pages, one-inch margins, and 12-point Times New Roman
 body text. Heading levels 1–3 and rectangular text tables are supported. Text
 is literal data, not Markdown or OOXML. Tabs and line breaks are preserved.
+
+## Creating a text-only PDF
+
+The extension also registers `casedev_document_create_pdf`. It accepts a new
+`.pdf` basename and literal paragraph/heading blocks (levels 1–3), with the
+same 256-block, 16,384-character/value and 256 KiB UTF-8 text limits. It sends
+host-escaped text to the existing authenticated `/format/v1/document` API at
+the configured runtime/MCP origin. The API owns rendering; no workspace code,
+shell commands, input files, HTML, images, external URLs, arbitrary formatter
+options or template components are accepted. Credentials use the existing
+Case.dev runtime auth storage, without fallback keys or redirects. Production
+requires the existing explicit MCP production approval.
+
+The formatter uses standard PDF fonts. ASCII, Latin-1 printable characters and
+Windows-1252 punctuation are supported; other characters fail visibly to avoid
+missing glyphs. This is not full Unicode/font parity with native Word output.
+
+```json
+{
+  "filename": "Summary.pdf",
+  "blocks": [
+    { "type": "heading", "level": 1, "text": "Synthetic summary" },
+    { "type": "paragraph", "text": "A literal summary with citations." }
+  ]
+}
+```
+
+The formatter's current PDF path does not render tables. Table blocks and
+unknown fields are rejected rather than silently flattened. Word-template
+conversion, advanced layouts and arbitrary engine workflows remain unsupported.
+Report these limitations before substituting a simpler deliverable.
+
+PDF requests have a 30-second timeout and no automatic retry. Returned bytes
+must have PDF MIME type, header and EOF marker, and fit within 8 MiB. These
+checks identify the trusted formatter's output; they are not a sanitizer for
+arbitrary third-party PDFs. Output is exclusively created in the canonical
+workspace root with mode 0600. Creation appends only output hash and byte count
+to the session audit, never document text or credentials. Use `vault_upload`
+afterward; creating the local file alone does not deliver it. The existing
+registry-failure block and manifest-bound execution approvals remain unchanged.
 
 ## Filling an existing organization template
 
@@ -78,7 +118,7 @@ script-based workflow. Use `vault_upload` to deliver the returned file afterward
   remote manifest. The existing execution gate remains in effect; changed
   manifests do not inherit approval. Registry failure blocks document creation
   through the same extension tool-call policy.
-- Text-only DOCX generation is not binary-template, script, PDF, spreadsheet,
+- Text-only DOCX generation is not binary-template, script, spreadsheet,
   advanced-formatting, or arbitrary engine-workflow parity. Report unsupported
   requirements rather than silently dropping them or bypassing approval.
 

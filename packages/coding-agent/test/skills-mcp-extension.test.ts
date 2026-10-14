@@ -126,6 +126,8 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 			expect(call({ toolName: "casedev_skill_read" })).toBeUndefined();
 			expect(tools.has("casedev_document_create")).toBe(true);
 			expect(call({ toolName: "casedev_document_create" })).toBeUndefined();
+			expect(tools.has("casedev_document_create_pdf")).toBe(true);
+			expect(call({ toolName: "casedev_document_create_pdf" })).toBeUndefined();
 			expect(tools.has("casedev_document_fill_template")).toBe(true);
 			expect(call({ toolName: "casedev_document_fill_template" })).toBeUndefined();
 
@@ -160,6 +162,7 @@ describe("Linc Case.dev MCP skills pilot extension", () => {
 			);
 			expect(call({ toolName: "casedev_skill_discover" })).toMatchObject({ block: true });
 			expect(call({ toolName: "casedev_document_create" })).toMatchObject({ block: true });
+			expect(call({ toolName: "casedev_document_create_pdf" })).toMatchObject({ block: true });
 			expect(call({ toolName: "casedev_document_fill_template" })).toMatchObject({ block: true });
 			await expect(discover.execute("retry", {}, undefined, undefined, ctx)).rejects.toThrow("failed this turn");
 			expect(methods).toEqual(["skills/list"]);

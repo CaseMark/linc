@@ -16,6 +16,9 @@ describe("CD-1763 portable MCP document schema", () => {
 					const schema = JSON.stringify(tool?.parameters);
 					expect(schema).not.toMatch(/\(\?(?:[=!]|<[=!])/);
 					expect(schema).toContain("filename");
+					const pdf = context.tools?.find((tool) => tool.name === "casedev_document_create_pdf");
+					expect(pdf).toBeDefined();
+					expect(JSON.stringify(pdf?.parameters)).not.toMatch(/\(\?(?:[=!]|<[=!])/);
 					return fauxAssistantMessage(
 						fauxToolCall("casedev_document_create", {
 							filename: "unsafe.docx\n",
