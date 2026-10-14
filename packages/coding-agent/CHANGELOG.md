@@ -10,11 +10,36 @@
 
 ### Changed
 
-- Refreshed generated provider catalogs from captured live feeds: 54 chat entries added, none removed and 11 retained entries updated relative to the reviewed 0.79.27 candidate. The image catalog is unchanged. Since 0.79.27 was never published, the combined delta from published 0.79.26 is 62 added, 20 removed and 48 updated chat entries; see the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.28.md) for captured sources and removed IDs (CD-1795).
+- Refreshed generated provider catalogs from captured live feeds: 54 chat entries added, none removed and 11 retained entries updated relative to 0.79.27, which is now published. The image catalog is unchanged. For users upgrading directly from 0.79.26, the combined delta is 62 added, 20 removed and 48 updated chat entries. Retained-entry prices and limits are source metadata, not authenticated certification of live provider availability or behavior; see the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.28.md) for captured sources and exact metadata changes (CD-1795).
 
 ### Fixed
 
 - Preserve ordinary Word/python-docx empty APA bibliography metadata when filling organization templates. Only its validated three-part passive package is accepted; arbitrary custom XML, populated sources, external targets and Word data bindings remain blocked (CD-1805).
+
+### Removed
+
+For users upgrading directly from 0.79.26, the following 20 chat catalog IDs were removed in 0.79.27 and remain absent in 0.79.28. Existing selections of these exact IDs must switch to an available model; run `linc --list-models` for alternatives. There are no additional removals relative to 0.79.27 and no image catalog removals. See the [source-backed removal list](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.28.md#removals-relative-to-published-07926) (CD-1795).
+
+- `openrouter/qwen/qwen-plus-2025-07-28`
+- `openrouter/qwen/qwen3-235b-a22b`
+- `openrouter/qwen/qwen3-30b-a3b-thinking-2507`
+- `openrouter/qwen/qwen3-8b`
+- `openrouter/qwen/qwen3-coder-plus`
+- `openrouter/qwen/qwen3-max`
+- `openrouter/qwen/qwen3-max-thinking`
+- `openrouter/qwen/qwen3-vl-235b-a22b-thinking`
+- `openrouter/qwen/qwen3-vl-32b-instruct`
+- `openrouter/qwen/qwen3-vl-8b-thinking`
+- `openrouter/qwen/qwen3.6-max-preview`
+- `vercel-ai-gateway/alibaba/qwen-3.6-max-preview`
+- `vercel-ai-gateway/alibaba/qwen3-235b-a22b-thinking`
+- `vercel-ai-gateway/alibaba/qwen3-coder-plus`
+- `vercel-ai-gateway/alibaba/qwen3-max`
+- `vercel-ai-gateway/alibaba/qwen3-max-preview`
+- `vercel-ai-gateway/alibaba/qwen3-vl-235b-a22b-instruct`
+- `vercel-ai-gateway/alibaba/qwen3-vl-thinking`
+- `vercel-ai-gateway/anthropic/claude-3-haiku`
+- `vercel-ai-gateway/anthropic/claude-opus-4`
 
 ## [0.79.27] - 2026-10-12
 

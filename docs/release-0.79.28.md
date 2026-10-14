@@ -1,11 +1,11 @@
 # Linc 0.79.28 release verification
 
 Tracked in [CD-1795](https://linear.app/casemarkai/issue/CD-1795/release-linc-07928-and-update-the-casedev-preview-pin). Base: main `401a848e8d3a9fb1f72a49be726937ef61267abf`.
-Only `@casemark/linc` changes to 0.79.28; bundled pi versions/ranges remain 0.79.10. The reviewed 0.79.27 preparation was never published; its local tag and immutable changelog section are untouched. This release includes #91, #93 and #94.
+Only `@casemark/linc` changes to 0.79.28; bundled pi versions/ranges remain 0.79.10. Version 0.79.27 was unpublished during initial preparation, but it was subsequently published to npm and GitHub Releases on 2026-10-13. Its tag and immutable changelog section are untouched. This release includes #91, #93 and #94.
 
 ## Changelog audit — 2026-10-13
 
-The owner explicitly authorized this audit. All implementation commits since both local v0.79.27 and published v0.79.26 are covered: #91 runtime-image transport and timeout/concurrency handling in the existing 0.79.27 Fixed entry; #93 trusted template filling plus pinned-descriptor reads, schema validation and field-name-only audit; #94 the canonical empty APA bibliography compatibility exception. All affect coding-agent only. No missing entries or cross-package duplication were found. ai/agent/tui Unreleased sections and released sections are unchanged. Release/merge bookkeeping and generated catalog-only changes were excluded from the commit-entry audit. The proposed New Features highlight awaits owner confirmation; it is not added without approval.
+The owner explicitly authorized this audit. All implementation commits since both local v0.79.27 and published v0.79.26 are covered: #91 runtime-image transport and timeout/concurrency handling in the existing 0.79.27 Fixed entry; #93 trusted template filling plus pinned-descriptor reads, schema validation and field-name-only audit; #94 the canonical empty APA bibliography compatibility exception. All affect coding-agent only. No missing entries or cross-package duplication were found. ai/agent/tui Unreleased sections and released sections are unchanged. Release/merge bookkeeping and generated catalog-only changes were excluded from the commit-entry audit. The template feature is covered by the existing Added entry; no additional, unapproved New Features highlight is included.
 
 ## Local candidate validation
 
