@@ -391,6 +391,53 @@ describe("resolveCliModel", () => {
 });
 
 describe("default model selection", () => {
+	describe("CD-1833 NVIDIA standalone default", () => {
+		const currentDefault = getModel("nvidia", "nvidia/llama-3.1-nemotron-ultra-253b-v1");
+		const selected = { ...currentDefault, id: "nvidia/qa-explicit-selection" };
+		const available = [selected, currentDefault];
+		const registry = {
+			getAll: () => available,
+			getAvailable: async () => available,
+			find: (provider: string, id: string) =>
+				available.find((model) => model.provider === provider && model.id === id),
+			hasConfiguredAuth: () => true,
+		} as unknown as Parameters<typeof findInitialModel>[0]["modelRegistry"];
+
+		test("selects the approved catalogued replacement rather than the first available model", async () => {
+			expect(defaultModelPerProvider.nvidia).toBe("nvidia/llama-3.1-nemotron-ultra-253b-v1");
+			const result = await findInitialModel({ scopedModels: [], isContinuing: false, modelRegistry: registry });
+			expect(result.model).toBe(currentDefault);
+		});
+
+		test("preserves an explicit NVIDIA selection", async () => {
+			const result = await findInitialModel({
+				cliProvider: "nvidia",
+				cliModel: selected.id,
+				scopedModels: [],
+				isContinuing: false,
+				modelRegistry: registry,
+			});
+			expect(result.model).toBe(selected);
+		});
+
+		test("preserves a saved NVIDIA default", async () => {
+			const result = await findInitialModel({
+				defaultProvider: "nvidia",
+				defaultModelId: selected.id,
+				scopedModels: [],
+				isContinuing: false,
+				modelRegistry: registry,
+			});
+			expect(result.model).toBe(selected);
+		});
+
+		test("preserves a resumed NVIDIA session", async () => {
+			const result = await restoreModelFromSession("nvidia", selected.id, currentDefault, false, registry);
+			expect(result.model).toBe(selected);
+			expect(result.fallbackMessage).toBeUndefined();
+		});
+	});
+
 	describe.each(["casemark-core", "casedev"])("%s standalone default", (provider) => {
 		const large = { ...mockModels[0], provider, id: "casemark/core-large" };
 		const potassium = { ...large, id: "casemark/core-potassium" };
