@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -144,6 +145,46 @@ describe.skipIf(!built)("release bundle: pi workspace packages ride inside the l
 					expect(copied.version).toBe(version);
 				}
 			}
+		},
+		TEST_TIMEOUT_MS,
+	);
+
+	it(
+		"CD-1849 pins patched brace expansion in the release shrinkwrap and handles bounded pathological patterns",
+		() => {
+			const after = bundleAndPack();
+			const rootPackage = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+				overrides: Record<string, unknown>;
+			};
+			expect(rootPackage.overrides["minimatch@10.2.5"]).toEqual({ "brace-expansion": "5.0.12" });
+			expect(after.has("npm-shrinkwrap.json")).toBe(true);
+			const rootRequire = createRequire(join(repoRoot, "package.json"));
+			const minimatchEntry = rootRequire.resolve("minimatch");
+			const bracePackage = createRequire(minimatchEntry).resolve("brace-expansion/package.json");
+			const bracePath = "node_modules/minimatch/node_modules/brace-expansion";
+			expect(bracePackage).toBe(join(repoRoot, bracePath, "package.json"));
+			expect(shrinkwrap.packages[bracePath].version).toBe("5.0.12");
+			expect(shrinkwrap.packages["node_modules/brace-expansion"]).toBeUndefined();
+			expect(JSON.parse(readFileSync(bracePackage, "utf8"))).toMatchObject({ version: "5.0.12" });
+
+			// A child keeps a future regression bounded in time and heap rather than crashing Vitest.
+			const probe = spawnSync(
+				process.execPath,
+				[
+					"--max-old-space-size=128",
+					"-e",
+					`const { minimatch } = require(process.argv[1]);
+const ordinary = [minimatch('docs/file.md', 'docs/*.{md,txt}'), minimatch('docs/file.js', 'docs/*.{md,txt}')];
+minimatch('a', '{a}' + '}'.repeat(16000) + ',z}');
+console.log(JSON.stringify(ordinary));`,
+					minimatchEntry,
+				],
+				{ encoding: "utf8", env: {}, timeout: 3_000, maxBuffer: 65_536 },
+			);
+			expect(probe.error).toBeUndefined();
+			expect(probe.signal).toBeNull();
+			expect(probe.status, probe.stderr).toBe(0);
+			expect(JSON.parse(probe.stdout)).toEqual([true, false]);
 		},
 		TEST_TIMEOUT_MS,
 	);
