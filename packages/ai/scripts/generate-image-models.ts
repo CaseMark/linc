@@ -4,7 +4,7 @@ import { writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import type { ImagesModel } from "../src/types.ts";
-import { perMillionTokens } from "./catalog-price.ts";
+import { hasNegativeTokenPrice, perMillionTokens } from "./catalog-price.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,6 +50,17 @@ async function fetchOpenRouterImageModels(): Promise<ImagesModel<"openrouter-ima
 			);
 
 			if (!output.includes("image")) continue;
+			if (
+				hasNegativeTokenPrice(
+					model.pricing?.prompt,
+					model.pricing?.completion,
+					model.pricing?.input_cache_read,
+					model.pricing?.input_cache_write,
+				)
+			) {
+				console.warn(`Skipping OpenRouter image model ${model.id}: negative advertised token prices`);
+				continue;
+			}
 			if (input.length === 0) input.push("text");
 
 			models.push({

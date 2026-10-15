@@ -26,6 +26,11 @@ export interface CatalogCost {
 	cacheWrite: number;
 }
 
+/** Reject advertised negative prices before conversion or rounding can hide them. */
+export function hasNegativeTokenPrice(...prices: (string | number | undefined)[]): boolean {
+	return prices.some((price) => (typeof price === "number" ? price : Number.parseFloat(price ?? "")) < 0);
+}
+
 /**
  * Round a USD-per-million-tokens price to catalog precision. Non-finite input is
  * treated as free, matching how the generators have always read missing prices.

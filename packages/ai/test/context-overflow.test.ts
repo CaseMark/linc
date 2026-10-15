@@ -503,16 +503,21 @@ describe("Context overflow error handling", () => {
 	// =============================================================================
 
 	describe.skipIf(!process.env.OPENROUTER_API_KEY)("OpenRouter", () => {
+		const sonnet4 = getModels("openrouter").find((model) => model.id === "anthropic/claude-sonnet-4");
 		// Anthropic backend
-		it("anthropic/claude-sonnet-4 via OpenRouter - should detect overflow via isContextOverflow", async () => {
-			const model = getModel("openrouter", "anthropic/claude-sonnet-4");
-			const result = await testContextOverflow(model, process.env.OPENROUTER_API_KEY!);
-			logResult(result);
+		it.skipIf(!sonnet4)(
+			"anthropic/claude-sonnet-4 via OpenRouter - should detect overflow via isContextOverflow",
+			async () => {
+				const model = sonnet4!;
+				const result = await testContextOverflow(model, process.env.OPENROUTER_API_KEY!);
+				logResult(result);
 
-			expect(result.stopReason).toBe("error");
-			expect(result.errorMessage).toMatch(/maximum context length is \d+ tokens/i);
-			expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
-		}, 120000);
+				expect(result.stopReason).toBe("error");
+				expect(result.errorMessage).toMatch(/maximum context length is \d+ tokens/i);
+				expect(isContextOverflow(result.response, model.contextWindow)).toBe(true);
+			},
+			120000,
+		);
 
 		// DeepSeek backend
 		it("deepseek/deepseek-v3.2 via OpenRouter - should detect overflow via isContextOverflow", async () => {
