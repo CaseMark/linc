@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.79.30] - 2026-10-15
+
+### Changed
+
+- Refreshed generated catalogs from captured provider feeds: eight chat entries added, three removed and 15 retained entries updated; one image entry added with no image removals. Provider metadata is not live-route certification. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.30.md) for exact changes and source hashes (CD-1861).
+- OpenRouter now advertises a 131,072-token output cap for `~z-ai/glm-flash-latest`, down from 943,718. Its 1,048,576-token context window is unchanged. Callers relying on the older output cap must adjust; this catalog update does not introduce request clamping or certify upstream handling of over-limit requests (CD-1861).
+
+### Fixed
+
+- Pin the shipped runtime's `brace-expansion` dependency to 5.0.12 through a scoped `minimatch@10.2.5` override. The release shrinkwrap no longer installs vulnerable 5.0.6; bounded regression coverage preserves ordinary glob matching and verifies pathological brace input completes without crashing. Skill loading, execution approval and provider defaults are unchanged (CD-1849, [#99](https://github.com/CaseMark/linc/pull/99)).
+
+### Removed
+
+- Removed catalog IDs `opencode-go/grok-4.6`, `opencode-go/minimax-m2.7` and `openrouter/unbiased/pareto-26.10-preview`, which are absent or deprecated in the captured sources. This does not establish endpoint retirement. Choose a current catalog entry with `linc --list-models`; explicit/custom-model fallback is unchanged. No image entries were removed (CD-1861).
+
 ## [0.79.29] - 2026-10-15
 
 ### Added
