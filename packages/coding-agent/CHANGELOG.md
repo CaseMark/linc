@@ -7,6 +7,7 @@
 ### Changed
 
 - Refreshed generated catalogs from captured provider feeds: eight chat entries added, three removed and 15 retained entries updated; one image entry added with no image removals. Provider metadata is not live-route certification. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.30.md) for exact changes and source hashes (CD-1861).
+- OpenRouter now advertises a 131,072-token output cap for `~z-ai/glm-flash-latest`, down from 943,718. Its 1,048,576-token context window is unchanged. Callers relying on the older output cap must adjust; this catalog update does not introduce request clamping or certify upstream handling of over-limit requests (CD-1861).
 
 ### Fixed
 

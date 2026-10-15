@@ -18,6 +18,7 @@ The 5.0.12 pin replaces the vulnerable 5.0.6 runtime resolution. The development
 - macOS ARM64 Bun 1.3.4 binary build passes using the repository's existing build script. Node and Bun both pass version/help, model listing, authenticated print completions and real interactive PTY completions with `casemark-core` / `casemark/core-potassium`, final `stopReason: stop`, and interactive exit 0. These are local candidate checks, not certification of every platform archive or deployed image. Account/provider metadata was checked using an in-memory credential store; no login, API key creation or persisted credential was required.
 - Initial local harness attempts left piped stdin open or used a `script` wrapper incompatible with socket-backed stdin. Closing print-mode stdin and allocating a real PTY corrected the harness; no Linc product code changed. Only completed assistant responses and clean interactive exits count as passed checks.
 - Replaying all five captured feeds reproduces both generated catalogs byte-for-byte after the repository formatter. All changed prices/limits/additions/removals were checked against these sources and existing filters; generated files were not hand-edited.
+- An offline probe of the installed package checks all three removed IDs: none is listed; explicit provider/model selection preserves the requested custom ID with the existing warning; missing saved defaults and resumed sessions choose an available configured model. Resumption includes the existing "model no longer exists" fallback message. With only the relevant provider configured, OpenCode Go falls back to `kimi-k3` and OpenRouter to `moonshotai/kimi-k2.6`. No provider request was sent. This verifies selection behavior, not continued availability of removed endpoints.
 
 GitHub CI status is reported separately on the PR for its exact head. Local checks do not imply that a future publishing workflow or deployed runtime has been validated.
 
@@ -63,6 +64,8 @@ Image:
 - `openrouter/unbiased/pareto-26.10-preview`: absent from captured OpenRouter source.
 
 Existing selections of these IDs should switch to a currently listed model. Catalog exclusion is not proof the upstream endpoint has been retired. Explicit/custom-model fallback and saved/resume behavior are unchanged. There are no image removals.
+
+For `openrouter/~z-ai/glm-flash-latest`, the captured `top_provider.max_completion_tokens` is 131,072, down from the previously catalogued 943,718. Its context window remains 1,048,576; this is an output-cap reduction, not a context-window reduction. Callers relying on the older cap must adjust their requested output. Existing explicit max-token options pass through unchanged; no new clamping, removed-ID denylist or live over-limit guarantee is introduced by this maintenance release.
 
 ### Retained metadata changes
 
