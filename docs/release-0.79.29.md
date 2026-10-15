@@ -11,10 +11,12 @@ The C3-119 entry was added to main's 0.79.28 section after the v0.79.28 tag. The
 
 The owner separately approved CD-1837's test-only follow-ups in commits `4ecf6740` and `c959a3fe`: a typed historical cache-control fixture, exact-model membership guards on two live tests, and current-model selection for registry override coverage. All registry assertions remain, with no added registry skips. Runtime code, provider defaults and generated catalog generation logic are unchanged by those follow-ups.
 
+The owner also approved [CD-1840](https://linear.app/casemarkai/issue/CD-1840/exclude-negative-price-source-entries-from-generated-linc-catalogs): exclude negative advertised token prices before conversion/rounding, regenerate from the same captured feeds, and correct this unpublished release's notes/local tag. OpenRouter chat/image and Vercel AI Gateway generators share the filter. Zero/positive and existing missing-price handling, custom-model fallback and provider defaults are unchanged. No runtime billing calculation is rewritten.
+
 ## Validation status
 
 - Node 22.22.2 ignore-scripts install, full build, full code check and publish dry-run pass. Lockfile and shrinkwrap changes are Linc version fields only; no dependency updates or new lifecycle allowances. Installed production dependency audit has zero findings; the development install reports pre-existing advisories and is not the shipped production closure.
-- Full credential-stripped `./test.sh` passes: 2,865 passed, 827 credential/platform/model-dependent skipped. A local wrapper redirects only auth paths to isolated temporary directories and limits Vitest workers to two. All files/assertions/timeouts remain unchanged. Normal-concurrency attempts hit the existing macOS reftable watcher timeout and one session-runtime timeout; both unchanged isolated files pass (eight and nine tests respectively). The final accepted complete gate passes with no exclusions. This local concurrency setting is not committed or applied to CI.
+- Full credential-stripped `./test.sh` passes after CD-1840: 2,884 passed, 827 credential/platform/model-dependent skipped. The 43 pricing tests include negative prices in all four dimensions, tiny negatives before rounding, preserved zero/positive/missing handling, and finite/nonnegative invariants across every emitted chat/image price. Both invariants failed on the prior candidate and pass after regeneration. A local wrapper redirects only auth paths to isolated temporary directories and limits Vitest workers to two. No existing assertions/timeouts changed. Earlier normal-concurrency attempts hit the existing macOS reftable watcher timeout and one session-runtime timeout; both unchanged isolated files pass (eight and nine tests respectively). The final accepted complete gate passes with no exclusions. This local concurrency setting is not committed or applied to CI.
 - The actual external Node tarball install contains all three bundled pi builds at 0.79.10; shipped PDF/extension/model-resolver JS matches the build. Node and macOS ARM64 Bun 1.3.4 pass version/help, model listing, authenticated print completions and real interactive PTY completions with `casemark-core` / `casemark/core-potassium`, final `stopReason: stop`, and clean exit 0. Existing Casemark credentials remain in memory/child-process environment only, never artifacts, logs or public task links. Account metadata was checked with in-memory auth storage; no new login or key was created.
 - The packed native PDF tool rejects unsupported table data and creates a real PDF through the authenticated production formatter using fictional text. PDF: 2,219 bytes, SHA-256 `76c927b2259e013b1762200ad540e629634a660cd7c17e9eb4bb916fddb6f405`; PDF 1.3, one A4 page, no JavaScript, mode 0600. Rendering confirms readable headings, body text, citations and uncertainty. This is a packed-tool/API smoke, not deployed esq-c3 upload/View/Download acceptance.
 
@@ -22,7 +24,9 @@ No publication, publishing tag push, deployment, global snapshot pointer change 
 
 ## Catalog review
 
-Relative to published v0.79.28: chat catalog 1,507 → 1,508 (14 added, 13 removed, 31 retained entries changed); image catalog 61 → 59 (two removed, one name changed). No retained entry changes its API or endpoint. Every retained changed field and every removal was checked against the captured feeds and existing generator filters. Generated catalogs were not hand-edited. Metadata is not authenticated certification of provider availability.
+Relative to published v0.79.28: chat catalog 1,507 → 1,504 (13 added, 16 removed, 31 retained entries changed); image catalog 61 → 57 (four removed, one name changed). No retained entry changes its API or endpoint. Every retained changed field and every removal was checked against the captured feeds and generator filters. Generated catalogs were not hand-edited. Metadata is not authenticated certification of provider availability.
+
+The captured OpenRouter feeds advertise prompt/completion prices of `-1` for `openrouter/pareto-code`, `openrouter/auto`, `openrouter/auto-beta` and `typesafe/jev-router`. Those values previously became `-1000000` USD per million tokens. The filter excludes all four chat entries and the two Auto image entries, not just the newly added Pareto Code entry. Pareto Code was absent from 0.79.28, so it is a rejected addition, not a removal from that release. These router endpoints may still exist; their negative/unknown prices cannot support catalog cost estimates. Explicit/custom-model fallback is not changed.
 
 NVIDIA requires both models.dev metadata and NVIDIA NIM membership. The removed Nemotron 3 Super ID still appears in the captured NIM list, but lacks eligible models.dev metadata; this is a catalog exclusion, not proof NVIDIA shut its endpoint down. OpenCode excludes entries marked deprecated. The NVIDIA default fix addresses Linc catalog validity only.
 
@@ -47,7 +51,6 @@ NVIDIA requires both models.dev metadata and NVIDIA NIM membership. The removed 
 - `opencode-go/gemini-4-argon-contributor`
 - `openrouter/google/gemini-4-argon:batch`
 - `openrouter/liquid/lfm-2.5-24b-a2b`
-- `openrouter/openrouter/pareto-code`
 - `openrouter/unbiased/pareto-26.9`
 - `openrouter/~unbiased/pareto-latest`
 - `vercel-ai-gateway/liquid/lfm2.5-24b-a2b`
@@ -68,6 +71,9 @@ Chat:
 - `openrouter/apodex/apodex-1.1-mini:free`
 - `openrouter/inclusionai/ling-3.0-flash-fin`
 - `openrouter/inclusionai/ling-3.0-flash-sante`
+- `openrouter/openrouter/auto` (negative advertised prices)
+- `openrouter/openrouter/auto-beta` (negative advertised prices)
+- `openrouter/typesafe/jev-router` (negative advertised prices)
 - `openrouter/unbiased/pareto`
 - `vercel-ai-gateway/inclusionai/ling-3.1-flash-free`
 
@@ -75,6 +81,8 @@ Image:
 
 - `openrouter/inclusionai/ming-image-0.1-design`
 - `openrouter/inclusionai/ming-image-0.1-design-layer`
+- `openrouter/openrouter/auto` (negative advertised prices)
+- `openrouter/openrouter/auto-beta` (negative advertised prices)
 
 ### Retained metadata changes
 

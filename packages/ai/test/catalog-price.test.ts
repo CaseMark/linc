@@ -1,5 +1,58 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { perMillionTokens, roundCatalogCost, roundCatalogPrice } from "../scripts/catalog-price.ts";
+import {
+	hasNegativeTokenPrice,
+	perMillionTokens,
+	roundCatalogCost,
+	roundCatalogPrice,
+} from "../scripts/catalog-price.ts";
+import { IMAGE_MODELS } from "../src/image-models.generated.ts";
+import { MODELS } from "../src/models.generated.ts";
+
+describe("hasNegativeTokenPrice", () => {
+	test.each([0, 1, 2, 3])("rejects a negative price in dimension %s", (dimension) => {
+		const prices: (string | number | undefined)[] = ["0", "0.000003", undefined, ""];
+		prices[dimension] = "-1";
+		expect(hasNegativeTokenPrice(...prices)).toBe(true);
+	});
+
+	test.each([-1, "-1", "-0.000000000000001", -Number.MIN_VALUE])(
+		"rejects raw negative %s before rounding",
+		(price) => {
+			expect(hasNegativeTokenPrice(price)).toBe(true);
+		},
+	);
+
+	test.each([0, -0, "0", "-0", "0.000003", undefined, "", "n/a", Number.NaN])(
+		"preserves existing handling of nonnegative or missing price %s",
+		(price) => {
+			expect(hasNegativeTokenPrice(price)).toBe(false);
+		},
+	);
+});
+
+describe("generated catalog prices", () => {
+	test("chat prices are finite and nonnegative", () => {
+		for (const models of Object.values(MODELS)) {
+			for (const model of Object.values(models)) {
+				for (const price of Object.values(model.cost)) {
+					expect(Number.isFinite(price), `${model.provider}/${model.id}`).toBe(true);
+					expect(price, `${model.provider}/${model.id}`).toBeGreaterThanOrEqual(0);
+				}
+			}
+		}
+	});
+
+	test("image prices are finite and nonnegative", () => {
+		for (const models of Object.values(IMAGE_MODELS)) {
+			for (const model of Object.values(models)) {
+				for (const price of Object.values(model.cost)) {
+					expect(Number.isFinite(price), `${model.provider}/${model.id}`).toBe(true);
+					expect(price, `${model.provider}/${model.id}`).toBeGreaterThanOrEqual(0);
+				}
+			}
+		}
+	});
+});
 
 describe("perMillionTokens", () => {
 	test.each([

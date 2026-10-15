@@ -9,7 +9,7 @@ import {
 	CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL,
 	CLOUDFLARE_WORKERS_AI_BASE_URL,
 } from "../src/providers/cloudflare.ts";
-import { perMillionTokens, roundCatalogCost } from "./catalog-price.ts";
+import { hasNegativeTokenPrice, perMillionTokens, roundCatalogCost } from "./catalog-price.ts";
 import type { AnthropicMessagesCompat, Api, KnownProvider, Model, OpenAICompletionsCompat } from "../src/types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -397,6 +397,13 @@ async function fetchOpenRouterModels(): Promise<Model<any>[]> {
 		for (const model of data.data) {
 			// Only include models that support tools
 			if (!model.supported_parameters?.includes("tools")) continue;
+			if (hasNegativeTokenPrice(
+				model.pricing?.prompt, model.pricing?.completion,
+				model.pricing?.input_cache_read, model.pricing?.input_cache_write,
+			)) {
+				console.warn(`Skipping OpenRouter model ${model.id}: negative advertised token prices`);
+				continue;
+			}
 
 			// Parse provider from model ID
 			let provider: KnownProvider = "openrouter";
@@ -456,6 +463,13 @@ async function fetchAiGatewayModels(): Promise<Model<any>[]> {
 			const tags = Array.isArray(model.tags) ? model.tags : [];
 			// Only include models that support tools
 			if (!tags.includes("tool-use")) continue;
+			if (hasNegativeTokenPrice(
+				model.pricing?.input, model.pricing?.output,
+				model.pricing?.input_cache_read, model.pricing?.input_cache_write,
+			)) {
+				console.warn(`Skipping Vercel AI Gateway model ${model.id}: negative advertised token prices`);
+				continue;
+			}
 
 			const input: ("text" | "image")[] = ["text"];
 			if (tags.includes("vision")) {
