@@ -1,6 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [0.79.29] - 2026-10-15
+
+### Added
+
+- Added `casedev_document_create_pdf` to the opt-in MCP skills extension: bounded, literal paragraphs and headings rendered by the authenticated Case.dev formatter. New workspace-root PDF files can be delivered with `vault_upload`; tables, templates, arbitrary code and unsupported font characters fail explicitly. Existing manifest-bound execution approval remains unchanged (CD-1830, [#97](https://github.com/CaseMark/linc/pull/97)).
+
+### Changed
+
+- Refreshed generated catalogs from captured source feeds: 14 chat entries added, 13 removed and 31 retained entries updated; two image entries removed and one renamed. Prices and limits are provider metadata, not live-route certification. See the [release verification](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.29.md) for source hashes, exact changes and removed IDs (CD-1834).
+
+### Fixed
+
+- Changed only the standalone NVIDIA provider's default to `nvidia/llama-3.1-nemotron-ultra-253b-v1` after the previous default left its catalog. Explicit, saved and resumed selections are preserved; Case.dev Core's default is unchanged (CD-1833).
+- Clarified `vault_read_text` page-marker guidance: cite the nearest preceding page marker, and do not invent page numbers for unpaginated text. This implementation first ships in 0.79.29; the existing 0.79.28 section was annotated after its tag was published (C3-119, [#96](https://github.com/CaseMark/linc/pull/96)).
+
+### Removed
+
+- Removed 13 chat and two image IDs excluded by the captured catalog sources. This does not establish that every upstream endpoint is unavailable: NVIDIA entries additionally require models.dev metadata. Existing selections of excluded IDs must choose an entry shown by `linc --list-models`; see the [exact removed-ID list](https://github.com/CaseMark/linc/blob/main/docs/release-0.79.29.md#catalog-removals) (CD-1834).
 
 ## [0.79.28] - 2026-10-13
 

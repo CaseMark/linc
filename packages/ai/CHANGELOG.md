@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Made historical Sonnet cache-control coverage independent of live catalog membership and skip only the two exact-model live tests when that ID is absent. Registry override tests select a current built-in ID while preserving all assertions and adding no skips (CD-1837).
+- Skip the model-specific Nemotron live suite when its exact catalog entry is absent, without replacing the model or weakening its five assertions when available (CD-1832, [#97](https://github.com/CaseMark/linc/pull/97)).
 - Updated catalog-backed Kimi regression fixtures after Fireworks, Together, and OpenCode Go removed their K2.6 entries, so live catalog regeneration no longer breaks test typechecking. Thinking-object tests still cover OpenCode Zen's K2.6 compatibility path; on/off thinking uses an explicit fixture (CD-1709, [#83](https://github.com/CaseMark/linc/pull/83)).
 - OpenAI-completions `onResponse` now fires for HTTP error statuses (429/5xx/529). The OpenAI client rejects those responses, so the success-path hook never saw them.
 

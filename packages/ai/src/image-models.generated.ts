@@ -7,7 +7,7 @@ export const IMAGE_MODELS = {
 	openrouter: {
 		"black-forest-labs/flux-3-image": {
 			id: "black-forest-labs/flux-3-image",
-			name: "Black Forest Labs: FLUX.3 Image",
+			name: "Black Forest Labs: FLUX 3 Image",
 			api: "openrouter-images",
 			provider: "openrouter",
 			baseUrl: "https://openrouter.ai/api/v1",
@@ -241,36 +241,6 @@ export const IMAGE_MODELS = {
 			cost: {
 				input: 1.5,
 				output: 7.5,
-				cacheRead: 0,
-				cacheWrite: 0,
-			},
-		} satisfies ImagesModel<"openrouter-images">,
-		"inclusionai/ming-image-0.1-design": {
-			id: "inclusionai/ming-image-0.1-design",
-			name: "inclusionAI: Ming Image 0.1 Design",
-			api: "openrouter-images",
-			provider: "openrouter",
-			baseUrl: "https://openrouter.ai/api/v1",
-			input: ["text"],
-			output: ["image"],
-			cost: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-			},
-		} satisfies ImagesModel<"openrouter-images">,
-		"inclusionai/ming-image-0.1-design-layer": {
-			id: "inclusionai/ming-image-0.1-design-layer",
-			name: "inclusionAI: Ming Image 0.1 Design Layer",
-			api: "openrouter-images",
-			provider: "openrouter",
-			baseUrl: "https://openrouter.ai/api/v1",
-			input: ["text", "image"],
-			output: ["image"],
-			cost: {
-				input: 0,
-				output: 0,
 				cacheRead: 0,
 				cacheWrite: 0,
 			},
