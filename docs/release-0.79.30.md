@@ -11,7 +11,15 @@ The 5.0.12 pin replaces the vulnerable 5.0.6 runtime resolution. The development
 
 ## Validation status
 
-Release verification is in progress. This document and the PR will distinguish completed local/CI checks from outstanding live smoke checks before review readiness is declared.
+- Node 22.22.2 ignore-scripts install, full build, full `npm run check`, and publish dry-run pass. Lockfile/shrinkwrap diffs relative to main are Linc version fields only. No new lifecycle-script allowance or dependency update is introduced by release preparation.
+- Credential-stripped `./test.sh` passes: 2,885 tests passed, 826 existing credential/platform-dependent tests skipped. Local Vitest concurrency is limited to two workers, with no exclusions or changed assertions/timeouts; CI retains its standard settings. The temporary auth-file backup was restored.
+- The actual tarball installed into an empty external directory contains Linc 0.79.30 and all three CaseMark pi builds at 0.79.10. Installed minimatch 10.2.5 resolves brace-expansion 5.0.12; `npm audit --omit=dev` reports zero vulnerabilities. The bounded pathological-pattern probe completes in approximately 10 ms, and ordinary matching passes. The development install still has pre-existing advisories; it is not the shipped production closure.
+- Installed native PDF, MCP extension and model-resolver JavaScript hashes match the build. PDF/MCP hashes are unchanged from published 0.79.29. This release does not weaken remote-code approval or change document-generation tools.
+- macOS ARM64 Bun 1.3.4 binary build passes using the repository's existing build script. Node and Bun both pass version/help, model listing, authenticated print completions and real interactive PTY completions with `casemark-core` / `casemark/core-potassium`, final `stopReason: stop`, and interactive exit 0. These are local candidate checks, not certification of every platform archive or deployed image. Account/provider metadata was checked using an in-memory credential store; no login, API key creation or persisted credential was required.
+- Initial local harness attempts left piped stdin open or used a `script` wrapper incompatible with socket-backed stdin. Closing print-mode stdin and allocating a real PTY corrected the harness; no Linc product code changed. Only completed assistant responses and clean interactive exits count as passed checks.
+- Replaying all five captured feeds reproduces both generated catalogs byte-for-byte after the repository formatter. All changed prices/limits/additions/removals were checked against these sources and existing filters; generated files were not hand-edited.
+
+GitHub CI status is reported separately on the PR for its exact head. Local checks do not imply that a future publishing workflow or deployed runtime has been validated.
 
 No publication, publishing-tag push, runtime image/deployment, global snapshot pointer update or org enrollment is authorized by this preparation. Casemark remains the only enabled org; the currently deployed package is not remediated by this PR alone.
 
