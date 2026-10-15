@@ -179,7 +179,16 @@ minimatch('a', '{a}' + '}'.repeat(16000) + ',z}');
 console.log(JSON.stringify(ordinary));`,
 					minimatchEntry,
 				],
-				{ encoding: "utf8", env: {}, timeout: 3_000, maxBuffer: 65_536 },
+				{
+					encoding: "utf8",
+					// Keep Windows process setup intact without inheriting credentials or NODE_OPTIONS.
+					env:
+						process.platform === "win32"
+							? { SystemRoot: process.env.SystemRoot, SystemDrive: process.env.SystemDrive }
+							: {},
+					timeout: 3_000,
+					maxBuffer: 65_536,
+				},
 			);
 			expect(probe.error).toBeUndefined();
 			expect(probe.signal).toBeNull();
