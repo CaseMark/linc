@@ -23,11 +23,13 @@ The output uses Letter pages, one-inch margins, and 12-point Times New Roman
 body text. Heading levels 1–3 and rectangular text tables are supported. Text
 is literal data, not Markdown or OOXML. Tabs and line breaks are preserved.
 
-## Creating a text-only PDF
+## Creating a PDF with text and tables
 
 The extension also registers `casedev_document_create_pdf`. It accepts a new
-`.pdf` basename and literal paragraph/heading blocks (levels 1–3), with the
-same 256-block, 16,384-character/value and 256 KiB UTF-8 text limits. It sends
+`.pdf` basename and literal paragraphs, headings (levels 1–3), and rectangular
+text tables, with the same 256-block, 16,384-character/value, 4,096-value and
+256 KiB UTF-8 text limits. Tables have at most 100 rows and 12 columns; the
+first row is a repeated column header. It sends
 host-escaped text to the existing authenticated `/format/v1/document` API at
 the configured runtime/MCP origin. The API owns rendering; no workspace code,
 shell commands, input files, HTML, images, external URLs, arbitrary formatter
@@ -44,14 +46,17 @@ missing glyphs. This is not full Unicode/font parity with native Word output.
   "filename": "Summary.pdf",
   "blocks": [
     { "type": "heading", "level": 1, "text": "Synthetic summary" },
-    { "type": "paragraph", "text": "A literal summary with citations." }
+    { "type": "paragraph", "text": "A literal summary with citations." },
+    { "type": "table", "rows": [["Item", "Amount"], ["Fee", "$12"]] }
   ]
 }
 ```
 
-The formatter's current PDF path does not render tables. Table blocks and
-unknown fields are rejected rather than silently flattened. Word-template
-conversion, advanced layouts and arbitrary engine workflows remain unsupported.
+Table rendering requires `pdf-tables-v1` in the formatter's
+`X-Case-Document-Features` response header. The client rejects table output from
+older formatters before writing a file; paragraph/heading-only PDFs still work.
+Release the formatter first, then the client. Unknown fields and malformed tables are rejected rather than silently
+flattened. Word-template conversion, advanced layouts and arbitrary engine workflows remain unsupported.
 Report these limitations before substituting a simpler deliverable.
 
 PDF requests have a 30-second timeout and no automatic retry. Returned bytes
@@ -64,6 +69,28 @@ workspace root with mode 0600. Creation appends only output hash and byte count
 to the session audit, never document text or credentials. Use `vault_upload`
 afterward; creating the local file alone does not deliver it. The existing
 registry-failure block and manifest-bound execution approvals remain unchanged.
+
+## Reading binary skill companions
+
+`casedev_skill_read` accepts only an exact resource URI from a loaded skill's
+held manifest. Text remains origin-marked, escaped untrusted content. For MCP
+`blob` responses, Linc decodes canonical base64 and checks the decoded byte count
+and SHA-256 before writing anything. `SKILL.md` must remain textual. Each binary
+file is capped at 3 MiB; the complete manifest remains capped at 512 resources
+and 16 MiB. A missing, changed, malformed or revoked resource fails closed.
+
+Verified binary bytes are written mode 0600 under a new private `mcp-asset-*`
+directory in the canonical workspace. The output uses a host-owned basename,
+not a remote directory tree. The tool returns an absolute `filePath`, content
+digest, MIME metadata, origin and `untrustedAsset: true`. Native data tools may
+read or upload that path. MIME metadata is not a safety certification, and
+arbitrary PDFs are not sanitized by downloading them.
+
+No companion is installed in `.pi/skills`, `.agents/skills` or another trusted
+skill directory. Reading binary data never approves code, bypasses the shell
+guard, or adds a manifest to the execution allowlist. New server/client releases
+must be validated together before binary bundles are republished; the existing
+binary repair guard must remain in place until then.
 
 ## Filling an existing organization template
 
