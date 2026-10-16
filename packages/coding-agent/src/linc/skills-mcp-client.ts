@@ -5,6 +5,7 @@ import { parseFrontmatter } from "../utils/frontmatter.ts";
 const EXTENSION = "io.modelcontextprotocol/skills";
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_SKILL_BYTES = 16 * 1024 * 1024;
+const MAX_BINARY_BYTES = 3 * 1024 * 1024;
 const MAX_RESOURCES = 512;
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 
@@ -19,6 +20,8 @@ export interface McpSkillEntry {
 	frontmatter: Record<string, unknown>;
 	resources: McpSkillResource[];
 }
+
+export type McpSkillContent = { kind: "text"; text: string } | { kind: "blob"; bytes: Buffer; mimeType: string };
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type JsonObject = Record<string, unknown>;
@@ -311,6 +314,12 @@ export class CaseDevSkillsMcpClient {
 	}
 
 	async readResource(entry: McpSkillEntry, uri: string, signal?: AbortSignal): Promise<string> {
+		const content = await this.readResourceContent(entry, uri, signal);
+		if (content.kind !== "text") throw new Error("Expected a text skill resource");
+		return content.text;
+	}
+
+	async readResourceContent(entry: McpSkillEntry, uri: string, signal?: AbortSignal): Promise<McpSkillContent> {
 		const expected = entry.resources.find((resource) => resource.uri === uri);
 		if (!expected) throw new Error("Resource absent from the held skill manifest");
 		await this.initialize(signal);
@@ -318,17 +327,38 @@ export class CaseDevSkillsMcpClient {
 		if (!Array.isArray(result.contents) || result.contents.length !== 1)
 			throw new Error("Invalid Case.dev resource response");
 		const content = record(result.contents[0]);
-		if (content.uri !== uri || typeof content.text !== "string" || content.blob !== undefined) {
-			throw new Error("Case.dev returned a different or non-text resource");
+		if (content.uri !== uri) throw new Error("Case.dev returned a different resource");
+		let decoded: McpSkillContent;
+		if (typeof content.text === "string" && content.blob === undefined) {
+			decoded = { kind: "text", text: content.text };
+		} else if (
+			typeof content.blob === "string" &&
+			content.text === undefined &&
+			uri !== entry.uri &&
+			content.blob.length <= 4 * Math.ceil(MAX_BINARY_BYTES / 3) &&
+			typeof content.mimeType === "string" &&
+			/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:;[^\r\n\x00]*)?$/i.test(content.mimeType)
+		) {
+			const bytes = Buffer.from(content.blob, "base64");
+			if (bytes.length > MAX_BINARY_BYTES || bytes.toString("base64") !== content.blob) {
+				throw new Error("Invalid Case.dev binary resource encoding");
+			}
+			decoded = { kind: "blob", bytes, mimeType: content.mimeType };
+		} else {
+			throw new Error("Invalid Case.dev text or binary resource");
 		}
-		const bytes = Buffer.from(content.text, "utf8");
+		const bytes = decoded.kind === "blob" ? decoded.bytes : Buffer.from(decoded.text, "utf8");
 		const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 		if (bytes.length !== expected.size || digest !== expected.digest) {
 			throw new Error("Case.dev skill resource changed during this run; discard it and reapprove the new manifest");
 		}
-		if (uri === entry.uri && !isDeepStrictEqual(parseFrontmatter(content.text).frontmatter, entry.frontmatter)) {
+		if (
+			uri === entry.uri &&
+			decoded.kind === "text" &&
+			!isDeepStrictEqual(parseFrontmatter(decoded.text).frontmatter, entry.frontmatter)
+		) {
 			throw new Error("Case.dev SKILL.md frontmatter differs from its held entry");
 		}
-		return content.text;
+		return decoded;
 	}
 }
