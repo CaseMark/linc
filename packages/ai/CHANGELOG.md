@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Preserve mocked OpenRouter reasoning-wire assertions with a typed model fixture instead of depending on a retired live-catalog ID. Runtime behavior and provider defaults are unchanged (CD-1830, [#101](https://github.com/CaseMark/linc/pull/101)).
 - Exclude feed entries with negative advertised token prices before conversion or rounding in the OpenRouter chat/image and Vercel AI Gateway generators. Valid zero/positive prices and existing missing-price handling are unchanged; invalid negatives are not treated as free. Regression coverage checks every emitted chat/image price (CD-1840).
 - Made historical Sonnet cache-control coverage independent of live catalog membership and skip only the two exact-model live tests when that ID is absent. Registry override tests select a current built-in ID while preserving all assertions and adding no skips (CD-1837).
 - Skip the model-specific Nemotron live suite when its exact catalog entry is absent, without replacing the model or weakening its five assertions when available (CD-1832, [#97](https://github.com/CaseMark/linc/pull/97)).
