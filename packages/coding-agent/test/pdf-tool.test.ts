@@ -28,7 +28,12 @@ async function workspace() {
 beforeEach(() => {
 	created.mockClear();
 	fetcher.mockClear();
-	fetcher.mockImplementation(async () => new Response(pdf, { headers: { "Content-Type": "application/pdf" } }));
+	fetcher.mockImplementation(
+		async () =>
+			new Response(pdf, {
+				headers: { "Content-Type": "application/pdf", "X-Case-Document-Features": "pdf-tables-v1" },
+			}),
+	);
 	vi.stubGlobal("fetch", fetcher);
 	vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 	vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
@@ -42,6 +47,35 @@ afterEach(async () => {
 });
 
 describe("bounded native PDF tool", () => {
+	test.each([undefined, "pdf-tables-v10", "other-feature"])(
+		"refuses table output from older formatters (%s), without breaking paragraph output",
+		async (features) => {
+			fetcher.mockImplementation(
+				async () =>
+					new Response(pdf, {
+						headers: {
+							"Content-Type": "application/pdf",
+							...(features ? { "X-Case-Document-Features": features } : {}),
+						},
+					}),
+			);
+			const ctx = await workspace();
+			await expect(
+				tool.execute(
+					"table",
+					{ filename: "table.pdf", blocks: [{ type: "table", rows: [["Header"], ["Value"]] }] },
+					undefined,
+					undefined,
+					ctx,
+				),
+			).rejects.toThrow("does not advertise PDF table support");
+			expect(await readdir(ctx.cwd)).toEqual([]);
+			expect(created).not.toHaveBeenCalled();
+			expect(fetcher).toHaveBeenCalledTimes(1);
+			await tool.execute("paragraph", input, undefined, undefined, ctx);
+			expect(created).toHaveBeenCalledOnce();
+		},
+	);
 	test("uses existing auth without fallback, rejects a missing key, and allows explicitly approved production", async () => {
 		const ctx = await workspace();
 		vi.mocked(ctx.modelRegistry.authStorage.getApiKey).mockResolvedValueOnce(undefined);
@@ -142,10 +176,19 @@ describe("bounded native PDF tool", () => {
 		expect(fetcher).not.toHaveBeenCalled();
 	});
 
-	test("rejects tables, unknown block fields, oversized and invalid text", async () => {
+	test("rejects malformed tables, unknown block fields, oversized and invalid text", async () => {
 		const ctx = await workspace();
 		for (const blocks of [
-			[{ type: "table", rows: [["Unsupported"]] }],
+			[{ type: "table", rows: [] }],
+			[{ type: "table", rows: [["Header"], ["ragged", "row"]] }],
+			[{ type: "table", rows: [[""]] }],
+			[{ type: "table", rows: [["Header"]], command: "run" }],
+			[{ type: "table", rows: Array.from({ length: 101 }, () => ["x"]) }],
+			[{ type: "table", rows: [Array.from({ length: 13 }, () => "x")] }],
+			Array.from({ length: 4 }, () => ({
+				type: "table",
+				rows: Array.from({ length: 100 }, () => Array.from({ length: 12 }, () => "x")),
+			})),
 			[{ type: "paragraph", text: "text", html: "<img/>" }],
 			[{ type: "paragraph", text: "\0" }],
 			[{ type: "paragraph", text: "\ud800" }],
@@ -161,6 +204,34 @@ describe("bounded native PDF tool", () => {
 			await expect(tool.execute("bad", { ...input, blocks } as Input, undefined, undefined, ctx)).rejects.toThrow();
 		}
 		expect(fetcher).not.toHaveBeenCalled();
+	});
+
+	test("emits only host-owned table syntax and preserves literal pipes, newlines and empty cells", async () => {
+		const ctx = await workspace();
+		await tool.execute(
+			"table",
+			{
+				filename: "table.pdf",
+				blocks: [
+					{
+						type: "table",
+						rows: [
+							["Item", "Amount"],
+							["A | B\n![x](https://invalid)", ""],
+							["Total", "$12"],
+						],
+					},
+				],
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+		const body = JSON.parse(String(fetcher.mock.calls[0][1].body));
+		expect(body.content).toBe(
+			"| Item | Amount |\n| --- | --- |\n| A&#32;&#124;&#32;B&#10;&#33;&#91;x&#93;&#40;https&#58;&#47;&#47;invalid&#41; |  |\n| Total | &#36;12 |",
+		);
+		expect(created).toHaveBeenCalledOnce();
 	});
 
 	test.each([
