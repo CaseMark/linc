@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.79.31] - 2026-10-19
+
+### Added
+
+- Read manifest-bound binary MCP companion files as verified, data-only workspace assets. Canonical base64, decoded size and SHA-256 must match the held skill manifest; binary roots, oversized content and malformed MIME metadata are rejected. Downloading an asset does not approve execution or install trusted skill code (CD-1830, [#101](https://github.com/CaseMark/linc/pull/101)).
+- Support bounded literal-text tables in `casedev_document_create_pdf`, including repeated header rows. Table requests require the Case.dev formatter's `pdf-tables-v1` capability header and fail visibly against an older server; existing paragraph/heading PDFs remain compatible. Arbitrary scripts, advanced templates and unsupported font characters remain unsupported (CD-1830, [#101](https://github.com/CaseMark/linc/pull/101)).
+
+### Changed
+
+- Refreshed generated catalogs against captured provider feeds: 27 chat entries added, ten removed and 32 retained entries updated; three image entries added, with no image removals or retained-entry changes. These are provider metadata updates, not Case.dev product pricing or live-route certification. Exact IDs, limit reductions, source hashes and validation are recorded in the [release verification](https://github.com/CaseMark/linc/blob/staging/docs/release-0.79.31.md) (CD-1830).
+
+### Removed
+
+- Removed ten chat catalog IDs absent or deprecated in captured sources. Existing selections should switch to a current entry with `linc --list-models`; explicit/custom selection and saved-session fallback behavior are unchanged. See the [exact removal list](https://github.com/CaseMark/linc/blob/staging/docs/release-0.79.31.md#catalog-removals). Catalog exclusion does not prove upstream endpoint retirement (CD-1830).
+
 ## [0.79.30] - 2026-10-15
 
 ### Changed
