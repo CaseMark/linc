@@ -6,6 +6,7 @@ const EXTENSION = "io.modelcontextprotocol/skills";
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_SKILL_BYTES = 16 * 1024 * 1024;
 const MAX_BINARY_BYTES = 3 * 1024 * 1024;
+const MAX_MIME_TYPE_BYTES = 256;
 const MAX_RESOURCES = 512;
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 
@@ -337,6 +338,7 @@ export class CaseDevSkillsMcpClient {
 			uri !== entry.uri &&
 			content.blob.length <= 4 * Math.ceil(MAX_BINARY_BYTES / 3) &&
 			typeof content.mimeType === "string" &&
+			Buffer.byteLength(content.mimeType, "utf8") <= MAX_MIME_TYPE_BYTES &&
 			/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:;[^\r\n\x00]*)?$/i.test(content.mimeType)
 		) {
 			const bytes = Buffer.from(content.blob, "base64");

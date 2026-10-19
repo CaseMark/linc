@@ -84,7 +84,15 @@ directory in the canonical workspace. The output uses a host-owned basename,
 not a remote directory tree. The tool returns an absolute `filePath`, content
 digest, MIME metadata, origin and `untrustedAsset: true`. Native data tools may
 read or upload that path. MIME metadata is not a safety certification, and
-arbitrary PDFs are not sanitized by downloading them.
+arbitrary PDFs are not sanitized by downloading them. Binary MIME metadata is
+limited to 256 UTF-8 bytes before it can enter tool results or audit entries.
+
+Assets remain until the workspace owner or host removes them. Ephemeral sandbox
+teardown removes the workspace; the extension itself does not run background
+cleanup or cache eviction. Each read deliberately creates a fresh private path
+rather than overwriting or trusting a cached asset. Long-lived workspace hosts
+must account for these directories in their disk quotas and retention policy.
+Do not delete an asset while a tool or user still relies on its returned path.
 
 No companion is installed in `.pi/skills`, `.agents/skills` or another trusted
 skill directory. Reading binary data never approves code, bypasses the shell
@@ -153,8 +161,10 @@ script-based workflow. Use `vault_upload` to deliver the returned file afterward
 
 ## Release acceptance (still required)
 
-1. Review and merge the runtime change, then follow the existing Linc release
-   and candidate-image process. Do not change a global runtime pointer or
+1. Review and merge the runtime change into staging, validate it there, then
+   promote the full staging branch to main through a reviewed release before
+   following the Linc publication and candidate-image process. Do not select
+   only this fix for production. Do not change a global runtime pointer or
    production flag to test this change.
 2. In an isolated, signed-in ESQ-C3 preview and disposable QA matter: load a
    synthetic private skill, create the document through this native tool, upload

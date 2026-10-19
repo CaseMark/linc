@@ -58,6 +58,26 @@ afterEach(async () => {
 });
 
 describe("verified binary MCP companions", () => {
+	test.each([`application/pdf;${"x".repeat(241)}`, `application/pdf;${"é".repeat(121)}`])(
+		"rejects MIME metadata over 256 UTF-8 bytes before returning or persisting it (%#)",
+		async (mimeType) => {
+			const { client } = fixture({ blob: bytes.toString("base64"), mimeType });
+			await expect(client.readResourceContent(await client.getSkill(rootUri), assetUri)).rejects.toThrow(
+				"Invalid Case.dev text or binary resource",
+			);
+		},
+	);
+
+	test("accepts MIME metadata at the exact 256-byte boundary", async () => {
+		const mimeType = `application/pdf;${"x".repeat(240)}`;
+		expect(Buffer.byteLength(mimeType)).toBe(256);
+		const { client } = fixture({ blob: bytes.toString("base64"), mimeType });
+		expect(await client.readResourceContent(await client.getSkill(rootUri), assetUri)).toMatchObject({
+			kind: "blob",
+			mimeType,
+			bytes,
+		});
+	});
 	test("hashes decoded bytes, keeps root reads textual, and requests only held assets", async () => {
 		const { client, methods } = fixture();
 		const held = await client.getSkill(rootUri);
