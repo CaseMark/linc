@@ -22,6 +22,17 @@ const pdfSchema = Type.Object(
 					{ type: Type.Literal("heading"), level: Type.Integer({ minimum: 1, maximum: 3 }), text },
 					{ additionalProperties: false },
 				),
+				Type.Object(
+					{
+						type: Type.Literal("table"),
+						rows: Type.Array(Type.Array(text, { minItems: 1, maxItems: 12 }), {
+							minItems: 1,
+							maxItems: 100,
+							description: "Rectangular literal-text rows. The first row is a repeated column header.",
+						}),
+					},
+					{ additionalProperties: false },
+				),
 			]),
 			{ minItems: 1, maxItems: 256 },
 		),
@@ -49,8 +60,8 @@ export function createPdfTool(onCreated: (result: PdfResult) => void): ToolDefin
 		name: "casedev_document_create_pdf",
 		label: "Create PDF document",
 		description:
-			"Create a new PDF from literal text paragraphs and headings using the authenticated Case.dev formatter. Standard PDF fonts only; unsupported characters fail. No Markdown, HTML, tables, images, templates, commands, scripts, input files, or external links. Unsupported layouts must be reported, not silently simplified. Writes a new workspace-root basename only. Does not approve remote skill execution. Upload the returned filePath with vault_upload to deliver it to the matter.",
-		promptSnippet: "Create a PDF from literal paragraphs and headings without executing remote code.",
+			"Create a new PDF from literal text paragraphs, headings and rectangular tables using the authenticated Case.dev formatter. Tables have up to 100 rows and 12 columns; their first row is a repeated header. Standard PDF fonts only; unsupported characters fail. No caller Markdown, HTML, images, templates, commands, scripts, input files, or external links. Unsupported layouts must be reported, not silently simplified. Writes a new workspace-root basename only. Does not approve remote skill execution. Upload the returned filePath with vault_upload to deliver it to the matter.",
+		promptSnippet: "Create a PDF from literal paragraphs, headings and tables without executing remote code.",
 		parameters: pdfSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -59,38 +70,52 @@ export function createPdfTool(onCreated: (result: PdfResult) => void): ToolDefin
 			}
 			signal?.throwIfAborted();
 			let total = 0;
+			let items = 0;
+			let nonempty = false;
+			const literalText = (value: string, inTable = false): string => {
+				total += Buffer.byteLength(value, "utf8");
+				if (total > MAX_TEXT_BYTES) throw new Error(`PDF exceeds ${MAX_TEXT_BYTES} text bytes`);
+				if (++items > 4096) throw new Error("PDF exceeds 4096 text items");
+				nonempty ||= Boolean(value.trim());
+				for (const character of value) {
+					const code = character.codePointAt(0)!;
+					if (
+						!(
+							code === 9 ||
+							code === 10 ||
+							code === 13 ||
+							(code >= 32 && code <= 126) ||
+							(code >= 160 && code <= 255) ||
+							WIN_ANSI_EXTRA.has(character)
+						)
+					) {
+						throw new Error("PDF text contains a character unsupported by the formatter's standard fonts");
+					}
+				}
+				// Encode whitespace and every ASCII punctuation character as a Markdown
+				// entity. Only this host-owned heading/line-break syntax is interpreted;
+				// image URLs, HTML, links, fences and commands remain literal text.
+				return value
+					.replaceAll("\r\n", "\n")
+					.replaceAll("\r", "\n")
+					.split("\n")
+					.map((line) => line.replace(/[\t !-/:-@[-`{-~]/g, (char) => `&#${char.charCodeAt(0)};`))
+					.join(inTable ? "&#10;" : "  \n");
+			};
 			const content = params.blocks
 				.map((block) => {
-					total += Buffer.byteLength(block.text, "utf8");
-					if (total > MAX_TEXT_BYTES) throw new Error(`PDF exceeds ${MAX_TEXT_BYTES} text bytes`);
-					for (const character of block.text) {
-						const code = character.codePointAt(0)!;
-						if (
-							!(
-								code === 9 ||
-								code === 10 ||
-								code === 13 ||
-								(code >= 32 && code <= 126) ||
-								(code >= 160 && code <= 255) ||
-								WIN_ANSI_EXTRA.has(character)
-							)
-						) {
-							throw new Error("PDF text contains a character unsupported by the formatter's standard fonts");
-						}
+					if (block.type === "table") {
+						const columns = block.rows[0].length;
+						if (block.rows.some((row) => row.length !== columns))
+							throw new Error("PDF table must be rectangular");
+						const rows = block.rows.map((row) => `| ${row.map((cell) => literalText(cell, true)).join(" | ")} |`);
+						rows.splice(1, 0, `| ${Array.from({ length: columns }, () => "---").join(" | ")} |`);
+						return rows.join("\n");
 					}
-					// Encode whitespace and every ASCII punctuation character as a Markdown
-					// entity. Only this host-owned heading/line-break syntax is interpreted;
-					// image URLs, HTML, links, fences and commands remain literal text.
-					const literal = block.text
-						.replaceAll("\r\n", "\n")
-						.replaceAll("\r", "\n")
-						.split("\n")
-						.map((line) => line.replace(/[\t !-/:-@[-`{-~]/g, (char) => `&#${char.charCodeAt(0)};`))
-						.join("  \n");
-					return `${block.type === "heading" ? `${"#".repeat(block.level)} ` : ""}${literal}`;
+					return `${block.type === "heading" ? `${"#".repeat(block.level)} ` : ""}${literalText(block.text)}`;
 				})
 				.join("\n\n");
-			if (!params.blocks.some((block) => block.text.trim())) throw new Error("PDF requires nonempty text");
+			if (!nonempty) throw new Error("PDF requires nonempty text");
 			const endpoint = process.env.LINC_MCP_SKILLS_ENDPOINT;
 			if (!endpoint) throw new Error("PDF creation requires the configured Case.dev MCP endpoint");
 			const validatedEndpoint = new URL(
@@ -132,6 +157,16 @@ export function createPdfTool(onCreated: (result: PdfResult) => void): ToolDefin
 			) {
 				await response.body?.cancel();
 				throw new Error(`Case.dev PDF formatter returned HTTP ${response.status} or a non-PDF response`);
+			}
+			if (
+				params.blocks.some((block) => block.type === "table") &&
+				!response.headers
+					.get("x-case-document-features")
+					?.split(",")
+					.some((feature) => feature.trim() === "pdf-tables-v1")
+			) {
+				await response.body?.cancel();
+				throw new Error("Case.dev formatter does not advertise PDF table support; no file was created");
 			}
 			const reader = response.body?.getReader();
 			if (!reader) throw new Error("Empty Case.dev PDF response");
