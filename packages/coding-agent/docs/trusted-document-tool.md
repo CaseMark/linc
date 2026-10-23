@@ -20,15 +20,15 @@ The extension calls `/mcp` on the runtime Case.dev API origin (`CASEDEV_BASE_URL
 
 ## How a loaded skill behaves
 
-Loading a built-in skill reads it from its existing folder, with no network call.
+Loading a built-in skill reads it from its existing folder, with no network call. A built-in skill always wins over a catalog skill with the same name, whether it is requested by name or by URI.
 
-Loading an organization or catalog skill downloads every file in its manifest, checks each one against its SHA-256 digest and size, and writes the bundle to `<cwd>/.linc/mcp-skills/<name>/` with its original relative paths. Text and binary files are handled the same way. A bundle that is already on disk with the same manifest digest is reused. A changed bundle replaces the old folder in one rename, and a failed download leaves the previous version in place.
+Loading an organization or catalog skill downloads every file in its manifest, checks each one against its SHA-256 digest and size, and writes the bundle to `<cwd>/.linc/mcp-skills/<name>/` with its original relative paths. Folders are created with mode 0700 and files with 0600, readable only by the session user. Text and binary files are handled the same way. A bundle that is already on disk with the same manifest digest is reused. A changed bundle replaces the old folder in one rename, and a failed download leaves the previous version in place.
 
 From there the skill behaves exactly like a preinstalled one: its scripts, references and assets are read and run from that folder with the normal tools. Skills from Case.dev get the same trust as preinstalled skills; loading one does not restrict any other tool.
 
 ## Errors
 
-Requests time out after 15 seconds. HTTP 429, 502, 503 and 504 and network errors are retried twice, honouring `Retry-After` up to 5 seconds. Any other failure fails only the call that hit it; other tools keep working.
+Requests time out after 15 seconds. HTTP 429, 502, 503 and 504 and network errors are retried twice, honouring `Retry-After` up to 5 seconds. Any other failure fails only the call that hit it; other tools keep working. The error tells the model not to guess skill names or reproduce a skill from memory.
 
 ## Limits
 

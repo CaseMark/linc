@@ -49,6 +49,15 @@ async function readInstalledManifest(skillDir: string): Promise<InstalledManifes
 	}
 }
 
+function skillNameFromUri(uri: string): string {
+	const segments = uri.split("/");
+	try {
+		return segments.at(-1) === "SKILL.md" ? decodeURIComponent(segments.at(-2) ?? "") : "";
+	} catch {
+		return "";
+	}
+}
+
 async function pathExists(path: string): Promise<boolean> {
 	try {
 		await stat(path);
@@ -96,20 +105,20 @@ async function installSkill(
 		return { skillDir, manifestDigest, reused: true, files };
 	}
 	const contents = await readAll(client, entry, signal);
-	await mkdir(parent, { recursive: true });
+	await mkdir(parent, { recursive: true, mode: 0o700 });
 	const staging = await mkdtemp(join(parent, `.${name}-`));
 	try {
 		for (const [uri, content] of contents) {
 			const filePath = join(staging, getMcpSkillResourcePath(entry, uri));
-			await mkdir(dirname(filePath), { recursive: true });
+			await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
 			await writeFile(filePath, content.kind === "blob" ? content.bytes : content.text, {
 				flag: "wx",
-				mode: 0o644,
+				mode: 0o600,
 				signal,
 			});
 		}
 		const manifest: InstalledManifest = { uri: entry.uri, manifestDigest };
-		await writeFile(join(staging, MANIFEST_FILE), JSON.stringify(manifest), { flag: "wx" });
+		await writeFile(join(staging, MANIFEST_FILE), JSON.stringify(manifest), { flag: "wx", mode: 0o600 });
 		signal?.throwIfAborted();
 		// Move the old version aside first so the folder is never missing.
 		const previous = installed || (await pathExists(skillDir)) ? `${staging}-previous` : null;
@@ -157,7 +166,7 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 		} catch (error) {
 			appendAudit({ action: "registry_error", operation: operationName });
 			throw new Error(
-				`${error instanceof Error ? error.message : "Skill registry request failed"}. Transient errors were already retried; report the failure if you cannot continue without this skill.`,
+				`${error instanceof Error ? error.message : "Skill registry request failed"}. Transient errors were already retried. Do not guess skill names or reproduce a skill's instructions from memory; report the failure if the task needs this skill.`,
 			);
 		}
 	}
@@ -225,7 +234,8 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			if (Boolean(params.uri) === Boolean(params.slug)) throw new Error("Provide exactly one skill URI or slug");
-			const builtIn = params.slug ? findBuiltIn(params.slug) : undefined;
+			// A built-in skill always wins over a catalog skill with the same name, however it is requested.
+			const builtIn = findBuiltIn(params.slug ?? skillNameFromUri(params.uri!));
 			if (builtIn) {
 				const instructions = await readFile(builtIn.filePath, "utf8");
 				appendAudit({ action: "load", source: "built-in", name: builtIn.name });

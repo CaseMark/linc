@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -139,6 +139,8 @@ describe("Case.dev skills over MCP", () => {
 		expect(await readFile(join(skillDir, "references", "checklist.md"), "utf8")).toBe(reference);
 		expect(await readFile(join(skillDir, "scripts", "prepare.py"), "utf8")).toBe(script);
 		expect(await readFile(join(skillDir, "assets", "Intake Form.pdf"))).toEqual(asset);
+		expect((await stat(join(skillDir, "scripts", "prepare.py"))).mode & 0o777).toBe(0o600);
+		expect((await stat(join(skillDir, "scripts"))).mode & 0o777).toBe(0o700);
 		expect(wire.methods.filter((method) => method === "resources/read")).toHaveLength(4);
 	});
 
@@ -199,6 +201,8 @@ describe("Case.dev skills over MCP", () => {
 		const loaded = await run("casedev_skill_load", { slug: "docx" });
 		expect(loaded.details).toMatchObject({ source: "built-in", skillDir: join(builtInDir, "docx") });
 		expect(loaded.content[0].text).toContain("Use python-docx.");
+		const byUri = await run("casedev_skill_load", { uri: "skill://case.dev/public/docx/SKILL.md" });
+		expect(byUri.details).toMatchObject({ source: "built-in", skillDir: join(builtInDir, "docx") });
 		expect(wire.methods).toEqual([]);
 	});
 

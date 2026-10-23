@@ -6,6 +6,7 @@
 
 - Case.dev skills over MCP now get the same trust as preinstalled skills. Loading a skill no longer blocks `bash` for the session, and `LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS` is removed (CD-1932).
 - `casedev_skill_read` is removed. `casedev_skill_load` now writes the skill's complete, digest-verified folder to `<cwd>/.linc/mcp-skills/<name>/` and returns its path, so files are read and run with the normal tools (CD-1932).
+- Skill audit entries are now version 2 and are not replayed on resume. Version 1 `load` entries in older sessions stay in the log but no longer restrict tools (CD-1932).
 - `LINC_MCP_SKILLS_ALLOW_PRODUCTION` is removed. The endpoint defaults to `/mcp` on the runtime Case.dev origin; `LINC_MCP_SKILLS_ENDPOINT` is optional and must share that origin (CD-1932).
 
 ### Changed
