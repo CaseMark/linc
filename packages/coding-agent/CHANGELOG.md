@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Case.dev skills over MCP now get the same trust as preinstalled skills. Loading a skill no longer blocks `bash` for the session, and `LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS` is removed (CD-1932).
+- `casedev_skill_read` is removed. `casedev_skill_load` now writes the skill's complete, digest-verified folder to `<cwd>/.linc/mcp-skills/<name>/` and returns its path, so files are read and run with the normal tools (CD-1932).
+- Skill audit entries are now version 2 and are not replayed on resume. Version 1 `load` entries in older sessions stay in the log but no longer restrict tools (CD-1932).
+- `LINC_MCP_SKILLS_ALLOW_PRODUCTION` is removed. The endpoint defaults to `/mcp` on the runtime Case.dev origin; `LINC_MCP_SKILLS_ENDPOINT` is optional and must share that origin (CD-1932).
+
+### Changed
+
+- The extension is turned on with `LINC_MCP_SKILLS=1`. `LINC_MCP_SKILLS_PILOT=1` still works and will be removed in the next minor release (CD-1932).
+- `casedev_skill_discover` lists built-in skills first and hides catalog skills that share a built-in name; `casedev_skill_load` loads built-in skills from disk by name (CD-1932).
+- Registry requests retry HTTP 429, 502, 503, 504 and network errors twice. A failed request fails only that call instead of blocking every tool for the turn (CD-1932).
+- See [Case.dev skills and document tools](docs/trusted-document-tool.md).
+
 ## [0.79.31] - 2026-10-19
 
 ### Added

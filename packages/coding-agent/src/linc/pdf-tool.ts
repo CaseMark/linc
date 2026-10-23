@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { ToolDefinition } from "../core/extensions/types.ts";
 import { getCaseDevApiKey } from "./casedev-cli.ts";
-import { validateCaseDevSkillsMcpEndpoint } from "./skills-mcp-client.ts";
+import { resolveCaseDevSkillsMcpEndpoint } from "./skills-mcp-client.ts";
 
 const text = Type.String({ maxLength: 16_384 });
 const pdfSchema = Type.Object(
@@ -116,20 +116,7 @@ export function createPdfTool(onCreated: (result: PdfResult) => void): ToolDefin
 				})
 				.join("\n\n");
 			if (!nonempty) throw new Error("PDF requires nonempty text");
-			const endpoint = process.env.LINC_MCP_SKILLS_ENDPOINT;
-			if (!endpoint) throw new Error("PDF creation requires the configured Case.dev MCP endpoint");
-			const validatedEndpoint = new URL(
-				validateCaseDevSkillsMcpEndpoint(endpoint, process.env.LINC_MCP_SKILLS_ALLOW_PRODUCTION === "1"),
-			);
-			let runtimeOrigin: string;
-			try {
-				runtimeOrigin = new URL(process.env.CASEDEV_BASE_URL || process.env.CASE_API_URL || "").origin;
-			} catch {
-				throw new Error("PDF formatter requires a valid runtime Case.dev API origin");
-			}
-			if (validatedEndpoint.origin !== runtimeOrigin) {
-				throw new Error("PDF formatter must match the runtime Case.dev API origin");
-			}
+			const validatedEndpoint = new URL(resolveCaseDevSkillsMcpEndpoint());
 			const apiKey = await getCaseDevApiKey(ctx);
 			const requestSignal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]);
 			requestSignal.throwIfAborted();

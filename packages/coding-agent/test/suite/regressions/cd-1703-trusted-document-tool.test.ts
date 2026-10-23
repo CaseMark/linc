@@ -26,13 +26,12 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("CD-1703 trusted documents after unapproved remote skill loading", () => {
-	test("creates and uploads real DOCX bytes through native tools without permitting shell execution", async () => {
+describe("CD-1703 native documents after loading a Case.dev skill", () => {
+	test("creates and uploads real DOCX bytes and keeps the shell usable, including after resume", async () => {
 		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 		vi.stubEnv("CASEDEV_API_BASE_URL", "https://preview.api.case.dev");
 		vi.stubEnv("CASEDEV_VERCEL_PROTECTION_BYPASS", "");
-		vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", "");
 		vi.stubEnv("CASE_VAULT_ID", "vault_qa");
 		vi.stubEnv("CASE_ALLOWED_VAULT_IDS", "vault_qa");
 		let received = Buffer.alloc(0);
@@ -73,13 +72,13 @@ describe("CD-1703 trusted documents after unapproved remote skill loading", () =
 			return Response.json({ jsonrpc: "2.0", id: body.id, result });
 		});
 		const shell = vi.fn(async () => ({
-			content: [{ type: "text" as const, text: "Unexpected execution" }],
+			content: [{ type: "text" as const, text: "ran" }],
 			details: {},
 		}));
 		const bash: AgentTool = {
 			name: "bash",
 			label: "bash",
-			description: "Test shell sentinel, never executes commands",
+			description: "Test shell sentinel",
 			parameters: Type.Object({ command: Type.String() }),
 			execute: shell,
 		};
@@ -119,17 +118,17 @@ describe("CD-1703 trusted documents after unapproved remote skill loading", () =
 					}),
 					{ stopReason: "toolUse" },
 				),
-				fauxAssistantMessage(fauxToolCall("bash", { command: "echo approval-bypass" }), { stopReason: "toolUse" }),
-				fauxAssistantMessage("Document delivered without executing remote code."),
+				fauxAssistantMessage(fauxToolCall("bash", { command: "echo done" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("Document delivered."),
 			]);
 			await harness.session.prompt("Use the firm's intake skill to create and deliver a Word checklist.");
-			expect(shell).not.toHaveBeenCalled();
+			expect(shell).toHaveBeenCalledTimes(2);
 			expect(harness.eventsOfType("tool_execution_end").map((event) => [event.toolName, event.isError])).toEqual([
 				["casedev_skill_load", false],
 				["casedev_document_create", false],
-				["bash", true],
+				["bash", false],
 				["vault_upload", false],
-				["bash", true],
+				["bash", false],
 			]);
 			expect(received).toEqual(await readFile(filePath));
 			expect(validateDocxFile(filePath)).toEqual([]);
@@ -148,8 +147,6 @@ describe("CD-1703 trusted documents after unapproved remote skill loading", () =
 					body: { success: true, sizeBytes: received.length, etag: '"qa-etag"' },
 				},
 			]);
-			// Rebinding restores the gate from the real session ledger. Creating a
-			// document in the resumed session still cannot approve remote code.
 			await harness.session.bindExtensions({});
 			harness.setResponses([
 				fauxAssistantMessage(
@@ -159,17 +156,17 @@ describe("CD-1703 trusted documents after unapproved remote skill loading", () =
 					}),
 					{ stopReason: "toolUse" },
 				),
-				fauxAssistantMessage(fauxToolCall("bash", { command: "echo still-blocked" }), { stopReason: "toolUse" }),
-				fauxAssistantMessage("Remote code remains unapproved."),
+				fauxAssistantMessage(fauxToolCall("bash", { command: "echo resumed" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("Resumed."),
 			]);
-			await harness.session.prompt("Create a second document without executing any remote script.");
-			expect(shell).not.toHaveBeenCalled();
+			await harness.session.prompt("Create a second document.");
+			expect(shell).toHaveBeenCalledTimes(3);
 			expect(
 				harness
 					.eventsOfType("tool_execution_end")
 					.slice(-2)
 					.map((event) => event.isError),
-			).toEqual([false, true]);
+			).toEqual([false, false]);
 			expect(await readdir(harness.tempDir)).toEqual(expect.arrayContaining(["intake.docx", "resumed.docx"]));
 		} finally {
 			harness.cleanup();

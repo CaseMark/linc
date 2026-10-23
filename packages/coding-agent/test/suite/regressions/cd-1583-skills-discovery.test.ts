@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { realpathSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import skillsMcpExtension from "../../../src/linc/extensions/skills-mcp.ts";
@@ -26,9 +28,8 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("CD-1583 safe remote skill discovery", () => {
-	test("real agent loop preserves host tools and discovers, loads, and reads without preloading", async () => {
-		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
+describe("CD-1583 Case.dev skill discovery and loading", () => {
+	test("real agent loop discovers, loads the whole skill to disk, and reads its files with host tools", async () => {
 		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 		const methods: string[] = [];
 		vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
@@ -52,23 +53,23 @@ describe("CD-1583 safe remote skill discovery", () => {
 		try {
 			harness.authStorage.setRuntimeApiKey("casedev", "fixture-org-key");
 			await harness.session.bindExtensions({});
-			expect(harness.session.getActiveToolNames()).toEqual(
-				expect.arrayContaining([
-					"bash",
-					"read",
-					"casedev_skill_discover",
-					"casedev_skill_load",
-					"casedev_skill_read",
-				]),
+			const activeTools = harness.session.getActiveToolNames();
+			expect(activeTools).toEqual(
+				expect.arrayContaining(["bash", "read", "casedev_skill_discover", "casedev_skill_load"]),
 			);
-			expect(harness.session.systemPrompt).toContain("- bash:");
-			expect(harness.session.systemPrompt).toContain("- read:");
+			expect(activeTools).not.toContain("casedev_skill_read");
+			const checklistPath = join(
+				realpathSync(harness.tempDir),
+				".linc",
+				"mcp-skills",
+				"intake",
+				"references",
+				"checklist.md",
+			);
 			harness.setResponses([
 				fauxAssistantMessage([fauxToolCall("casedev_skill_discover", {})], { stopReason: "toolUse" }),
 				fauxAssistantMessage([fauxToolCall("casedev_skill_load", { uri })], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxToolCall("casedev_skill_read", { skillUri: uri, uri: refUri })], {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage([fauxToolCall("read", { path: checklistPath })], { stopReason: "toolUse" }),
 				fauxAssistantMessage(ref),
 			]);
 			await harness.session.prompt("Find the firm's intake checklist and return its item.");
@@ -80,13 +81,11 @@ describe("CD-1583 safe remote skill discovery", () => {
 				"resources/read",
 				"resources/read",
 			]);
-			expect(harness.eventsOfType("tool_execution_end").map((event) => event.isError)).toEqual([
-				false,
-				false,
-				false,
+			expect(harness.eventsOfType("tool_execution_end").map((event) => [event.toolName, event.isError])).toEqual([
+				["casedev_skill_discover", false],
+				["casedev_skill_load", false],
+				["read", false],
 			]);
-			for (const name of ["casedev_skill_discover", "casedev_skill_load", "casedev_skill_read"])
-				expect(harness.session.getToolDefinition(name)?.executionMode).toBe("sequential");
 			expect(
 				harness.sessionManager
 					.getEntries()
@@ -95,14 +94,13 @@ describe("CD-1583 safe remote skill discovery", () => {
 							? [(entry.data as { action: string }).action]
 							: [],
 					),
-			).toEqual(["discover", "load", "read"]);
+			).toEqual(["discover", "load"]);
 		} finally {
 			harness.cleanup();
 		}
 	});
 
-	test("one registry failure stops later calls even when the model batches them", async () => {
-		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
+	test("a registry failure fails only the calls that hit it", async () => {
 		vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 		const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
 		vi.stubGlobal("fetch", fetcher);
@@ -110,16 +108,23 @@ describe("CD-1583 safe remote skill discovery", () => {
 		try {
 			harness.authStorage.setRuntimeApiKey("casedev", "fixture-org-key");
 			await harness.session.bindExtensions({});
+			const notesPath = join(harness.tempDir, "notes.md");
+			writeFileSync(notesPath, "Matter notes");
 			harness.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("casedev_skill_discover", {}), fauxToolCall("casedev_skill_load", { uri })],
 					{ stopReason: "toolUse" },
 				),
+				fauxAssistantMessage([fauxToolCall("read", { path: notesPath })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("Skill registry authentication failed."),
 			]);
 			await harness.session.prompt("Find the firm's intake checklist.");
-			expect(fetcher).toHaveBeenCalledTimes(1);
-			expect(harness.eventsOfType("tool_execution_end").map((event) => event.isError)).toEqual([true, true]);
+			expect(fetcher).toHaveBeenCalledTimes(2);
+			expect(harness.eventsOfType("tool_execution_end").map((event) => [event.toolName, event.isError])).toEqual([
+				["casedev_skill_discover", true],
+				["casedev_skill_load", true],
+				["read", false],
+			]);
 		} finally {
 			harness.cleanup();
 		}

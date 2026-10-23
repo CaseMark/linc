@@ -37,7 +37,6 @@ beforeEach(() => {
 	vi.stubGlobal("fetch", fetcher);
 	vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 	vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
-	vi.stubEnv("LINC_MCP_SKILLS_ALLOW_PRODUCTION", "0");
 });
 
 afterEach(async () => {
@@ -76,15 +75,14 @@ describe("bounded native PDF tool", () => {
 			expect(created).toHaveBeenCalledOnce();
 		},
 	);
-	test("uses existing auth without fallback, rejects a missing key, and allows explicitly approved production", async () => {
+	test("uses existing auth without fallback, rejects a missing key, and uses the production origin", async () => {
 		const ctx = await workspace();
 		vi.mocked(ctx.modelRegistry.authStorage.getApiKey).mockResolvedValueOnce(undefined);
 		await expect(tool.execute("missing", input, undefined, undefined, ctx)).rejects.toThrow("No Case.dev API key");
 		expect(ctx.modelRegistry.authStorage.getApiKey).toHaveBeenCalledWith("casedev", { includeFallback: false });
 		expect(fetcher).not.toHaveBeenCalled();
-		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://api.case.dev/mcp");
+		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "");
 		vi.stubEnv("CASEDEV_BASE_URL", "https://api.case.dev");
-		vi.stubEnv("LINC_MCP_SKILLS_ALLOW_PRODUCTION", "1");
 		await tool.execute(
 			"approved",
 			{ ...input, blocks: [{ type: "paragraph", text: "José – reviewer’s note… €" }] },
@@ -235,34 +233,32 @@ describe("bounded native PDF tool", () => {
 	});
 
 	test.each([
-		["https://other.invalid/mcp", "https://preview.api.case.dev", "0"],
-		["https://api.case.dev/mcp", "https://api.case.dev", "0"],
-		["http://preview.api.case.dev/mcp", "http://preview.api.case.dev", "0"],
-		["https://user:password@preview.api.case.dev/mcp", "https://preview.api.case.dev", "0"],
-		["https://preview.api.case.dev/mcp?token=x", "https://preview.api.case.dev", "0"],
-	])("rejects unauthorized endpoint %s before reading credentials", async (endpoint, runtime, allow) => {
+		["https://other.invalid/mcp", "https://preview.api.case.dev"],
+		["https://api.case.dev/mcp", "https://preview.api.case.dev"],
+		["http://preview.api.case.dev/mcp", "http://preview.api.case.dev"],
+		["https://user:password@preview.api.case.dev/mcp", "https://preview.api.case.dev"],
+		["https://preview.api.case.dev/mcp?token=x", "https://preview.api.case.dev"],
+	])("rejects unauthorized endpoint %s before reading credentials", async (endpoint, runtime) => {
 		vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", endpoint);
 		vi.stubEnv("CASEDEV_BASE_URL", runtime);
-		vi.stubEnv("LINC_MCP_SKILLS_ALLOW_PRODUCTION", allow);
 		const ctx = await workspace();
 		await expect(tool.execute("bad", input, undefined, undefined, ctx)).rejects.toThrow();
 		expect(ctx.modelRegistry.authStorage.getApiKey).not.toHaveBeenCalled();
 		expect(fetcher).not.toHaveBeenCalled();
 	});
 
-	test.each(["", "not-a-url", "://bad"])(
-		"reports invalid runtime origin %j before reading credentials",
-		async (runtime) => {
-			vi.stubEnv("CASEDEV_BASE_URL", runtime);
-			vi.stubEnv("CASE_API_URL", "");
-			const ctx = await workspace();
-			await expect(tool.execute("bad", input, undefined, undefined, ctx)).rejects.toThrow(
-				"requires a valid runtime Case.dev API origin",
-			);
-			expect(ctx.modelRegistry.authStorage.getApiKey).not.toHaveBeenCalled();
-			expect(fetcher).not.toHaveBeenCalled();
-		},
-	);
+	test.each([
+		["", "require CASEDEV_BASE_URL"],
+		["not-a-url", "runtime Case.dev API URL is invalid"],
+		["://bad", "runtime Case.dev API URL is invalid"],
+	])("reports invalid runtime origin %j before reading credentials", async (runtime, message) => {
+		vi.stubEnv("CASEDEV_BASE_URL", runtime);
+		vi.stubEnv("CASE_API_URL", "");
+		const ctx = await workspace();
+		await expect(tool.execute("bad", input, undefined, undefined, ctx)).rejects.toThrow(message);
+		expect(ctx.modelRegistry.authStorage.getApiKey).not.toHaveBeenCalled();
+		expect(fetcher).not.toHaveBeenCalled();
+	});
 
 	test.each([401, 429, 500, 302])("does not retry HTTP %i or reflect the response body", async (status) => {
 		fetcher.mockImplementation(async () => new Response("sensitive error body", { status }));
