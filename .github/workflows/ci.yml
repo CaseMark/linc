@@ -32,8 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # Build against the committed model catalogs. Regenerating them here pulls
+      # live provider feeds, so upstream renames broke CI on unrelated PRs.
+      # Release prep regenerates and commits catalogs (scripts/release.mjs).
       - name: Build
-        run: npm run build
+        run: npm run build:pinned-catalog
 
       - name: Check
         run: npm run check
