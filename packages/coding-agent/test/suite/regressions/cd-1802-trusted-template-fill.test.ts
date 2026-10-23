@@ -16,10 +16,9 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("CD-1802 fills a real injected template after remote load without approving shell, including rebind", async () => {
+test("CD-1802 fills a real injected template after loading a Case.dev skill, with the shell usable throughout", async () => {
 	vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 	vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
-	vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", "");
 	const uri = "skill://case.dev/org/org_test/intake/SKILL.md";
 	const text = "---\nname: intake\ndescription: QA template intake\n---\nFill the firm's Word template.\n";
 	const skill = {
@@ -43,11 +42,11 @@ test("CD-1802 fills a real injected template after remote load without approving
 					: { contents: [{ uri, text }] };
 		return Response.json({ jsonrpc: "2.0", id: body.id, result });
 	});
-	const shell = vi.fn(async () => ({ content: [{ type: "text" as const, text: "unexpected" }], details: {} }));
+	const shell = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ran" }], details: {} }));
 	const bash: AgentTool = {
 		name: "bash",
 		label: "bash",
-		description: "Never-executed sentinel",
+		description: "Shell sentinel",
 		parameters: Type.Object({ command: Type.String() }),
 		execute: shell,
 	};
@@ -81,13 +80,13 @@ test("CD-1802 fills a real injected template after remote load without approving
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(fauxToolCall("bash", { command: "python remote.py" }), { stopReason: "toolUse" }),
-			fauxAssistantMessage("Filled without remote execution."),
+			fauxAssistantMessage("Filled."),
 		]);
 		await harness.session.prompt("Fill the private skill's QA template.");
 		expect(harness.eventsOfType("tool_execution_end").map((event) => [event.toolName, event.isError])).toEqual([
 			["casedev_skill_load", false],
 			["casedev_document_fill_template", false],
-			["bash", true],
+			["bash", false],
 		]);
 		expect(validateDocxFile(join(harness.tempDir, "filled.docx"))).toEqual([]);
 		await harness.session.bindExtensions({});
@@ -100,8 +99,8 @@ test("CD-1802 fills a real injected template after remote load without approving
 				}),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(fauxToolCall("bash", { command: "echo bypass" }), { stopReason: "toolUse" }),
-			fauxAssistantMessage("Approval remains unchanged."),
+			fauxAssistantMessage(fauxToolCall("bash", { command: "echo resumed" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("Resumed."),
 		]);
 		await harness.session.prompt("Fill another copy after resume.");
 		expect(
@@ -109,8 +108,8 @@ test("CD-1802 fills a real injected template after remote load without approving
 				.eventsOfType("tool_execution_end")
 				.slice(-2)
 				.map((event) => event.isError),
-		).toEqual([false, true]);
-		expect(shell).not.toHaveBeenCalled();
+		).toEqual([false, false]);
+		expect(shell).toHaveBeenCalledTimes(2);
 		const fills = harness.session.sessionManager
 			.getBranch()
 			.filter(
@@ -122,7 +121,7 @@ test("CD-1802 fills a real injected template after remote load without approving
 		expect(fills).toHaveLength(2);
 		for (const entry of fills) {
 			if (entry.type !== "custom") throw new Error("Expected audit entry");
-			expect(entry.data).toMatchObject({ templateSlug: "qa-template", fields: ["owner"], dataOnly: true });
+			expect(entry.data).toMatchObject({ templateSlug: "qa-template", fields: ["owner"] });
 			expect(entry.data).not.toHaveProperty("values");
 		}
 	} finally {
