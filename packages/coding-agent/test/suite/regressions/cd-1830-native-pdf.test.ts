@@ -15,12 +15,11 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, preserving the gate after resume", async () => {
+test("CD-1830 creates and uploads PDF bytes after loading a Case.dev skill, with the shell usable throughout", async () => {
 	vi.stubEnv("LINC_MCP_SKILLS_ENDPOINT", "https://preview.api.case.dev/mcp");
 	vi.stubEnv("CASEDEV_BASE_URL", "https://preview.api.case.dev");
 	vi.stubEnv("CASEDEV_API_BASE_URL", "https://preview.api.case.dev");
 	vi.stubEnv("CASEDEV_VERCEL_PROTECTION_BYPASS", "");
-	vi.stubEnv("LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS", "");
 	vi.stubEnv("CASE_VAULT_ID", "vault_qa");
 	vi.stubEnv("CASE_ALLOWED_VAULT_IDS", "vault_qa");
 	const uri = "skill://case.dev/org/org_test/summary/SKILL.md";
@@ -68,7 +67,7 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 		return Response.json({ jsonrpc: "2.0", id: body.id, result });
 	});
 	const shell = vi.fn(async () => ({
-		content: [{ type: "text" as const, text: "Unexpected execution" }],
+		content: [{ type: "text" as const, text: "ran" }],
 		details: {},
 	}));
 	const bash: AgentTool = {
@@ -93,7 +92,7 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 		const filePath = join(harness.tempDir, "summary.pdf");
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("casedev_skill_load", { uri }), { stopReason: "toolUse" }),
-			fauxAssistantMessage(fauxToolCall("bash", { command: "remote-code" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("bash", { command: "python3 prepare.py" }), { stopReason: "toolUse" }),
 			fauxAssistantMessage(
 				fauxToolCall("casedev_document_create_pdf", {
 					filename: "summary.pdf",
@@ -105,20 +104,20 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 				fauxToolCall("vault_upload", { filePath, contentType: "application/pdf", storageOnly: true }),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(fauxToolCall("bash", { command: "still-remote-code" }), { stopReason: "toolUse" }),
-			fauxAssistantMessage("PDF delivered; remote code remains unapproved."),
+			fauxAssistantMessage(fauxToolCall("bash", { command: "echo done" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("PDF delivered."),
 		]);
-		await harness.session.prompt("Use the synthetic skill to deliver a PDF without executing remote code.");
+		await harness.session.prompt("Use the synthetic skill to deliver a PDF.");
 		expect(harness.eventsOfType("tool_execution_end").map((event) => [event.toolName, event.isError])).toEqual([
 			["casedev_skill_load", false],
-			["bash", true],
+			["bash", false],
 			["casedev_document_create_pdf", false],
 			["vault_upload", false],
-			["bash", true],
+			["bash", false],
 		]);
 		expect(uploaded).toEqual(pdf);
 		expect(await readFile(filePath)).toEqual(pdf);
-		expect(shell).not.toHaveBeenCalled();
+		expect(shell).toHaveBeenCalledTimes(2);
 		const audit = harness.sessionManager
 			.getBranch()
 			.filter((entry) => entry.type === "custom" && entry.customType === "linc.skills-mcp-audit");
@@ -128,7 +127,6 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 					data: expect.objectContaining({
 						action: "pdf_create",
 						sha256: createHash("sha256").update(pdf).digest("hex"),
-						dataOnly: true,
 					}),
 				}),
 			]),
@@ -143,9 +141,9 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(fauxToolCall("bash", { command: "after-resume" }), { stopReason: "toolUse" }),
-			fauxAssistantMessage("Still unapproved."),
+			fauxAssistantMessage("Resumed."),
 		]);
-		await harness.session.prompt("Create a resumed PDF without approving execution.");
+		await harness.session.prompt("Create a resumed PDF.");
 		expect(
 			harness
 				.eventsOfType("tool_execution_end")
@@ -153,9 +151,9 @@ test("CD-1830 creates and uploads PDF bytes after an unapproved skill load, pres
 				.map((event) => [event.toolName, event.isError]),
 		).toEqual([
 			["casedev_document_create_pdf", false],
-			["bash", true],
+			["bash", false],
 		]);
-		expect(shell).not.toHaveBeenCalled();
+		expect(shell).toHaveBeenCalledTimes(3);
 	} finally {
 		harness.cleanup();
 		await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

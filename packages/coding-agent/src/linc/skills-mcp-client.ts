@@ -25,6 +25,24 @@ export interface McpSkillEntry {
 export type McpSkillContent = { kind: "text"; text: string } | { kind: "blob"; bytes: Buffer; mimeType: string };
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const DEFAULT_RETRY_DELAYS_MS = [500, 1500];
+const MAX_RETRY_DELAY_MS = 5_000;
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				reject(signal.reason);
+			},
+			{ once: true },
+		);
+	});
+}
 type JsonObject = Record<string, unknown>;
 
 function record(value: unknown): JsonObject {
@@ -100,7 +118,7 @@ function validateEntry(value: unknown, requestedUri: string): McpSkillEntry {
 		}
 		seen.add(resource.uri);
 		total += resource.size;
-		if (total > MAX_SKILL_BYTES) throw new Error("MCP skill exceeds the pilot size limit");
+		if (total > MAX_SKILL_BYTES) throw new Error("MCP skill exceeds the 16 MiB size limit");
 		return { uri: resource.uri, digest: resource.digest, size: resource.size };
 	});
 	if (!seen.has(requestedUri)) throw new Error("MCP skill manifest omits SKILL.md");
@@ -117,43 +135,118 @@ export function getMcpSkillManifestDigest(entry: McpSkillEntry): string {
 	return `sha256:${createHash("sha256").update(JSON.stringify(manifest)).digest("hex")}`;
 }
 
-export function validateCaseDevSkillsMcpEndpoint(value: string, allowProduction = false): string {
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function validateCaseDevSkillsMcpEndpoint(value: string): string {
 	let endpoint: URL;
 	try {
 		endpoint = new URL(value);
 	} catch {
-		throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
+		throw new Error("Use an HTTPS Case.dev MCP endpoint without credentials or query parameters");
 	}
+	const secure =
+		endpoint.protocol === "https:" || (endpoint.protocol === "http:" && LOOPBACK_HOSTS.has(endpoint.hostname));
 	if (
-		endpoint.protocol !== "https:" ||
+		!secure ||
 		endpoint.username ||
 		endpoint.password ||
 		endpoint.search ||
 		endpoint.hash ||
 		endpoint.pathname !== "/mcp"
 	) {
-		throw new Error("Use an explicit HTTPS Case.dev MCP endpoint without credentials or query parameters");
-	}
-	if (endpoint.hostname === "api.case.dev" && !allowProduction) {
-		throw new Error("Production Case.dev MCP requires explicit host approval");
+		throw new Error("Use an HTTPS Case.dev MCP endpoint without credentials or query parameters");
 	}
 	return endpoint.toString();
+}
+
+/**
+ * The Case.dev MCP endpoint for this runtime: LINC_MCP_SKILLS_ENDPOINT when set,
+ * otherwise `/mcp` on the runtime Case.dev API origin. The endpoint must share
+ * that origin so the runtime key is never sent to another environment.
+ */
+export function resolveCaseDevSkillsMcpEndpoint(env: NodeJS.ProcessEnv = process.env): string {
+	const runtimeBaseUrl = env.CASEDEV_BASE_URL || env.CASE_API_URL;
+	let runtimeOrigin: string;
+	try {
+		runtimeOrigin = runtimeBaseUrl ? new URL(runtimeBaseUrl).origin : "";
+	} catch {
+		throw new Error("The runtime Case.dev API URL is invalid");
+	}
+	if (!runtimeOrigin) throw new Error("Case.dev skills require CASEDEV_BASE_URL");
+	const endpoint = validateCaseDevSkillsMcpEndpoint(env.LINC_MCP_SKILLS_ENDPOINT || `${runtimeOrigin}/mcp`);
+	if (new URL(endpoint).origin !== runtimeOrigin) {
+		throw new Error("Case.dev MCP endpoint must match the runtime Case.dev API origin");
+	}
+	return endpoint;
+}
+
+/** Path of a manifest resource relative to its skill root, e.g. `scripts/run.py`. */
+export function getMcpSkillResourcePath(entry: McpSkillEntry, uri: string): string {
+	const root = skillRoot(entry.uri);
+	if (!uri.startsWith(`${root}/`)) throw new Error("Resource outside the skill root");
+	checkSkillUri(uri);
+	return uri
+		.slice(root.length + 1)
+		.split("/")
+		.map((segment) => decodeURIComponent(segment))
+		.join("/");
 }
 
 export class CaseDevSkillsMcpClient {
 	private readonly endpoint: string;
 	private readonly apiKey: string;
 	private readonly fetcher: Fetcher;
+	private readonly retryDelaysMs: number[];
 	private nextId = 0;
 	private protocolVersion = "2025-03-26";
 	private sessionId: string | null = null;
 	private initialization: Promise<void> | null = null;
 
-	constructor(options: { endpoint: string; apiKey: string; fetcher?: Fetcher; allowProduction?: boolean }) {
+	constructor(options: { endpoint: string; apiKey: string; fetcher?: Fetcher; retryDelaysMs?: number[] }) {
 		if (!options.apiKey.trim()) throw new Error("Missing Case.dev runtime API key");
-		this.endpoint = validateCaseDevSkillsMcpEndpoint(options.endpoint, options.allowProduction);
+		this.endpoint = validateCaseDevSkillsMcpEndpoint(options.endpoint);
 		this.apiKey = options.apiKey;
 		this.fetcher = options.fetcher ?? fetch;
+		this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+	}
+
+	private async post(id: number | undefined, method: string, params: JsonObject, signal?: AbortSignal) {
+		for (let attempt = 0; ; attempt++) {
+			const combinedSignal = signal
+				? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+				: AbortSignal.timeout(15_000);
+			let response: Response;
+			try {
+				response = await this.fetcher(this.endpoint, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${this.apiKey}`,
+						"Content-Type": "application/json",
+						Accept: "application/json",
+						"MCP-Protocol-Version": this.protocolVersion,
+						...(this.sessionId ? { "Mcp-Session-Id": this.sessionId } : {}),
+					},
+					body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
+					redirect: "error",
+					signal: combinedSignal,
+				});
+			} catch (error) {
+				signal?.throwIfAborted();
+				if (attempt >= this.retryDelaysMs.length) throw error;
+				await sleep(this.retryDelaysMs[attempt], signal);
+				continue;
+			}
+			if (response.ok || !RETRYABLE_STATUSES.has(response.status) || attempt >= this.retryDelaysMs.length) {
+				return response;
+			}
+			const retryAfterSeconds = Number(response.headers.get("retry-after"));
+			await response.body?.cancel();
+			const delay =
+				Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+					? Math.min(retryAfterSeconds * 1000, MAX_RETRY_DELAY_MS)
+					: this.retryDelaysMs[attempt];
+			await sleep(delay, signal);
+		}
 	}
 
 	private async send(
@@ -163,22 +256,7 @@ export class CaseDevSkillsMcpClient {
 		notification = false,
 	): Promise<JsonObject> {
 		const id = notification ? undefined : ++this.nextId;
-		const combinedSignal = signal
-			? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
-			: AbortSignal.timeout(15_000);
-		const response = await this.fetcher(this.endpoint, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${this.apiKey}`,
-				"Content-Type": "application/json",
-				Accept: "application/json",
-				"MCP-Protocol-Version": this.protocolVersion,
-				...(this.sessionId ? { "Mcp-Session-Id": this.sessionId } : {}),
-			},
-			body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
-			redirect: "error",
-			signal: combinedSignal,
-		});
+		const response = await this.post(id, method, params, signal);
 		if (!response.ok) {
 			await response.body?.cancel();
 			throw new Error(`Case.dev MCP ${method} failed with HTTP ${response.status}`);
@@ -190,7 +268,7 @@ export class CaseDevSkillsMcpClient {
 		}
 		if (!response.headers.get("content-type")?.includes("application/json")) {
 			await response.body?.cancel();
-			throw new Error("Case.dev MCP requires a JSON response for this pilot");
+			throw new Error("Case.dev MCP returned a non-JSON response");
 		}
 		const reader = response.body?.getReader();
 		if (!reader) throw new Error("Empty Case.dev MCP response");
@@ -201,7 +279,7 @@ export class CaseDevSkillsMcpClient {
 				const chunk = await reader.read();
 				if (chunk.done) break;
 				bytes += chunk.value.byteLength;
-				if (bytes > MAX_RESPONSE_BYTES) throw new Error("Case.dev MCP response exceeds the pilot limit");
+				if (bytes > MAX_RESPONSE_BYTES) throw new Error("Case.dev MCP response exceeds the 8 MiB limit");
 				chunks.push(chunk.value);
 			}
 		} finally {
@@ -234,7 +312,7 @@ export class CaseDevSkillsMcpClient {
 					{
 						protocolVersion: this.protocolVersion,
 						capabilities: { extensions: { [EXTENSION]: {} } },
-						clientInfo: { name: "linc-skills-pilot", version: "0.1.0" },
+						clientInfo: { name: "linc-skills", version: "1.0.0" },
 					},
 					signal,
 				);
@@ -311,7 +389,7 @@ export class CaseDevSkillsMcpClient {
 			if (!page.nextCursor) return this.getSkill(`skill://case.dev/public/${slug}/SKILL.md`, signal);
 			cursor = page.nextCursor;
 		}
-		throw new Error("Case.dev org skill listing exceeds the pilot page limit");
+		throw new Error("Case.dev org skill listing exceeds 100 pages");
 	}
 
 	async readResource(entry: McpSkillEntry, uri: string, signal?: AbortSignal): Promise<string> {
@@ -352,7 +430,7 @@ export class CaseDevSkillsMcpClient {
 		const bytes = decoded.kind === "blob" ? decoded.bytes : Buffer.from(decoded.text, "utf8");
 		const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 		if (bytes.length !== expected.size || digest !== expected.digest) {
-			throw new Error("Case.dev skill resource changed during this run; discard it and reapprove the new manifest");
+			throw new Error("Case.dev skill resource changed while loading; load the skill again");
 		}
 		if (
 			uri === entry.uri &&

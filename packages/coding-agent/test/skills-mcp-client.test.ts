@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { CaseDevSkillsMcpClient, getMcpSkillManifestDigest } from "../src/linc/skills-mcp-client.ts";
+import {
+	CaseDevSkillsMcpClient,
+	getMcpSkillManifestDigest,
+	getMcpSkillResourcePath,
+	resolveCaseDevSkillsMcpEndpoint,
+} from "../src/linc/skills-mcp-client.ts";
 
 const rootUri = "skill://case.dev/org/org_test/intake/SKILL.md";
 const companionUri = "skill://case.dev/org/org_test/intake/references/checklist.md";
@@ -67,7 +72,7 @@ function fixture(options: { tamper?: boolean; wrongFrontmatter?: boolean; public
 	};
 }
 
-describe("Case.dev MCP skills pilot client", () => {
+describe("Case.dev MCP skills client", () => {
 	test("holds a complete manifest and reads only requested verified files", async () => {
 		const { client, calls } = fixture();
 		const entry = await client.getSkill(rootUri);
@@ -160,7 +165,7 @@ describe("Case.dev MCP skills pilot client", () => {
 	test("rejects bytes changed since the held manifest", async () => {
 		const { client } = fixture({ tamper: true });
 		const entry = await client.getSkill(rootUri);
-		await expect(client.readResource(entry, companionUri)).rejects.toThrow("changed during this run");
+		await expect(client.readResource(entry, companionUri)).rejects.toThrow("changed while loading");
 	});
 
 	test("rejects SKILL.md frontmatter that differs from the entry", async () => {
@@ -178,27 +183,108 @@ describe("Case.dev MCP skills pilot client", () => {
 		expect(calls).not.toContain("resources/read");
 	});
 
-	test("rejects a production fallback or unsafe URI before a request", async () => {
-		expect(() => new CaseDevSkillsMcpClient({ endpoint: "https://api.case.dev/mcp", apiKey: "key" })).toThrow(
-			"requires explicit host approval",
+	test("accepts production and loopback endpoints and rejects unsafe ones before a request", async () => {
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "https://api.case.dev/mcp", apiKey: "key" })).not.toThrow();
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "http://localhost:2728/mcp", apiKey: "key" })).not.toThrow();
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "http://api.case.dev/mcp", apiKey: "key" })).toThrow(
+			"HTTPS Case.dev MCP endpoint",
 		);
 		expect(
-			() =>
-				new CaseDevSkillsMcpClient({
-					endpoint: "https://api.case.dev/mcp",
-					apiKey: "key",
-					allowProduction: true,
-				}),
-		).not.toThrow();
-		expect(
 			() => new CaseDevSkillsMcpClient({ endpoint: "https://api.case.dev/mcp?key=secret", apiKey: "key" }),
-		).toThrow("explicit HTTPS");
-		expect(() => new CaseDevSkillsMcpClient({ endpoint: "not-a-url", apiKey: "key" })).toThrow("explicit HTTPS");
+		).toThrow("HTTPS Case.dev MCP endpoint");
+		expect(() => new CaseDevSkillsMcpClient({ endpoint: "not-a-url", apiKey: "key" })).toThrow(
+			"HTTPS Case.dev MCP endpoint",
+		);
 		const { client, calls } = fixture();
 		await expect(client.getSkill("skill://case.dev/org/org_test/intake/%2e%2e/SKILL.md")).rejects.toThrow(
 			"Invalid Case.dev skill URI segment",
 		);
 		expect(calls).toHaveLength(0);
+	});
+
+	test("resolves the endpoint from the runtime origin and refuses another environment", () => {
+		expect(resolveCaseDevSkillsMcpEndpoint({ CASEDEV_BASE_URL: "https://api.case.dev" })).toBe(
+			"https://api.case.dev/mcp",
+		);
+		expect(
+			resolveCaseDevSkillsMcpEndpoint({
+				CASE_API_URL: "https://preview.api.case.dev/",
+				LINC_MCP_SKILLS_ENDPOINT: "https://preview.api.case.dev/mcp",
+			}),
+		).toBe("https://preview.api.case.dev/mcp");
+		expect(() =>
+			resolveCaseDevSkillsMcpEndpoint({
+				CASEDEV_BASE_URL: "https://api.case.dev",
+				LINC_MCP_SKILLS_ENDPOINT: "https://preview.api.case.dev/mcp",
+			}),
+		).toThrow("must match the runtime Case.dev API origin");
+		expect(() => resolveCaseDevSkillsMcpEndpoint({})).toThrow("require CASEDEV_BASE_URL");
+	});
+
+	test("maps manifest resources to their relative paths inside the skill", async () => {
+		const { client } = fixture();
+		const entry = await client.getSkill(rootUri);
+		expect(getMcpSkillResourcePath(entry, rootUri)).toBe("SKILL.md");
+		expect(getMcpSkillResourcePath(entry, companionUri)).toBe("references/checklist.md");
+		expect(getMcpSkillResourcePath(entry, "skill://case.dev/org/org_test/intake/assets/My%20Template.docx")).toBe(
+			"assets/My Template.docx",
+		);
+		expect(() => getMcpSkillResourcePath(entry, "skill://case.dev/org/org_test/other/SKILL.md")).toThrow(
+			"outside the skill root",
+		);
+	});
+
+	test("retries transient failures and stops on permanent ones", async () => {
+		const statuses = [503, 429, 200];
+		const seen: number[] = [];
+		const client = new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			retryDelaysMs: [0, 0],
+			fetcher: async (_url, init) => {
+				const status = statuses.shift() ?? 200;
+				seen.push(status);
+				const body = JSON.parse(String(init.body)) as { id?: number; method: string };
+				if (status !== 200) return new Response(null, { status });
+				if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					result: {
+						protocolVersion: "2025-03-26",
+						capabilities: { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } },
+					},
+				});
+			},
+		});
+		await client.initialize();
+		expect(seen).toEqual([503, 429, 200, 200]);
+
+		let unauthorized = 0;
+		const denied = new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			retryDelaysMs: [0, 0],
+			fetcher: async () => {
+				unauthorized++;
+				return new Response(null, { status: 401 });
+			},
+		});
+		await expect(denied.initialize()).rejects.toThrow("HTTP 401");
+		expect(unauthorized).toBe(1);
+
+		let unavailable = 0;
+		const down = new CaseDevSkillsMcpClient({
+			endpoint: "https://preview.api.case.dev/mcp",
+			apiKey: "fixture-org-key",
+			retryDelaysMs: [0, 0],
+			fetcher: async () => {
+				unavailable++;
+				return new Response(null, { status: 503 });
+			},
+		});
+		await expect(down.initialize()).rejects.toThrow("HTTP 503");
+		expect(unavailable).toBe(3);
 	});
 
 	test("surfaces bounded sanitized JSON-RPC diagnostics", async () => {
