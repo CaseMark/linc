@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.80.0] - 2026-10-26
+
+### New Features
+
+- Case.dev skills load like local skills: loading an org or catalog skill installs its full folder (scripts, references, assets) and leaves every tool usable. See [Case.dev skills and document tools](docs/trusted-document-tool.md).
 
 ### Breaking Changes
 
@@ -12,7 +16,8 @@
 ### Changed
 
 - The extension is turned on with `LINC_MCP_SKILLS=1`. `LINC_MCP_SKILLS_PILOT=1` still works and will be removed in the next minor release (CD-1932).
-- `casedev_skill_discover` lists built-in skills first and hides catalog skills that share a built-in name; `casedev_skill_load` loads built-in skills from disk by name (CD-1932).
+- `casedev_skill_discover` lists built-in skills first and hides catalog skills that share a built-in name; `casedev_skill_load` loads the built-in skill whenever the name matches, whether requested by name or by URI (CD-1932).
+- Installed skill folders are created with mode 0700 and their files with 0600, readable only by the session user (CD-1932).
 - Registry requests retry HTTP 429, 502, 503, 504 and network errors twice. A failed request fails only that call instead of blocking every tool for the turn (CD-1932).
 - See [Case.dev skills and document tools](docs/trusted-document-tool.md).
 
