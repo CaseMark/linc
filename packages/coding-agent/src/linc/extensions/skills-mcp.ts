@@ -34,6 +34,26 @@ const AUDIT_ENTRY_TYPE = "linc.skills-mcp-audit";
 /** Loaded Case.dev skills live here, one folder per skill, next to the session's own files. */
 export const MCP_SKILLS_DIR = join(".linc", "mcp-skills");
 const MANIFEST_FILE = ".linc-skill-manifest.json";
+const MAX_PRELOAD_SKILLS = 32;
+const SKILL_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Skills the host requires at session start: LINC_MCP_SKILLS_PRELOAD=slug-a,slug-b. */
+export function getPreloadSkillSlugs(env: NodeJS.ProcessEnv = process.env): string[] {
+	const slugs = [
+		...new Set(
+			(env.LINC_MCP_SKILLS_PRELOAD ?? "")
+				.split(",")
+				.map((slug) => slug.trim())
+				.filter(Boolean),
+		),
+	];
+	const invalid = slugs.filter((slug) => !SKILL_SLUG.test(slug) || slug.length > 64);
+	if (invalid.length > 0) throw new Error(`Invalid LINC_MCP_SKILLS_PRELOAD slug: ${invalid.join(", ")}`);
+	if (slugs.length > MAX_PRELOAD_SKILLS) {
+		throw new Error(`LINC_MCP_SKILLS_PRELOAD accepts at most ${MAX_PRELOAD_SKILLS} skills`);
+	}
+	return slugs;
+}
 const READ_CONCURRENCY = 4;
 
 type InstalledManifest = { uri: string; manifestDigest: string };
@@ -155,6 +175,8 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 	);
 	let clientState: { apiKey: string; endpoint: string; client: CaseDevSkillsMcpClient } | null = null;
 	let builtInSkills: Skill[] = [];
+	let preloaded: string[] = [];
+	let preloadFailures: Array<{ slug: string; error: string }> = [];
 
 	function appendAudit(data: Record<string, unknown>): void {
 		pi.appendEntry(AUDIT_ENTRY_TYPE, { version: 2, ...data });
@@ -284,11 +306,55 @@ const skillsMcpExtension: ExtensionFactory = (pi) => {
 		},
 	});
 
+	// Preloaded skills are installed before the first turn and listed with the
+	// built-in skills, so a workflow's scripts are on disk when the agent starts.
+	pi.on("resources_discover", async (event, ctx) => {
+		preloaded = [];
+		preloadFailures = [];
+		let slugs: string[];
+		try {
+			slugs = getPreloadSkillSlugs();
+		} catch (error) {
+			preloadFailures.push({ slug: "LINC_MCP_SKILLS_PRELOAD", error: (error as Error).message });
+			return {};
+		}
+		const skillPaths: string[] = [];
+		for (const slug of slugs) {
+			try {
+				const client = await getClient(ctx);
+				const entry = await client.resolveSkillSlug(slug);
+				const installed = await installSkill(client, entry, event.cwd, undefined);
+				skillPaths.push(join(installed.skillDir, "SKILL.md"));
+				preloaded.push(slug);
+				appendAudit({
+					action: "preload",
+					skillUri: entry.uri,
+					manifestDigest: installed.manifestDigest,
+					skillDir: installed.skillDir,
+					reused: installed.reused,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Skill registry request failed";
+				preloadFailures.push({ slug, error: message });
+				appendAudit({ action: "preload_error", slug });
+			}
+		}
+		return { skillPaths };
+	});
+
 	pi.on("before_agent_start", (event) => {
 		builtInSkills = (event.systemPromptOptions?.skills ?? []).filter((skill) => !skill.disableModelInvocation);
 		return {
 			systemPrompt: [
 				event.systemPrompt,
+				...(preloaded.length > 0
+					? [`These skills were installed for this session and are listed above: ${preloaded.join(", ")}.`]
+					: []),
+				...(preloadFailures.length > 0
+					? [
+							`Required skills failed to load: ${preloadFailures.map((failure) => `${failure.slug} (${failure.error})`).join("; ")}. Do not start the task without them and do not reproduce them from memory. Report the failure.`,
+						]
+					: []),
 				"Skills: besides any built-in skills listed above, the organization's own skills and the public Case.dev catalog are available. Use casedev_skill_discover to list every skill (built-in first, then the organization's, then public), and casedev_skill_load with a name or a returned URI to load one. Loading puts the skill's complete folder on disk and returns its path; read and run its files from that folder exactly as with a built-in skill. For Word files from structured text use casedev_document_create; for PDFs with paragraphs, headings and tables use casedev_document_create_pdf; to fill an existing org Word template, read its mounted MANIFEST.json and use casedev_document_fill_template. Upload a returned filePath with vault_upload.",
 			].join("\n\n"),
 		};

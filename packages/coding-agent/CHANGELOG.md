@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `LINC_MCP_SKILLS_PRELOAD=slug-a,slug-b` installs required Case.dev skills before the first turn and lists them with the session's skills. A skill that fails to install is reported to the agent, which is told not to start without it (CD-1932).
+
 ### Breaking Changes
 
 - Case.dev skills over MCP now get the same trust as preinstalled skills. Loading a skill no longer blocks `bash` for the session, and `LINC_MCP_SKILLS_EXECUTION_APPROVED_DIGESTS` is removed (CD-1932).
