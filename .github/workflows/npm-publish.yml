@@ -93,6 +93,20 @@ jobs:
       - name: Publish npm packages
         run: node scripts/publish.mjs
 
+      # CaseMark/casedotdev-mono's "Bump Linc pin" workflow turns this into a
+      # PR that moves its LINC_VERSION pin to the release.
+      - name: Ask Case.dev to pin this release
+        env:
+          GH_TOKEN: ${{ secrets.CASEDEV_LINC_PIN_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::CASEDEV_LINC_PIN_DISPATCH_TOKEN is not set; Case.dev was not asked to pin ${RELEASE_TAG#v}."
+            exit 0
+          fi
+          gh api repos/CaseMark/casedotdev-mono/dispatches \
+            -f event_type=linc-published \
+            -f "client_payload[version]=${RELEASE_TAG#v}"
+
       - name: Update Case.dev Linc Edge Config
         if: env.CASEDEV_LINC_EDGE_CONFIG_CHANNEL != 'skip'
         env:
