@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { getBundledLincExtensionPaths, isCaseDevSkillsEnabled } from "../src/config.ts";
-import skillsMcpExtension from "../src/linc/extensions/skills-mcp.ts";
+import skillsMcpExtension, { getPreloadSkillSlugs } from "../src/linc/extensions/skills-mcp.ts";
 
 const rootUri = "skill://case.dev/org/org_test/intake/SKILL.md";
 const referenceUri = "skill://case.dev/org/org_test/intake/references/checklist.md";
@@ -110,7 +110,7 @@ async function setup(
 	const ctx = { cwd, modelRegistry: { authStorage: { getApiKey: async () => "fixture-org-key" } } };
 	const run = (name: string, params: Record<string, unknown>, signal?: AbortSignal) =>
 		tools.get(name)!.execute(name, params, signal, undefined, ctx);
-	return { cwd, tools, handlers, audit, prompt, run };
+	return { cwd, tools, handlers, audit, prompt, run, ctx };
 }
 
 describe("Case.dev skills over MCP", () => {
@@ -225,5 +225,53 @@ describe("Case.dev skills over MCP", () => {
 		await expect(run("casedev_skill_load", { uri: rootUri })).rejects.toThrow(
 			"must match the runtime Case.dev API origin",
 		);
+	});
+
+	test("preloads requested skills before the first turn and lists them as skills", async () => {
+		const wire = catalog();
+		vi.stubEnv("LINC_MCP_SKILLS_PRELOAD", "intake, intake");
+		const { cwd, handlers, audit, ctx } = await setup();
+		const discover = handlers.get("resources_discover") as (
+			event: unknown,
+			context: unknown,
+		) => Promise<{ skillPaths?: string[] }>;
+		const result = await discover({ type: "resources_discover", cwd, reason: "startup" }, ctx);
+		const skillDir = join(await realpath(cwd), ".linc", "mcp-skills", "intake");
+		expect(result.skillPaths).toEqual([join(skillDir, "SKILL.md")]);
+		expect(await readFile(join(skillDir, "scripts", "prepare.py"), "utf8")).toBe(script);
+		expect(audit.at(-1)).toMatchObject({ action: "preload", skillUri: rootUri, skillDir });
+		const beforeStart = handlers.get("before_agent_start") as (event: unknown) => { systemPrompt: string };
+		const prompt = beforeStart({ systemPrompt: "Base", systemPromptOptions: { skills: [] } }).systemPrompt;
+		expect(prompt).toContain("installed for this session and are listed above: intake.");
+		expect(prompt).not.toContain("failed to load");
+		expect(wire.methods.filter((method) => method === "resources/read")).toHaveLength(4);
+	});
+
+	test("tells the agent to stop when a required skill cannot be preloaded", async () => {
+		const wire = catalog();
+		vi.stubEnv("LINC_MCP_SKILLS_PRELOAD", "intake");
+		const { cwd, handlers, audit, ctx } = await setup();
+		wire.state.failStatus = 401;
+		const discover = handlers.get("resources_discover") as (
+			event: unknown,
+			context: unknown,
+		) => Promise<{ skillPaths?: string[] }>;
+		expect((await discover({ type: "resources_discover", cwd, reason: "startup" }, ctx)).skillPaths).toEqual([]);
+		expect(audit.at(-1)).toMatchObject({ action: "preload_error", slug: "intake" });
+		const beforeStart = handlers.get("before_agent_start") as (event: unknown) => { systemPrompt: string };
+		const prompt = beforeStart({ systemPrompt: "Base", systemPromptOptions: { skills: [] } }).systemPrompt;
+		expect(prompt).toContain("Required skills failed to load: intake (Case.dev MCP initialize failed with HTTP 401)");
+		expect(prompt).toContain("Do not start the task without them");
+	});
+
+	test("validates the preload list", () => {
+		expect(getPreloadSkillSlugs({})).toEqual([]);
+		expect(getPreloadSkillSlugs({ LINC_MCP_SKILLS_PRELOAD: " a-skill ,b,a-skill" })).toEqual(["a-skill", "b"]);
+		expect(() => getPreloadSkillSlugs({ LINC_MCP_SKILLS_PRELOAD: "../etc" })).toThrow(
+			"Invalid LINC_MCP_SKILLS_PRELOAD",
+		);
+		expect(() =>
+			getPreloadSkillSlugs({ LINC_MCP_SKILLS_PRELOAD: Array.from({ length: 33 }, (_, i) => `s${i}`).join(",") }),
+		).toThrow("at most 32");
 	});
 });

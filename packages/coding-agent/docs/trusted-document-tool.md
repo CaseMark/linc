@@ -26,6 +26,10 @@ Loading an organization or catalog skill downloads every file in its manifest, c
 
 From there the skill behaves exactly like a preinstalled one: its scripts, references and assets are read and run from that folder with the normal tools. Skills from Case.dev get the same trust as preinstalled skills; loading one does not restrict any other tool.
 
+## Preloading
+
+The host can require skills at session start with `LINC_MCP_SKILLS_PRELOAD=slug-a,slug-b` (up to 32 names). Before the first turn, each one is installed exactly as `casedev_skill_load` would install it and listed with the session's skills, so the agent sees it as preinstalled and its scripts are already on disk. If a required skill cannot be installed, the agent is told which one failed and not to start the task without it. Use preload only for skills a workflow cannot start without; everything else is loaded on demand.
+
 ## Errors
 
 Requests time out after 15 seconds. HTTP 429, 502, 503 and 504 and network errors are retried twice, honouring `Retry-After` up to 5 seconds. Any other failure fails only the call that hit it; other tools keep working. The error tells the model not to guess skill names or reproduce a skill from memory.
@@ -36,4 +40,4 @@ Each skill may have up to 512 files and 16 MiB in total, with binary files up to
 
 ## Audit
 
-Each discover, load, registry error, PDF creation and template fill appends a `linc.skills-mcp-audit` session entry. Loads record the skill URI, manifest digest and folder. Template fills record field names, never values.
+Each discover, load, preload, preload error, registry error, PDF creation and template fill appends a `linc.skills-mcp-audit` session entry. Loads record the skill URI, manifest digest and folder. Template fills record field names, never values.
