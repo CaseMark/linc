@@ -2,11 +2,15 @@
 
 ## [Unreleased]
 
-## [0.80.0] - 2026-10-26
+## [0.80.0] - 2026-11-04
 
 ### New Features
 
-- Case.dev skills load like local skills: loading an org or catalog skill installs its full folder (scripts, references, assets) and leaves every tool usable. See [Case.dev skills and document tools](docs/trusted-document-tool.md).
+- Case.dev skills load like local skills: loading an org or catalog skill installs its full folder (scripts, references, assets) and leaves every tool usable, and a host can preload the skills a session requires. See [Case.dev skills and document tools](docs/trusted-document-tool.md).
+
+### Added
+
+- `LINC_MCP_SKILLS_PRELOAD=slug-a,slug-b` installs required Case.dev skills before the first turn and lists them with the session's skills. A skill that fails to install is reported to the agent, which is told not to start without it (CD-1932).
 
 ### Breaking Changes
 
