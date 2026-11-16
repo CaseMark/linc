@@ -10,6 +10,7 @@ import {
 	listCaseDevVaultObjectsPage,
 	listCaseDevVaults,
 	readCaseDevVaultObjectText,
+	replaceCaseDevVaultObjectContent,
 	searchCaseDevVault,
 	uploadCaseDevVaultFile,
 } from "../src/linc/casedev-vault-api.ts";
@@ -168,6 +169,21 @@ describe("Case.dev vault REST API helper", () => {
 			expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
 				`${objectsUrl}?limit=200`,
 				`${objectsUrl}?limit=200&cursor=c1`,
+			]);
+		});
+
+		it("passes a filename filter on every page when asked", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(page(["a"], { limit: 200, has_more: true, next_cursor: "c1" }))
+				.mockResolvedValueOnce(page(["b"], { limit: 200, has_more: false, next_cursor: null }));
+			vi.stubGlobal("fetch", fetchMock);
+
+			await listCaseDevVaultObjects(createContext(cwd), "vault-1", { query: "MATTER.md" });
+
+			expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+				`${objectsUrl}?limit=200&query=MATTER.md`,
+				`${objectsUrl}?limit=200&cursor=c1&query=MATTER.md`,
 			]);
 		});
 
@@ -506,6 +522,60 @@ describe("Case.dev vault REST API helper", () => {
 			expect.objectContaining({ method: "POST" }),
 		);
 		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it("overwrites an existing object's bytes through its presigned PUT", async () => {
+		const filePath = join(cwd, "MATTER.md");
+		await writeFile(filePath, "# Matter\n", "utf-8");
+		const put = await startPutCapture();
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ objectId: "obj-1", presignedUrl: put.url }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			await expect(
+				replaceCaseDevVaultObjectContent(createContext(cwd), {
+					vaultId: "vault-1",
+					objectId: "obj-1",
+					filePath,
+					contentType: "text/markdown",
+				}),
+			).resolves.toEqual({ vaultId: "vault-1", objectId: "obj-1", sizeBytes: 9, replaced: true });
+		} finally {
+			await put.close();
+		}
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://preview.api.case.dev/vault/vault-1/objects/obj-1/presigned-url",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ operation: "PUT", contentType: "text/markdown", sizeBytes: 9 }),
+			}),
+		);
+		expect(put.requests).toHaveLength(1);
+		expect(put.requests[0].headers["content-type"]).toBe("text/markdown");
+		expect(put.requests[0].headers["content-length"]).toBe("9");
+		expect(put.requests[0].body).toBe("# Matter\n");
+	});
+
+	it("surfaces a failed in-place overwrite", async () => {
+		const filePath = join(cwd, "MATTER.md");
+		await writeFile(filePath, "# Matter\n", "utf-8");
+		const put = await startPutCapture(403);
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse({ presignedUrl: put.url })));
+
+		try {
+			await expect(
+				replaceCaseDevVaultObjectContent(createContext(cwd), {
+					vaultId: "vault-1",
+					objectId: "obj-1",
+					filePath,
+					contentType: "text/markdown",
+				}),
+			).rejects.toThrow("S3 replace failed with status 403");
+		} finally {
+			await put.close();
+		}
 	});
 
 	it("reports a failed S3 PUT to confirm and surfaces the status", async () => {

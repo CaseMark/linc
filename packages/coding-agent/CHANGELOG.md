@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- MATTER.md edits now reach later sessions. Saving overwrites the vault's existing MATTER.md in place instead of uploading a new copy each time, and sessions load the newest copy in vaults that already hold duplicates; before, every new session loaded the oldest copy and missed every edit after the first save (CD-2061).
+
 ## [0.80.0] - 2026-11-04
 
 ### New Features

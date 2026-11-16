@@ -7,6 +7,7 @@ import {
 	type CaseDevVaultObjectRecord,
 	downloadCaseDevVaultObject,
 	listCaseDevVaultObjects,
+	replaceCaseDevVaultObjectContent,
 	uploadCaseDevVaultFile,
 } from "./casedev-vault-api.ts";
 import { getEffectiveVault, type LincVaultRef } from "./vault-attachment.ts";
@@ -93,15 +94,26 @@ export function getMatterMdInitializationDecision(
 	return undefined;
 }
 
-function findMatterMdObject(records: CaseDevVaultObjectRecord[]): CaseDevVaultObjectRecord | undefined {
-	return records.find((record) => {
+/**
+ * The vault's current MATTER.md. Case.dev lists objects oldest first, and
+ * older Linc builds uploaded a new MATTER.md object on every save, so a vault
+ * can hold many copies; the newest is the live one (CD-2061).
+ */
+async function findMatterMdObject(
+	ctx: ExtensionContext,
+	vault: LincVaultRef,
+): Promise<CaseDevVaultObjectRecord | undefined> {
+	const records = await listCaseDevVaultObjects(ctx, vault.id, { query: MATTER_MD_FILENAME });
+	for (let index = records.length - 1; index >= 0; index--) {
+		const record = records[index];
 		const names = [record.filename, record.name, record.path].filter((name): name is string => name !== undefined);
-		return names.some((name) => basename(name) === MATTER_MD_FILENAME);
-	});
+		if (names.some((name) => basename(name) === MATTER_MD_FILENAME)) return record;
+	}
+	return undefined;
 }
 
 async function downloadMatterMdFromVault(ctx: ExtensionContext, vault: LincVaultRef): Promise<string | undefined> {
-	const matterObject = findMatterMdObject(await listCaseDevVaultObjects(ctx, vault.id));
+	const matterObject = await findMatterMdObject(ctx, vault);
 	if (!matterObject) return undefined;
 
 	const outDir = await mkdtemp(join(tmpdir(), "linc-matter-md-"));
@@ -271,13 +283,23 @@ export async function syncMatterMdToVault(ctx: ExtensionContext): Promise<string
 		throw new Error("No MATTER.md found at the workspace root.");
 	}
 
-	const result = await uploadCaseDevVaultFile(ctx, {
-		vaultId: vault.id,
-		filePath: path,
-		name: MATTER_MD_FILENAME,
-		contentType: "text/markdown",
-		ingest: false,
-	});
+	// Overwrite the existing object in place so the vault keeps one MATTER.md;
+	// upload a new object only for the first save.
+	const existing = await findMatterMdObject(ctx, vault);
+	const result = existing
+		? await replaceCaseDevVaultObjectContent(ctx, {
+				vaultId: vault.id,
+				objectId: existing.id,
+				filePath: path,
+				contentType: "text/markdown",
+			})
+		: await uploadCaseDevVaultFile(ctx, {
+				vaultId: vault.id,
+				filePath: path,
+				name: MATTER_MD_FILENAME,
+				contentType: "text/markdown",
+				ingest: false,
+			});
 	setMatterMdStatus(ctx, await readMatterMd(ctx));
 	return JSON.stringify(result, null, 2);
 }
