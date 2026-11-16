@@ -63,6 +63,13 @@ export interface CaseDevVaultUploadParams {
 	ingest?: boolean;
 }
 
+export interface CaseDevVaultReplaceParams {
+	vaultId: string;
+	objectId: string;
+	filePath: string;
+	contentType: string;
+}
+
 export interface CaseDevVaultDownloadParams {
 	vaultId: string;
 	objectId: string;
@@ -261,18 +268,22 @@ export async function getCaseDevVault(ctx: ExtensionContext, vaultId: string): P
 	return vault;
 }
 
-/** Every object in a vault, across all pages. */
+/**
+ * Every object in a vault, across all pages, oldest first. `query` narrows the
+ * listing to filenames containing it; a Case.dev that predates the filter
+ * returns the whole vault, so callers still match names themselves.
+ */
 export async function listCaseDevVaultObjects(
 	ctx: ExtensionContext,
 	vaultId: string,
+	options?: { query?: string },
 ): Promise<CaseDevVaultObjectRecord[]> {
-	return collectAllPages(
-		(query) =>
-			caseDevApiRequest(ctx, "GET", `/vault/${encodeURIComponent(vaultId)}/objects?${query}`, {
-				signal: ctx.signal,
-			}),
-		collectVaultObjectRecords,
-	);
+	return collectAllPages((query) => {
+		if (options?.query) query.set("query", options.query);
+		return caseDevApiRequest(ctx, "GET", `/vault/${encodeURIComponent(vaultId)}/objects?${query}`, {
+			signal: ctx.signal,
+		});
+	}, collectVaultObjectRecords);
 }
 
 /**
@@ -462,6 +473,48 @@ export async function putFileToPresignedUrl(params: {
 			reject(error);
 		});
 	});
+}
+
+/**
+ * Overwrite an existing vault object's bytes in place, keeping its object id.
+ * Uses the object's presigned PUT, so no new object is created. The object's
+ * stored size and checksum metadata are not refreshed by Case.dev; downloads
+ * redirect to the current S3 bytes and are unaffected.
+ */
+export async function replaceCaseDevVaultObjectContent(
+	ctx: ExtensionContext,
+	params: CaseDevVaultReplaceParams,
+): Promise<{ vaultId: string; objectId: string; sizeBytes: number; replaced: true }> {
+	const fileStats = await stat(params.filePath);
+	const presigned = await caseDevApiRequest<Record<string, unknown>>(
+		ctx,
+		"POST",
+		`/vault/${encodeURIComponent(params.vaultId)}/objects/${encodeURIComponent(params.objectId)}/presigned-url`,
+		{
+			body: {
+				operation: "PUT",
+				contentType: params.contentType,
+				// Case.dev rejects sizeBytes < 1; an empty file is sent unsized.
+				...(fileStats.size > 0 ? { sizeBytes: fileStats.size } : {}),
+			},
+			signal: ctx.signal,
+		},
+	);
+	if (typeof presigned.presignedUrl !== "string") {
+		throw new Error("Case.dev returned an invalid presigned PUT response.");
+	}
+
+	const uploadResponse = await putFileToPresignedUrl({
+		url: presigned.presignedUrl,
+		filePath: params.filePath,
+		sizeBytes: fileStats.size,
+		contentType: params.contentType,
+		signal: ctx.signal,
+	});
+	if (!uploadResponse.ok) {
+		throw new Error(`S3 replace failed with status ${uploadResponse.status}`);
+	}
+	return { vaultId: params.vaultId, objectId: params.objectId, sizeBytes: fileStats.size, replaced: true };
 }
 
 export async function uploadCaseDevVaultFile(

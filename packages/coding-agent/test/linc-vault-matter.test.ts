@@ -9,12 +9,13 @@ import type {
 	ExtensionEvent,
 	ExtensionHandler,
 	RegisteredCommand,
+	ToolResultEvent,
 } from "../src/core/extensions/types.ts";
 import { createCaseDevVaultTools } from "../src/linc/casedev-vault-tools.ts";
 import { formatVaultOption, loadCaseDevVault, loadCaseDevVaults, toLincVaultRef } from "../src/linc/casedev-vaults.ts";
 import matterExtension from "../src/linc/extensions/matter.ts";
 import vaultExtension from "../src/linc/extensions/vault.ts";
-import { materializeMatterMd } from "../src/linc/matter-md.ts";
+import { materializeMatterMd, syncMatterMdToolResult } from "../src/linc/matter-md.ts";
 import { createMatterMdTools } from "../src/linc/matter-md-tools.ts";
 import {
 	formatVaultRef,
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
 	listCaseDevVaultObjectsPage: vi.fn(),
 	downloadCaseDevVaultObject: vi.fn(),
 	uploadCaseDevVaultFile: vi.fn(),
+	replaceCaseDevVaultObjectContent: vi.fn(),
 	searchCaseDevVault: vi.fn(),
 }));
 
@@ -52,6 +54,7 @@ vi.mock("../src/linc/casedev-vault-api.ts", async (importOriginal) => {
 		listCaseDevVaultObjectsPage: mocks.listCaseDevVaultObjectsPage,
 		downloadCaseDevVaultObject: mocks.downloadCaseDevVaultObject,
 		uploadCaseDevVaultFile: mocks.uploadCaseDevVaultFile,
+		replaceCaseDevVaultObjectContent: mocks.replaceCaseDevVaultObjectContent,
 		searchCaseDevVault: mocks.searchCaseDevVault,
 	};
 });
@@ -661,6 +664,137 @@ describe("MATTER.md source precedence", () => {
 		const firstContent = result.content[0];
 		expect(firstContent?.type === "text" ? firstContent.text : "").toBe("# Vault Matter\n");
 	});
+
+	it("loads the newest MATTER.md when the vault holds duplicate copies (CD-2061)", async () => {
+		mocks.listCaseDevVaultObjects.mockResolvedValueOnce([
+			{ id: "oldest", filename: "MATTER.md" },
+			{ id: "other", filename: "Brief.docx" },
+			{ id: "newest", filename: "MATTER.md" },
+		]);
+		mocks.downloadCaseDevVaultObject.mockImplementation(async (_ctx: ExtensionContext, args: { outDir: string }) => {
+			await writeFile(join(args.outDir, "MATTER.md"), "# Newest\n", "utf-8");
+			return { objectId: "newest", path: join(args.outDir, "MATTER.md"), bytes: 9 };
+		});
+
+		const state = await materializeMatterMd(contextWithAttachedVault(), { sourcePrecedence: "vault-first" });
+
+		expect(state?.content).toBe("# Newest\n");
+		expect(mocks.listCaseDevVaultObjects).toHaveBeenCalledWith(expect.objectContaining({ cwd }), "vault-1", {
+			query: "MATTER.md",
+		});
+		expect(mocks.downloadCaseDevVaultObject).toHaveBeenCalledWith(
+			expect.objectContaining({ cwd }),
+			expect.objectContaining({ objectId: "newest" }),
+		);
+	});
+});
+
+describe("MATTER.md vault sync (CD-2061)", () => {
+	let cwd: string;
+
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), "linc-matter-sync-test-"));
+		mocks.listCaseDevVaultObjects.mockReset();
+		mocks.uploadCaseDevVaultFile.mockReset();
+		mocks.replaceCaseDevVaultObjectContent.mockReset();
+	});
+
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	function contextWithAttachedVault() {
+		return createContext({ cwd, entries: [attachedVaultEntry({ id: "vault-1", name: "Alpha" })] });
+	}
+
+	function getMatterTool(name: string) {
+		const tool = createMatterMdTools().find((entry) => entry.name === name);
+		if (!tool) throw new Error(`Missing tool ${name}`);
+		return tool;
+	}
+
+	it("overwrites the newest existing MATTER.md in place instead of creating another object", async () => {
+		await writeFile(join(cwd, "MATTER.md"), "# Matter\n\nOld line\n", "utf-8");
+		mocks.listCaseDevVaultObjects.mockResolvedValue([
+			{ id: "oldest", filename: "MATTER.md" },
+			{ id: "newest", filename: "MATTER.md" },
+		]);
+		mocks.replaceCaseDevVaultObjectContent.mockResolvedValueOnce({
+			vaultId: "vault-1",
+			objectId: "newest",
+			sizeBytes: 20,
+			replaced: true,
+		});
+
+		await getMatterTool("casedev_matter_edit").execute(
+			"tool-call-1",
+			{ edits: [{ oldText: "Old line", newText: "New line" }] },
+			undefined,
+			undefined,
+			contextWithAttachedVault() as unknown as ExtensionContext,
+		);
+
+		expect(await readFile(join(cwd, "MATTER.md"), "utf-8")).toBe("# Matter\n\nNew line\n");
+		expect(mocks.replaceCaseDevVaultObjectContent).toHaveBeenCalledWith(expect.objectContaining({ cwd }), {
+			vaultId: "vault-1",
+			objectId: "newest",
+			filePath: join(cwd, "MATTER.md"),
+			contentType: "text/markdown",
+		});
+		expect(mocks.uploadCaseDevVaultFile).not.toHaveBeenCalled();
+	});
+
+	it("creates MATTER.md on the first save when the vault has none", async () => {
+		mocks.listCaseDevVaultObjects.mockResolvedValue([{ id: "brief", filename: "Brief.docx" }]);
+		mocks.uploadCaseDevVaultFile.mockResolvedValueOnce({ objectId: "created", filename: "MATTER.md" });
+
+		await getMatterTool("casedev_matter_write").execute(
+			"tool-call-1",
+			{ content: "# Matter\n" },
+			undefined,
+			undefined,
+			contextWithAttachedVault() as unknown as ExtensionContext,
+		);
+
+		expect(mocks.uploadCaseDevVaultFile).toHaveBeenCalledWith(expect.objectContaining({ cwd }), {
+			vaultId: "vault-1",
+			filePath: join(cwd, "MATTER.md"),
+			name: "MATTER.md",
+			contentType: "text/markdown",
+			ingest: false,
+		});
+		expect(mocks.replaceCaseDevVaultObjectContent).not.toHaveBeenCalled();
+	});
+
+	it("syncs generic edit-tool changes to MATTER.md through the same in-place overwrite", async () => {
+		await writeFile(join(cwd, "MATTER.md"), "# Matter\n", "utf-8");
+		mocks.listCaseDevVaultObjects.mockResolvedValue([{ id: "only", filename: "MATTER.md" }]);
+		mocks.replaceCaseDevVaultObjectContent.mockResolvedValueOnce({
+			vaultId: "vault-1",
+			objectId: "only",
+			sizeBytes: 9,
+			replaced: true,
+		});
+
+		const result = await syncMatterMdToolResult(
+			contextWithAttachedVault() as unknown as ExtensionContext,
+			{
+				type: "tool_result",
+				toolCallId: "tool-call-1",
+				toolName: "edit",
+				input: { path: "MATTER.md" },
+				content: [{ type: "text", text: "edited" }],
+				isError: false,
+			} as unknown as ToolResultEvent,
+		);
+
+		expect(result?.isError).toBeUndefined();
+		expect(mocks.replaceCaseDevVaultObjectContent).toHaveBeenCalledWith(
+			expect.objectContaining({ cwd }),
+			expect.objectContaining({ objectId: "only" }),
+		);
+		expect(mocks.uploadCaseDevVaultFile).not.toHaveBeenCalled();
+	});
 });
 
 describe("Linc matter and vault commands", () => {
@@ -753,6 +887,7 @@ describe("Linc matter and vault commands", () => {
 
 	it("edits MATTER.md and syncs it to the attached vault", async () => {
 		await writeFile(join(cwd, "MATTER.md"), "# Old Matter\n", "utf-8");
+		mocks.listCaseDevVaultObjects.mockResolvedValueOnce([]);
 		mocks.uploadCaseDevVaultFile.mockResolvedValueOnce({ objectId: "object-1", filename: "MATTER.md" });
 
 		const { commands } = loadLincCommands();
