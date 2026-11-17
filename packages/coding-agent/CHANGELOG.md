@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.80.2] - 2026-11-17
+
 ### Fixed
 
 - Models served through OpenAI-compatible gateways now keep their reasoning between steps. Every `reasoning_details` entry in a response (Anthropic's signed thinking, OpenAI's encrypted reasoning) is stored on the assistant message and sent back unchanged on the next request to the same model. Before, Linc kept only entries tied to a tool call, so Claude Sonnet and Opus re-derived their reasoning from scratch on every step of a long turn, and GPT kept only its reasoning summary (CD-2073).
