@@ -144,10 +144,11 @@ export function transformMessages<TApi extends Api>(
 				return block;
 			});
 
-			return {
-				...assistantMsg,
-				content: transformedContent,
-			};
+			const transformed: AssistantMessage = { ...assistantMsg, content: transformedContent };
+			// Reasoning details are opaque and signed for the model that produced them;
+			// another model rejects or misreads them, like redacted thinking above.
+			if (!isSameModel) delete transformed.reasoningDetails;
+			return transformed;
 		}
 		return msg;
 	});

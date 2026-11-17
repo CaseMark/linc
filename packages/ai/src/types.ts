@@ -294,6 +294,11 @@ export interface AssistantMessage {
 	responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
 	diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
+	/** OpenAI-compatible `reasoning_details` entries exactly as the provider returned them
+	 *  (fragments merged by index). Sent back unchanged on the next request to the same
+	 *  model so it keeps its prior reasoning: Anthropic signed thinking, OpenAI encrypted
+	 *  reasoning. Opaque; never shown or edited. */
+	reasoningDetails?: Record<string, unknown>[];
 	usage: Usage;
 	stopReason: StopReason;
 	errorMessage?: string;
