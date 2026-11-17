@@ -199,6 +199,9 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 			let textBlock: TextContent | null = null;
 			let thinkingBlock: ThinkingContent | null = null;
+			// Every reasoning_details entry, merged across stream fragments, so the
+			// whole set can be replayed on the next request (see reasoningDetails).
+			const reasoningDetailsByKey = new Map<string, Record<string, unknown>>();
 			let hasFinishReason = false;
 			const toolCallBlocksByIndex = new Map<number, StreamingToolCallBlock>();
 			const toolCallBlocksById = new Map<string, StreamingToolCallBlock>();
@@ -404,6 +407,7 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 					const reasoningDetails = (choice.delta as any).reasoning_details;
 					if (reasoningDetails && Array.isArray(reasoningDetails)) {
 						for (const detail of reasoningDetails) {
+							mergeReasoningDetail(reasoningDetailsByKey, detail);
 							if (detail.type === "reasoning.encrypted" && detail.id && detail.data) {
 								const matchingToolCall = output.content.find(
 									(b) => b.type === "toolCall" && b.id === detail.id,
@@ -419,6 +423,9 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 			for (const block of blocks) {
 				finishBlock(block);
+			}
+			if (reasoningDetailsByKey.size > 0) {
+				output.reasoningDetails = [...reasoningDetailsByKey.values()];
 			}
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -780,6 +787,34 @@ function addCacheControlToTextContent(
 	return false;
 }
 
+/**
+ * Fold one streamed `reasoning_details` fragment into its entry. Providers stream
+ * an entry in pieces sharing a `type` and `index` (text arrives in fragments, the
+ * signature once); string content fields are concatenated, everything else keeps the latest
+ * value. Entries without an index are kept separately, in arrival order.
+ */
+export function mergeReasoningDetail(entries: Map<string, Record<string, unknown>>, detail: unknown): void {
+	if (!detail || typeof detail !== "object" || Array.isArray(detail)) return;
+	const fragment = detail as Record<string, unknown>;
+	// Different entry types can share an index (OpenAI streams its summary and its
+	// encrypted reasoning both at index 0), so the type is part of the key.
+	const key =
+		typeof fragment.index === "number" ? `${String(fragment.type)}:${fragment.index}` : `entry:${entries.size}`;
+	const entry = entries.get(key);
+	if (!entry) {
+		entries.set(key, { ...fragment });
+		return;
+	}
+	for (const [field, value] of Object.entries(fragment)) {
+		if (value === undefined || value === null) continue;
+		if ((field === "text" || field === "summary") && typeof value === "string") {
+			entry[field] = `${typeof entry[field] === "string" ? entry[field] : ""}${value}`;
+		} else {
+			entry[field] = value;
+		}
+	}
+}
+
 export function convertMessages(
 	model: Model<"openai-completions">,
 	context: Context,
@@ -918,19 +953,26 @@ export function convertMessages(
 						arguments: JSON.stringify(tc.arguments),
 					},
 				}));
-				const reasoningDetails = toolCalls
-					.filter((tc) => tc.thoughtSignature)
-					.map((tc) => {
-						try {
-							return JSON.parse(tc.thoughtSignature!);
-						} catch {
-							return null;
-						}
-					})
-					.filter(Boolean);
+				// The full set captured from the response wins; per-tool-call signatures
+				// are the older, narrower record of the same entries.
+				const reasoningDetails = msg.reasoningDetails?.length
+					? msg.reasoningDetails
+					: toolCalls
+							.filter((tc) => tc.thoughtSignature)
+							.map((tc) => {
+								try {
+									return JSON.parse(tc.thoughtSignature!);
+								} catch {
+									return null;
+								}
+							})
+							.filter(Boolean);
 				if (reasoningDetails.length > 0) {
 					(assistantMsg as any).reasoning_details = reasoningDetails;
 				}
+			}
+			if (msg.reasoningDetails?.length && !(assistantMsg as any).reasoning_details) {
+				(assistantMsg as any).reasoning_details = msg.reasoningDetails;
 			}
 			if (
 				compat.requiresReasoningContentOnAssistantMessages &&
